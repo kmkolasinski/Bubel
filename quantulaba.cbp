@@ -61,6 +61,7 @@
 		</Unit>
 		<Unit filename="makefile" />
 		<Unit filename="modsys.f90" />
+		<Unit filename="modutils.f90" />
 		<Extensions>
 			<code_completion />
 			<envvars />

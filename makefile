@@ -102,8 +102,11 @@ endif
 
 
 
-quantulaba: main.f90 $(UMFPACK_FILES) modsys.o
+quantulaba: main.f90 modutils.o $(UMFPACK_FILES) modsys.o
 	$(FC) $(FBFLAGS)  main.f90 *.o $(FLIBS)   -o $@
+
+modutils.o: modutils.f90
+	$(FC) $(FCFLAGS) modutils.f90 -o $@
 
 modsys.o: modsys.f90
 	$(FC) $(FCFLAGS) modsys.f90 -o $@
