@@ -9,25 +9,25 @@ private
 ! Stucture which holds connection between
 ! Atom A and B.
 ! -----------------------------------------------
-type bond
+type qbond
     integer     :: fromInnerID ! hoping from source atom with spin at ID fromInnerID
     integer     :: toAtomID    ! ID of atom B
     integer     :: toInnerID   ! ID of spin of atom B
     complex*16  :: bondValue   ! hoping parameter
-endtype bond
+endtype qbond
 
 ! -----------------------------------------------
 ! Stucture which holds the information about
 ! atom
 ! -----------------------------------------------
-type atom
+type qatom
 
     doubleprecision :: atom_pos(3)  ! position (x,y,z) in some units
     integer         :: no_in_states ! number of internal states (e.g. spin degree of freedom)
     logical         :: bActive      ! if the site is taken into calculations
     integer         :: flag         ! arbitrary number, can be used by user e.g. to distinguish two different atoms
     integer,allocatable,dimension(:)    :: globalIDs ! in case of no_bonds > 1 this array contains global ID of atom in spin state
-    type(bond),allocatable,dimension(:) :: bonds     ! contains information about hoping between different atoms
+    type(qbond),allocatable,dimension(:) :: bonds     ! contains information about hoping between different atoms
                                                      ! Atom A may have connection with itself
     integer         :: no_bonds                      ! nuber of conetions with different atoms
 
@@ -36,13 +36,13 @@ type atom
     procedure, public, pass(site) :: destroy
     procedure, public, pass(site) :: add_bond!(site,atomID,innerID,bondValue)
 
-end type atom
-public :: atom
+end type qatom
+public :: qatom
 
 contains
 
 ! ------------------------------------------------------------------------
-! Initialize atom structure. This function does not
+! Initialize qatom structure. This function does not
 ! have to be called. Each parameter of atom structure
 ! can be accessed separetely.
 ! atom_pos     - position of atom in space. Units are uniportant.
@@ -54,7 +54,7 @@ contains
 ! flag         - [optional] can be used by user to perform some specific action
 ! ------------------------------------------------------------------------
 subroutine init(site,atom_pos,no_in_states,bActive,flag)
-    class(atom)     :: site
+    class(qatom)     :: site
     doubleprecision :: atom_pos(3)
     integer, optional :: no_in_states , flag
     logical, optional :: bActive
@@ -74,7 +74,7 @@ end subroutine init
 ! Free allocated memory
 ! ------------------------------------------------------------------------
 subroutine destroy(site)
-    class(atom)     :: site
+    class(qatom)     :: site
     if(allocated(site%globalIDs)) deallocate(site%globalIDs)
     if(allocated(site%bonds))     deallocate(site%bonds)
     site%bActive      = .false.
@@ -83,19 +83,19 @@ subroutine destroy(site)
 end subroutine destroy
 
 ! ------------------------------------------------------------------------
-! Add new bonding between two atoms (hoping between A and B).
+! Add new qbonding between two atoms (hoping between A and B).
 ! fromInnerID - id of spin state of current atom
 ! toAtomID    - id of atom B
 ! toInnerID   - id of spin state of atom B
 ! bondValue   - hoping paremeter
 ! ------------------------------------------------------------------------
 subroutine add_bond(site,fromInnerID,toAtomID,toInnerID,bondValue)
-    class(atom)     :: site
+    class(qatom)     :: site
     integer         :: toAtomID,fromInnerID,toInnerID
     complex*16      :: bondValue
 
     ! temporal array
-    type(bond),allocatable,dimension(:) :: tmp_bonds
+    type(qbond),allocatable,dimension(:) :: tmp_bonds
     ! adding new bond requires resizing of the bonds array
     if(site%no_bonds > 0) then
         ! allocated tmp array and copy current array to it
@@ -149,7 +149,7 @@ endtype nnb_params
 ! and eigenvalue problem solution for that lattice.
 ! ----------------------------------------------------------------
 type qsys
-    type(atom) , allocatable, dimension(:) :: atoms ! arrays of atoms
+    type(qatom) , allocatable, dimension(:) :: atoms ! arrays of atoms
 
     integer     :: no_atoms         ! total number of atoms (active + notActive)
     integer     :: system_size      ! size of the hamiltonian matrix. Number of unknown in linear system equation
@@ -160,7 +160,7 @@ type qsys
                                                             ! if 0 - no state was found
 
     ! other variables
-    type(atom)        :: qatom      ! auxiliary variable, can be used by user
+    type(qatom)        :: qatom      ! auxiliary variable, can be used by user
     type(nnb_params)  :: qnnbparam  ! auxiliary variable, can be used by user
 
     contains
@@ -216,8 +216,8 @@ end subroutine destroy
 ! ------------------------------------------------------------------------
 subroutine add_atom(sys,site)
     class(qsys)           :: sys
-    type(atom),intent(in) :: site
-    type(atom),allocatable,dimension(:) :: tmp_atoms
+    type(qatom),intent(in) :: site
+    type(qatom),allocatable,dimension(:) :: tmp_atoms
 
 
     ! increase the atom index
@@ -262,7 +262,7 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
         logical function connect_procedure(atomA,atomB,s1,s2,coupling_val)
             use modatom
             implicit none
-            type(atom) :: atomA,atomB
+            type(qatom) :: atomA,atomB
             integer    :: s1,s2
             complex*16 :: coupling_val
         end function connect_procedure
@@ -417,7 +417,7 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
                 ! loop around spin states
                 do k = 1 , sys%atoms(i)%no_in_states
                 do l = 1 , sys%atoms(j)%no_in_states
-                    ! if they are nnb one may create a bond between them
+                    ! if they are nnb one may create a qbond between them
                     if(connect_procedure(sys%atoms(i),sys%atoms(j),k,l,cpl_value)) then
                          call sys%atoms(i)%add_bond(k,j,l,cpl_value)
                     endif
@@ -461,7 +461,7 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
                 if( abs(cpl_value - conjg(cpl_value_inverse)) > 10.0D-10 ) then
                     print*,"==============================================================================="
                     print*,"SYS::ERROR::Created matrix will be not Hermitian. Check the provided ", &
-                           "            connection function. The bonding param between atom A->B", &
+                           "            connection function. The qbonding param between atom A->B", &
                            "            has to complex conjugate for connection between B->A."
                     print"(A,3e16.4)","             An error occured for atom A at position :",sys%atoms(i)%atom_pos
                     print"(A,3e16.4)","             and atom B at position                  :",sys%atoms(vp)%atom_pos
@@ -522,7 +522,7 @@ subroutine save_lattice(sys,filename,innerA,innerB)
     write(765819,*),"# Bounding box to estimate the scale of the system"
     write(765819,*),bbox(cmin,:)
     write(765819,*),bbox(cmax,:)
-    write(765819,*),"# Lines which connect the atoms by bonding."
+    write(765819,*),"# Lines which connect the atoms by qbonding."
     write(765819,*),"# Connections between spin ",s1," and ",s2
     do i = 1 , sys%no_atoms
         if(sys%atoms(i)%bActive) then

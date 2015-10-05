@@ -102,7 +102,7 @@ endif
 
 
 
-quantulaba: main.f90 modutils.o $(UMFPACK_FILES) modsys.o
+quantulaba: main.f90 modutils.o $(UMFPACK_FILES) modsys.o modshape.o modlead.o modscatter.o
 	$(FC) $(FBFLAGS)  main.f90 *.o $(FLIBS)   -o $@
 
 modutils.o: modutils.f90
@@ -110,6 +110,15 @@ modutils.o: modutils.f90
 
 modsys.o: modsys.f90
 	$(FC) $(FCFLAGS) modsys.f90 -o $@
+
+modlead.o: modlead.f90
+	$(FC) $(FCFLAGS) modlead.f90 -o $@
+
+modscatter.o: modscatter.f90
+	$(FC) $(FCFLAGS) modscatter.f90 -o $@
+
+modshape.o: modshape.f90
+	$(FC) $(FCFLAGS) modshape.f90 -o $@
 
 zgssv.o:c_fortran_zgssv.c
 	gcc   $(FCCFLAGS) c_fortran_zgssv.c -o $@

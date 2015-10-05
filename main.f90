@@ -4,23 +4,27 @@
 ! 3. zrobic rysowanie siatki
 
 program transporter
- use ifport
- use modsys
+ use modscatter
  implicit none
- type(qsys) :: qsystem
+ type(qscatter) :: qt
+
+
+
  integer :: i , j, k , N
  doubleprecision :: dx,zero_array(100)
- integer :: gindex(100,30)
+ integer :: gindex(10,5)
  print*,"Program start"
- call qsystem%init()
+ call qt%qsystem%init()
+
+
  dx = 0.1
   k = 0
  do i = 1 , size(gindex,1)
  do j = 1 , size(gindex,2)
-    call qsystem%qatom%init((/ (i-1) * dx , (j-1) * dx + (i-1) * dx * 0.0 , 0.0 * dx /))
+    call qt%qsystem%qatom%init((/ (i-1) * dx , (j-1) * dx + (i-1) * dx * 0.0 , 0.0 * dx /))
     !if( abs(i - size(gindex,1)/2) > 5 .and. j > 20 ) qsystem%qatom%bActive = .false.
     !if( abs(i - size(gindex,1)/2.0)**2 + abs(j - size(gindex,2)/2.0)**2 > 200 ) qsystem%qatom%bActive = .false.
-    call qsystem%add_atom(qsystem%qatom)
+    call qt%qsystem%add_atom(qt%qsystem%qatom)
     k = k + 1
     gindex(i,j) = k
  enddo
@@ -36,9 +40,14 @@ program transporter
 
 ! print*,"System size:",qsystem%no_atoms
 
- qsystem%qnnbparam%max_distance = (/2*dx,2*dx,0.0D0/)
- call qsystem%make_lattice(connect,qsystem%qnnbparam)
- call qsystem%save_lattice("lattice.dat")
+ qt%qsystem%qnnbparam%max_distance = (/2*dx,2*dx,0.0D0/)
+ call qt%qsystem%make_lattice(connect,qt%qsystem%qnnbparam)
+
+
+ !call rshape%init_rect(SHAPE_RECTANGLE_XY,-1.0*dx,1.0*dx,-1.0*dx,size(gindex,2)*dx)
+ !call qlead1%init_lead(rshape)
+
+ call qt%qsystem%save_lattice("lattice.dat")
 
 ! do i = 1 , 50
 !
@@ -48,16 +57,16 @@ program transporter
 !    enddo
 ! enddo
 
- call qsystem%calc_eigenproblem(0.0D0,0.2D0,50)
+ call qt%qsystem%calc_eigenproblem(0.0D0,0.2D0,50)
  zero_array = 0
- if(qsystem%no_eigenvalues > 0) then
+ if(qt%qsystem%no_eigenvalues > 0) then
  do i = 1 , size(gindex,1)
  do j = 1 , size(gindex,2)
-    if(qsystem%atoms(gindex(i,j))%bActive) then
-    k = qsystem%atoms(gindex(i,j))%globalIDs(1)
-    write(222,"(500e20.6)"),qsystem%atoms(gindex(i,j))%atom_pos(:),abs(qsystem%eigenvecs(k,:))**2
+    if(qt%qsystem%atoms(gindex(i,j))%bActive) then
+    k = qt%qsystem%atoms(gindex(i,j))%globalIDs(1)
+    write(222,"(500e20.6)"),qt%qsystem%atoms(gindex(i,j))%atom_pos(:),abs(qt%qsystem%eigenvecs(k,:))**2
     else
-    write(222,"(500e20.6)"),qsystem%atoms(gindex(i,j))%atom_pos(:),zero_array(1:qsystem%no_eigenvalues)
+    write(222,"(500e20.6)"),qt%qsystem%atoms(gindex(i,j))%atom_pos(:),zero_array(1:qt%qsystem%no_eigenvalues)
     endif
  enddo
     write(222,*),""
@@ -70,13 +79,13 @@ program transporter
 !    write(222,"(500e20.6)"),qsystem%atoms(i)%atom_pos(:),abs(qsystem%eigenvecs(k,:))**2
 ! enddo
 
- call qsystem%destroy()
+ call qt%qsystem%destroy()
  contains
 
 logical function connect(atomA,atomB,s1,s2,coupling_val)
     use modatom
     implicit none
-    type(atom) :: atomA,atomB
+    type(qatom) :: atomA,atomB
     integer    :: s1,s2
     complex*16 :: coupling_val
     integer :: xdiff,ydiff
