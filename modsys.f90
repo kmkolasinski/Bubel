@@ -172,7 +172,7 @@ type qsys
     procedure, public, pass(sys) :: calc_eigenproblem!(sys,pEmin,pEmax,NoStates,no_feast_contours,print_info,pmaks_iter)
 
 endtype qsys
-public :: qsys
+public :: qsys,nnb_params
 public :: QSYS_DISABLE_HERMICITY_CHECK
 contains
 

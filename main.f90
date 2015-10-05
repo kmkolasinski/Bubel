@@ -5,8 +5,10 @@
 
 program transporter
  use modscatter
+ use modshape
  implicit none
  type(qscatter) :: qt
+ type(qshape) :: rect_shape
 
 
 
@@ -14,17 +16,17 @@ program transporter
  doubleprecision :: dx,zero_array(100)
  integer :: gindex(10,5)
  print*,"Program start"
- call qt%qsystem%init()
 
 
+ call qt%init_system()
  dx = 0.1
   k = 0
  do i = 1 , size(gindex,1)
  do j = 1 , size(gindex,2)
-    call qt%qsystem%qatom%init((/ (i-1) * dx , (j-1) * dx + (i-1) * dx * 0.0 , 0.0 * dx /))
+    call qt%qatom%init((/ (i-1) * dx , (j-1) * dx + (i-1) * dx * 0.0 , 0.0 * dx /))
     !if( abs(i - size(gindex,1)/2) > 5 .and. j > 20 ) qsystem%qatom%bActive = .false.
     !if( abs(i - size(gindex,1)/2.0)**2 + abs(j - size(gindex,2)/2.0)**2 > 200 ) qsystem%qatom%bActive = .false.
-    call qt%qsystem%add_atom(qt%qsystem%qatom)
+    call qt%qsystem%add_atom(qt%qatom)
     k = k + 1
     gindex(i,j) = k
  enddo
@@ -40,15 +42,15 @@ program transporter
 
 ! print*,"System size:",qsystem%no_atoms
 
- qt%qsystem%qnnbparam%max_distance = (/2*dx,2*dx,0.0D0/)
- call qt%qsystem%make_lattice(connect,qt%qsystem%qnnbparam)
+ qt%qnnbparam%max_distance = (/2*dx,2*dx,0.0D0/)
+ call qt%qsystem%make_lattice(connect,qt%qnnbparam)
 
 
- !call rshape%init_rect(SHAPE_RECTANGLE_XY,-1.0*dx,1.0*dx,-1.0*dx,size(gindex,2)*dx)
- !call qlead1%init_lead(rshape)
+ call rect_shape%init_rect(SHAPE_RECTANGLE_XY,-0.5*dx,0.5*dx,-0.5*dx,size(gindex,2)*dx)
+
 
  call qt%qsystem%save_lattice("lattice.dat")
-
+ call qt%add_lead(rect_shape)
 ! do i = 1 , 50
 !
 !    !print*,i,qsystem%atoms(i)%no_bonds
@@ -79,7 +81,7 @@ program transporter
 !    write(222,"(500e20.6)"),qsystem%atoms(i)%atom_pos(:),abs(qsystem%eigenvecs(k,:))**2
 ! enddo
 
- call qt%qsystem%destroy()
+ call qt%destroy_system()
  contains
 
 logical function connect(atomA,atomB,s1,s2,coupling_val)
