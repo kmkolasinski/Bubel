@@ -270,7 +270,7 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
     type(nnb_params) :: nnbparams
 
     ! local variables
-    integer         :: i,j,k,l,no_active_atoms
+    integer         :: i,j,k,l,p,no_active_atoms
     doubleprecision :: time_start
     complex*16      :: cpl_value,cpl_value_inverse
     ! bounding box parameters
@@ -290,7 +290,7 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
     do i = 1 , sys%no_atoms
         if(sys%atoms(i)%bActive) no_active_atoms = no_active_atoms + 1
     enddo
-    print*,"SYS::Calculating connections between ",no_active_atoms," atoms."
+    print*,"SYS::Calculating connections between:",no_active_atoms," atoms."
 
     ! setting up global IDs for atoms and inner states (spins)
     k = 0
@@ -305,26 +305,30 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
         endif ! end of active atom
     enddo
     sys%system_size = k ! the number of unknowns
+    print*,"SYS::Number of uknown variables     :",k
 
     ! Making the connection between the atoms
     if(nnbparams%check_all_atoms) then
     ! if all posible connections are tested enter this node
     do i = 1 , sys%no_atoms
-    do j = 1 , sys%no_atoms
-        ! both sites have to be active
-        if(sys%atoms(i)%bActive == .true. .and. sys%atoms(j)%bActive == .true.) then
-
-            do k = 1 , sys%atoms(i)%no_in_states
-            do l = 1 , sys%atoms(j)%no_in_states
-                ! if they are nnb one may create a bond between them
-                if(connect_procedure(sys%atoms(i),sys%atoms(j),k,l,cpl_value)) then
-                     call sys%atoms(i)%add_bond(k,j,l,cpl_value)
-                endif
-            enddo
-            enddo
-        endif
-    enddo
-    enddo
+    if(sys%atoms(i)%bActive == .true.) then
+        do k = 1 , sys%atoms(i)%no_in_states
+        do j = 1 , sys%no_atoms
+            ! both sites have to be active
+            if(sys%atoms(j)%bActive == .true.) then
+                do l = 1 , sys%atoms(j)%no_in_states
+                    ! if they are nnb one may create a bond between them
+                    if(connect_procedure(sys%atoms(i),sys%atoms(j),k,l,cpl_value)) then
+                         call sys%atoms(i)%add_bond(k,j,l,cpl_value)
+                         print"(A,2i6,A,2i6,A,1f6.2)","creating bond: A(",i,k,") -> B(",j,l,") = ",dble(cpl_value)
+!                         print*,"   pos=",sys%atoms(j)%atom_pos(1:2)
+                    endif
+                enddo
+            endif
+        enddo
+        enddo ! end of k
+    endif ! end of i bactive i
+    enddo ! end of i
     ! ---------------------------------------------------------------------
     ! Else use verlet method to find nnb's
     ! ---------------------------------------------------------------------
@@ -403,9 +407,12 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
     ! find nnb using verlet arrays
     do i = 1 , sys%no_atoms
         if(sys%atoms(i)%bActive) then
-        do k = 1 , 3
-        ivpos(k) = 1+FLOOR(verlet_dims(k)*(sys%atoms(i)%atom_pos(k) - bbox(cmin,k))/(bbox(cmax,k)-bbox(cmin,k)+1.0D-6))
+        do p = 1 , 3
+        ivpos(p) = 1+FLOOR(verlet_dims(p)*(sys%atoms(i)%atom_pos(p) - bbox(cmin,p))/(bbox(cmax,p)-bbox(cmin,p)+1.0D-6))
         enddo
+
+        do k = 1 , sys%atoms(i)%no_in_states
+
         ! search in nearest verlet cells
         do vx = max(ivpos(1)-1,1),min(ivpos(1)+1,verlet_dims(1))
         do vy = max(ivpos(2)-1,1),min(ivpos(2)+1,verlet_dims(2))
@@ -415,20 +422,23 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
                 j        = verlet_box(vx,vy,vz,vp)
                 if(sys%atoms(j)%bActive == .true.) then
                 ! loop around spin states
-                do k = 1 , sys%atoms(i)%no_in_states
+
                 do l = 1 , sys%atoms(j)%no_in_states
                     ! if they are nnb one may create a qbond between them
                     if(connect_procedure(sys%atoms(i),sys%atoms(j),k,l,cpl_value)) then
                          call sys%atoms(i)%add_bond(k,j,l,cpl_value)
                     endif
                 enddo
-                enddo
+
 
                 endif
             enddo
         enddo ! }
         enddo ! } nearest verlet cells
         enddo ! }
+
+        enddo ! end of do i atom
+
         endif ! end of if active atom
 
 
@@ -453,9 +463,11 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
                 cpl_value_inverse = 0
                 do k = 1 , sys%atoms(vp)%no_bonds ! search for the same
                     if( sys%atoms(vp)%bonds(k)%toAtomID == i .and. &
+                     sys%atoms(i)%bonds(j)%toInnerID   == sys%atoms(vp)%bonds(k)%fromInnerID .and. &
                      sys%atoms(i)%bonds(j)%fromInnerID == sys%atoms(vp)%bonds(k)%toInnerID )  then
 
                      cpl_value_inverse = sys%atoms(vp)%bonds(k)%bondValue
+                     exit
                     endif
                 enddo
                 if( abs(cpl_value - conjg(cpl_value_inverse)) > 10.0D-10 ) then
@@ -465,8 +477,10 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
                            "            has to complex conjugate for connection between B->A."
                     print"(A,3e16.4)","             An error occured for atom A at position :",sys%atoms(i)%atom_pos
                     print"(A,3e16.4)","             and atom B at position                  :",sys%atoms(vp)%atom_pos
-                    print*,"            Hoping parameter for A->B:",cpl_value
-                    print*,"            Hoping parameter for B->A:",cpl_value_inverse
+                    print*,"            Atom A id=",i ," spin=",sys%atoms(i)%bonds(j)%fromInnerID
+                    print*,"            Atom B id=",vp," spin=",sys%atoms(vp)%bonds(k)%fromInnerID
+                    print"(A,3e16.4)","             Hoping parameter for A->B:",cpl_value
+                    print"(A,3e16.4)","             Hoping parameter for B->A:",cpl_value_inverse
                     print*,"==============================================================================="
                     stop -1
                 endif
@@ -643,6 +657,7 @@ subroutine calc_eigenproblem(sys,pEmin,pEmax,NoStates,no_feast_contours,print_in
         ta = sys%atoms(i)%bonds(j)%toAtomID
         ts = sys%atoms(i)%bonds(j)%toInnerID
         ROWCOLID(itmp,2) = sys%atoms(ta)%globalIDs(ts)
+!        print*,ROWCOLID(itmp,:),MATHVALS(itmp)
         enddo
         endif ! end of if active atom
     enddo
