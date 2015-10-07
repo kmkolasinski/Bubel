@@ -59,8 +59,8 @@ subroutine init_lead(this,lshape,all_atoms)
     ! local variables
     integer ,allocatable ,dimension(:) :: tmp_g2l ! contains mapping between global ID of the state (atom+spin)
                                                   ! to local id of that site (atom,spin) in unit cell
-    integer :: i,j,b
-    integer :: no_sites,system_size, atom_id,bond_id,bond_atom_id
+    integer :: i,j,b,b_child
+    integer :: no_sites,system_size, atom_id,bond_id,bond_atom_id,bond_id_child,bond_atom_id_child
     integer :: irow,icol,aid,gid,sid,lid
     complex :: cval
     doubleprecision,dimension(3) :: cellA_pos,cellB_pos,tmp_pos,cellBA_vec
@@ -181,7 +181,6 @@ subroutine init_lead(this,lshape,all_atoms)
             bond_id      = all_atoms(bond_atom_id)%globalIDs(1)
             if( tmp_g2l(bond_id) == 0 ) then
                 tmp_pos = all_atoms(bond_atom_id)%atom_pos
-
                 if( tmp_pos(1) < cellB_pos(1) .or. &
                     tmp_pos(2) < cellB_pos(2) .or. &
                     tmp_pos(3) < cellB_pos(3)) then
@@ -190,6 +189,33 @@ subroutine init_lead(this,lshape,all_atoms)
             endif
         enddo
     enddo
+
+
+!    do i = 1 , no_sites
+!        atom_id = this%l2g(i,1) ! get atom index
+!        do b = 1 , all_atoms(atom_id)%no_bonds
+!            bond_atom_id = all_atoms(atom_id)%bonds(b)%toAtomID
+!            bond_id      = all_atoms(bond_atom_id)%globalIDs(1)
+!            if( tmp_g2l(bond_id) == 0 ) then
+!
+!                do b_child = 1 , all_atoms(bond_atom_id)%no_bonds
+!                bond_atom_id_child = all_atoms(bond_atom_id)%bonds(b_child)%toAtomID
+!                bond_id_child      = all_atoms(bond_atom_id_child)%globalIDs(1)
+!
+!                if( tmp_g2l(bond_id) == 0 ) then
+!                    tmp_pos = all_atoms(bond_atom_id_child)%atom_pos
+!
+!                    if( tmp_pos(1) < cellB_pos(1) .or. &
+!                        tmp_pos(2) < cellB_pos(2) .or. &
+!                        tmp_pos(3) < cellB_pos(3)) then
+!                        cellB_pos = tmp_pos
+!                    endif
+!                endif
+!
+!                enddo
+!            endif
+!        enddo
+!    enddo
 
     cellBA_vec = cellB_pos - cellA_pos
     print"(A,3f12.4,A)"," SYS::LEAD::Lead translation vector XYZ=(",cellBA_vec,")"

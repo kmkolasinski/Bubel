@@ -134,13 +134,20 @@ private
 integer,parameter :: QSYS_NO_ATOMS_INC_VALUE      = 10000
 logical           :: QSYS_DISABLE_HERMICITY_CHECK = .false.
 
+ENUM , BIND(C)
+  ENUMERATOR :: QSYS_NNB_FILTER_BOX       = 1
+  ENUMERATOR :: QSYS_NNB_FILTER_CHECK_ALL = 2
+  ENUMERATOR :: QSYS_NNB_FILTER_DISTANCE  = 3
+END ENUM
+
 ! ----------------------------------------------------------------
 ! Structure responsible for  Nearest neigthbour search parameter
 ! ----------------------------------------------------------------
 type nnb_params
-    doubleprecision :: max_distance(3) ! estimated search distance in XYZ directions
-    logical         :: check_all_atoms ! if true then all possible connections are tested
-                                       ! during the hamiltonian construction
+    doubleprecision :: box(3) ! estimated search distance in XYZ directions
+    doubleprecision :: distance        ! if NNB_FILTER = QSYS_NNB_FILTER_DISTANCE compare distance
+                                       ! between atoms, not coordinates
+    integer         :: NNB_FILTER = QSYS_NNB_FILTER_BOX
 endtype nnb_params
 
 
@@ -174,6 +181,10 @@ type qsys
 endtype qsys
 public :: qsys,nnb_params
 public :: QSYS_DISABLE_HERMICITY_CHECK
+public :: QSYS_NNB_FILTER_CHECK_ALL
+public :: QSYS_NNB_FILTER_DISTANCE
+public :: QSYS_NNB_FILTER_BOX
+
 contains
 
 ! ------------------------------------------------------------------------
@@ -183,8 +194,10 @@ subroutine init(sys)
     class(qsys)     :: sys
     print*,"SYS::Initialization of the system."
     sys%no_atoms         = 0
-    sys%qnnbparam%check_all_atoms = .false.
-    sys%qnnbparam%max_distance    = 0.0D0
+
+    sys%qnnbparam%box     = 0.0D0
+    sys%qnnbparam%distance= 0.0D0
+    sys%qnnbparam%NNB_FILTER = QSYS_NNB_FILTER_BOX
 
     allocate(sys%atoms(QSYS_NO_ATOMS_INC_VALUE))
 end subroutine init
@@ -297,6 +310,8 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
     do i = 1 , sys%no_atoms
         if(sys%atoms(i)%bActive) then
             if(allocated(sys%atoms(i)%globalIDs)) deallocate(sys%atoms(i)%globalIDs)
+            if(allocated(sys%atoms(i)%bonds)) deallocate(sys%atoms(i)%bonds)
+            sys%atoms(i)%no_bonds = 0
             allocate(sys%atoms(i)%globalIDs(sys%atoms(i)%no_in_states))
             do j = 1 , sys%atoms(i)%no_in_states
                 k = k + 1
@@ -308,7 +323,7 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
     print*,"SYS::Number of uknown variables     :",k
 
     ! Making the connection between the atoms
-    if(nnbparams%check_all_atoms) then
+    if(nnbparams%NNB_FILTER == QSYS_NNB_FILTER_CHECK_ALL) then
     ! if all posible connections are tested enter this node
     do i = 1 , sys%no_atoms
     if(sys%atoms(i)%bActive == .true.) then
@@ -320,8 +335,6 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
                     ! if they are nnb one may create a bond between them
                     if(connect_procedure(sys%atoms(i),sys%atoms(j),k,l,cpl_value)) then
                          call sys%atoms(i)%add_bond(k,j,l,cpl_value)
-!                         print"(A,2i6,A,2i6,A,1f6.2)","creating bond: A(",i,k,") -> B(",j,l,") = ",dble(cpl_value)
-!                         print*,"   pos=",sys%atoms(j)%atom_pos(1:2)
                     endif
                 enddo
             endif
@@ -333,6 +346,9 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
     ! Else use verlet method to find nnb's
     ! ---------------------------------------------------------------------
     else
+
+    if(nnbparams%NNB_FILTER == QSYS_NNB_FILTER_DISTANCE) nnbparams%box = 2*nnbparams%distance
+
     ! calculate the bounding box of the system
     bbox(cmin,:) = sys%atoms(1)%atom_pos ! minimum position
     bbox(cmax,:) = sys%atoms(1)%atom_pos ! maximum position
@@ -347,12 +363,12 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
 
     ! Calculate dimensions of the verlet box
     do i = ix , iz
-        verlet_dims(i) = NINT(abs(bbox(cmax,i) - bbox(cmin,i))/abs(nnbparams%max_distance(i)))+1
-        if( abs(nnbparams%max_distance(i)) < 1.0D-20 ) verlet_dims(i) = 1
+        verlet_dims(i) = NINT(abs(bbox(cmax,i) - bbox(cmin,i))/abs(nnbparams%box(i)))+1
+        if( abs(nnbparams%box(i)) < 1.0D-20 ) verlet_dims(i) = 1
     enddo
 
     !!Debug:
-    !print*,"Verlet:",verlet_dims
+!    print*,"Verlet:",verlet_dims
 
     ! allocate array which holds the number of atoms in each verlet cell and clear values
     allocate(verlet_counter(verlet_dims(1),verlet_dims(2),verlet_dims(3)))
@@ -372,8 +388,8 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
     enddo
 
     !!Debug:
-    !print*,"Sum atoms in verlet:",sum(verlet_counter)
-    !print*,"Max atoms in cell:",verlet_max_atoms_in_cell
+!    print*,"Sum atoms in verlet:",sum(verlet_counter)
+!    print*,"Max atoms in cell:",verlet_max_atoms_in_cell
 
     ! Allocate verlet cells. The place we will put atoms
     allocate(verlet_box(verlet_dims(1),verlet_dims(2),verlet_dims(3),verlet_max_atoms_in_cell))
@@ -386,7 +402,7 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
         print*,"            Number from checksum:",sum(verlet_counter)
         print*,"SYS::ERROR::The program has stopped. Use can try to set nnbparam ", &
                "            to check_all_atoms =  true if the considered system is small ",&
-               "            or change max_distance parameters."
+               "            or change box parameters."
         stop -1
     endif
 
@@ -423,15 +439,29 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
                 if(sys%atoms(j)%bActive == .true.) then
                 ! loop around spin states
 
+                if(nnbparams%NNB_FILTER == QSYS_NNB_FILTER_BOX) then
                 do l = 1 , sys%atoms(j)%no_in_states
                     ! if they are nnb one may create a qbond between them
                     if(connect_procedure(sys%atoms(i),sys%atoms(j),k,l,cpl_value)) then
                          call sys%atoms(i)%add_bond(k,j,l,cpl_value)
                     endif
                 enddo
+                else if(nnbparams%NNB_FILTER == QSYS_NNB_FILTER_DISTANCE) then
 
+                    ! check distance before asking
+                    if( sqrt(sum((sys%atoms(i)%atom_pos-sys%atoms(j)%atom_pos)**2)) < nnbparams%distance) then
+                    do l = 1 , sys%atoms(j)%no_in_states
+                        ! if they are nnb one may create a qbond between them
+                        if(connect_procedure(sys%atoms(i),sys%atoms(j),k,l,cpl_value)) then
+                             call sys%atoms(i)%add_bond(k,j,l,cpl_value)
+                        endif
+                    enddo
+                    endif ! end of if check distance
 
                 endif
+
+
+                endif! end of if active atom
             enddo
         enddo ! }
         enddo ! } nearest verlet cells
@@ -545,6 +575,7 @@ subroutine save_lattice(sys,filename,innerA,innerB)
         ida  = sys%atoms(i)%bonds(b)%toAtomID
         ids1 = sys%atoms(i)%bonds(b)%toInnerID
         ids2 = sys%atoms(i)%bonds(b)%fromInnerID
+        if( sys%atoms(ida)%bActive ) then
         if( ida >= i ) then
             lWidth = 0.1
             if(ida == i) lWidth = 10.0
@@ -553,8 +584,10 @@ subroutine save_lattice(sys,filename,innerA,innerB)
                 write(765819,"(7e20.6)"),sys%atoms(i)%atom_pos,sys%atoms(ida)%atom_pos,lWidth
             endif
         endif
+        endif ! end of if active
         enddo
         endif ! end of if active atom
+
     enddo
     close(765819)
 
