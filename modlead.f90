@@ -3,6 +3,14 @@
 !
 !
 ! ---------------------------------------------------------------------------------------
+
+! -----------------------------------------------
+! Stucture which holds the unit cell of periotic
+! structure. In calculated hamiltonian of that
+! cell and coupling matrix Tau to next unit cell.
+! Those information can be used to generate the
+! band structure and for scattering problems.
+! -----------------------------------------------
 module modlead
 use modshape
 use modsys
@@ -11,14 +19,18 @@ implicit none
 private
 complex*16,parameter :: II = cmplx(0.0D0,1.0D0)
 type qlead
-    type(qshape) :: lead_shape
-    complex*16,dimension(:,:) , allocatable :: valsH0 ! Hamiltonian of the lead
-!    integer,   dimension(:,:) , allocatable :: rowcolH0
+    type(qshape) :: lead_shape                         ! contains the area/volume in which are
+                                                       ! located atoms which belong to the lead.
 
-    complex*16,dimension(:,:) , allocatable :: valsTau ! Hamiltonian of the lead
-    integer :: no_sites
-  !  integer,   dimension(:,:) , allocatable :: rowcolTau
-    integer,dimension(:,:),allocatable        :: l2g,next_l2g ! local id to (atom,spin)
+    complex*16,dimension(:,:) , allocatable :: valsH0  ! Hamiltonian of the lead - unit cell
+    complex*16,dimension(:,:) , allocatable :: valsTau ! Coupling matrix to the next unit cell
+
+    integer :: no_sites                                ! number of unknowns (number of sites in the lead,
+                                                       ! including spin states)
+
+    integer,dimension(:,:),allocatable        ::      l2g ! mapping from local id in lead to global id (:,1)  = atom_ID , (:,2) = spin_ID
+    integer,dimension(:,:),allocatable        :: next_l2g ! the same as above but mapping to the atoms in the next unit cell
+
     contains
     procedure,pass(this) :: init_lead!()
     procedure,pass(this) :: bands!(this,filename,kmin,kmax,dk,Emin,Emax)
@@ -28,19 +40,36 @@ endtype qlead
 public :: qlead
 contains
 
+
+! ------------------------------------------------------------------------
+! Initialize lead structure - which is a unit cell in periodic lattice.
+! lshape - contains information of the volume in which all the atoms which
+!          belong to the lead are located.
+! all_atoms - list of all atoms in the system.
+! Based on those both information lead will generate Hamiltonian matrix
+! for atoms located in this lead as well as coupling matrix to the next
+! unit cell.
+! Note: Unit cell must lie at the edge of the system such that there will
+! be only one unit cell ajacent to main unit cell of the lead.
+! ------------------------------------------------------------------------
 subroutine init_lead(this,lshape,all_atoms)
     class(qlead) :: this
     type(qshape) :: lshape
     type(qatom),dimension(:) :: all_atoms
-    integer ,allocatable ,dimension(:) :: tmp_g2l
+    ! local variables
+    integer ,allocatable ,dimension(:) :: tmp_g2l ! contains mapping between global ID of the state (atom+spin)
+                                                  ! to local id of that site (atom,spin) in unit cell
     integer :: i,j,b
     integer :: no_sites,system_size, atom_id,bond_id,bond_atom_id
     integer :: irow,icol,aid,gid,sid,lid
     complex :: cval
     doubleprecision,dimension(3) :: cellA_pos,cellB_pos,tmp_pos,cellBA_vec
 
+    ! copy shape for future possible usage
     this%lead_shape = lshape
 
+    print*,"SYS::LEAD::Initializing lead unit cell parameters"
+    ! calculate the number of states in whole system: sum over active atoms and their spins
     system_size = 0
     do i = 1 , size(all_atoms)
         if(all_atoms(i)%bActive) then
@@ -49,91 +78,102 @@ subroutine init_lead(this,lshape,all_atoms)
     enddo
 
     allocate(tmp_g2l(system_size))
-
+    ! -----------------------------------------------------------
+    ! Find all the atoms which are located in the lead area/volume
+    ! and creat mapping between its globalID and localID
+    ! -----------------------------------------------------------
     no_sites = 0
-    tmp_g2l = 0
-!    print*,"g2l"
+    tmp_g2l  = 0
     do i = 1 , size(all_atoms)
         if(all_atoms(i)%bActive) then
             if( lshape%is_inside(all_atoms(i)%atom_pos) == .true. ) then
-                do j = 1 , all_atoms(i)%no_in_states
-                    no_sites = no_sites + 1
-                    tmp_g2l(all_atoms(i)%globalIDs(j)) = no_sites
-                    cellA_pos = all_atoms(i)%atom_pos
-!                    print*,all_atoms(i)%globalIDs(j),no_sites
-                enddo
+                do j = 1 , all_atoms(i)%no_in_states ! loop over spins of that atom
 
-            endif
-        endif
-    enddo
-!    print*,"H0 size:",no_sites
+                    no_sites = no_sites + 1
+                    tmp_g2l(all_atoms(i)%globalIDs(j)) = no_sites ! creating mappin globalID => local id in lead
+                    cellA_pos = all_atoms(i)%atom_pos
+
+                enddo
+            endif ! end of if this atom is located in the lead
+        endif ! end of if active atom
+    enddo ! end of do all_atoms
+
+
+
+    print*,"SYS::LEAD::Number of states in lead=",no_sites
+
     this%no_sites = no_sites
 
 
 
 
-    if(allocated(this%valsH0))deallocate(this%valsH0)
-    !if(allocated(this%rowcolH0))deallocate(this%rowcolH0)
-
-    if(allocated(this%valsTau))deallocate(this%valsTau)
-    if(allocated(this%l2g))deallocate(this%l2g)
+    if(allocated(this%valsH0))  deallocate(this%valsH0)
+    if(allocated(this%valsTau)) deallocate(this%valsTau)
+    if(allocated(this%l2g))     deallocate(this%l2g)
     if(allocated(this%next_l2g))deallocate(this%next_l2g)
-!    if(allocated(this%l2a))deallocate(this%l2a)
-    !if(allocated(this%rowcolTau))deallocate(this%rowcolTau)
 
-    allocate(this%valsH0 (no_sites,no_sites))
-    allocate(this%valsTau(no_sites,no_sites))
-    allocate(this%l2g(no_sites,2))
-    allocate(this%next_l2g(no_sites,2))
-!    allocate(this%l2a(no_sites))
+    allocate(this%valsH0    (no_sites,no_sites))
+    allocate(this%valsTau   (no_sites,no_sites))
+    allocate(this%l2g       (no_sites,2))
+    allocate(this%next_l2g  (no_sites,2))
+
     this%valsH0   = 0
     this%valsTau  = 0
-    this%l2g = 0
+    this%l2g      = 0
     this%next_l2g = 0
 
+
+    ! -----------------------------------------------------------
+    ! Now we want to find some unique atom in lead -> has lowest
+    ! corrdinates (X_min,Y_min,Z_min). Then we will find the same
+    ! atom but in next unit cell. Thus we will be able to calculate
+    ! translation vector, between lead and next unit cell.
+    ! -----------------------------------------------------------
+
     no_sites = 0
-
-
-!    print*,"l2g"
-    do i = 1 , size(all_atoms)
+    do i = 1 , size(all_atoms) ! Search in all active atoms
         if(all_atoms(i)%bActive) then
+            ! if atom is in the unit cell
             if( lshape%is_inside(all_atoms(i)%atom_pos) == .true. ) then
+                ! create mapping between localID (l2g array) and the atom (j) and its spin (j)
                 do j = 1 , all_atoms(i)%no_in_states
                     no_sites = no_sites + 1
-                    this%l2g(no_sites,1) = i
-                    this%l2g(no_sites,2) = j
-!                    print*,no_sites,"a=",i,"s=",j,"g=",all_atoms(i)%globalIDs(j)
+                    this%l2g(no_sites,1) = i ! } mapping
+                    this%l2g(no_sites,2) = j ! }
                 enddo
-                tmp_pos = all_atoms(i)%atom_pos
 
+                ! Find atom with the lowest coordinates in that lead:
+                tmp_pos = all_atoms(i)%atom_pos
                 if( tmp_pos(1) < cellA_pos(1) .or. &
                     tmp_pos(2) < cellA_pos(2) .or. &
                     tmp_pos(3) < cellA_pos(3)) then
                     cellA_pos = tmp_pos
                 endif
-            endif
-        endif
-    enddo
+            endif ! end of if atom is in lead
+        endif ! end of if active atom
+    enddo ! end of do all_atoms
 
-    ! initializing lowest atom position in next cell
-    do i = 1 , no_sites
-        atom_id = this%l2g(i,1) ! get atom index
-!        print*,"First atom:",i," id=",atom_id," no_bonds=",all_atoms(atom_id)%no_bonds
-        do b = 1 , all_atoms(atom_id)%no_bonds
-!            print*,"    Testint bond=",b
-
+    ! -----------------------------------------------------------
+    ! Initializing lowest atom position in next cell
+    ! -----------------------------------------------------------
+    do i = 1 , no_sites ! Now we use no_sites
+        atom_id = this%l2g(i,1) ! Get atom index of local site in lead
+        do b = 1 , all_atoms(atom_id)%no_bonds ! iterate over all the bonds of that atom
+            ! bond_atom_id - id of connected atom
+            ! bond_id      - global id of that atom in spin state 1
             bond_atom_id = all_atoms(atom_id)%bonds(b)%toAtomID
             bond_id      = all_atoms(bond_atom_id)%globalIDs(1)
-!            print*,"    Connection with atom:",bond_atom_id, " local index:",tmp_g2l(bond_id)
+            ! if tmp_g2l(bond_id) == 0 it means that this atom with id = bond_atom_id
+            ! is not in the lead, so it has to be located in the next unit cell.
             if( tmp_g2l(bond_id) == 0 ) then
                 cellB_pos = all_atoms(bond_atom_id)%atom_pos
-!                print*,"Lowest atom in next cell:",cellB_pos
-
             endif
         enddo
     enddo
 
-    ! initializing lowest atom position in next cell
+    ! -----------------------------------------------------------
+    ! Searching for the lowest XYZ of atom in the next unit cell
+    ! -----------------------------------------------------------
     do i = 1 , no_sites
         atom_id = this%l2g(i,1) ! get atom index
         do b = 1 , all_atoms(atom_id)%no_bonds
@@ -151,22 +191,28 @@ subroutine init_lead(this,lshape,all_atoms)
         enddo
     enddo
 
-!    print*,"Lowest atom in zero cell:",cellA_pos
-!    print*,"Lowest atom in next cell:",cellB_pos
     cellBA_vec = cellB_pos - cellA_pos
+    print"(A,3f12.4,A)"," SYS::LEAD::Lead translation vector XYZ=(",cellBA_vec,")"
+
+
+    ! -----------------------------------------------------------
+    ! Creating the Hamiltonian of the Lead and Coupling matrix
+    ! -----------------------------------------------------------
 
     do i = 1 , no_sites
-        atom_id = this%l2g(i,1) ! get atom index
-        irow = i
-!        print*,"site:",i," -> ",atom_id
+        atom_id = this%l2g(i,1) ! get atom index , this%l2g(i,2) tells what is the spinID of that atom
+        ! iterate over all bonds in that atom (A)
         do b = 1 , all_atoms(atom_id)%no_bonds
+            ! Filter out bond from atom A but which do not have spin this%l2g(i,1)
             if( all_atoms(atom_id)%bonds(b)%fromInnerID == this%l2g(i,2) ) then
-
+            ! get ids of associated atom
             bond_atom_id = all_atoms(atom_id)%bonds(b)%toAtomID
             bond_id      = all_atoms(bond_atom_id)%globalIDs(1)
+            ! if tmp_g2l(bond_id) == 0 it means that this atom with id = bond_atom_id
+            ! is not in the lead, so it has to be located in the next unit cell.
             if( tmp_g2l(bond_id) == 0 ) then
-!                print*,"Sasiednia komurka"
-                ! we search for an atom in the main uint cell with the same position
+                ! now we search for an atom in the main uint cell with the same position
+                ! what assiociated atom in the next lead.
                 do j = 1 , no_sites
                     cellA_pos = all_atoms(this%l2g(j,1))%atom_pos + cellBA_vec
                     cellB_pos = all_atoms(bond_atom_id)%atom_pos
@@ -174,65 +220,70 @@ subroutine init_lead(this,lshape,all_atoms)
                         exit
                     endif
                 enddo
-!                print*,"atom:",bond_atom_id," to ten sam co=",this%l2g(j,1)
+                ! now "j" contains of localID of the state in the lead which is equivalent
+                ! to same state but in the next unit cell.
 
-                aid = this%l2g(j,1)
-                sid = all_atoms(atom_id)%bonds(b)%toInnerID
-
-                gid  = all_atoms(aid)%globalIDs(sid)
-                lid  = tmp_g2l(gid)
+                aid  = this%l2g(j,1) ! get globalID of that atom
+                sid  = all_atoms(atom_id)%bonds(b)%toInnerID ! and its spin
+                gid  = all_atoms(aid)%globalIDs(sid) ! get global ID of site (atom+spin)
+                lid  = tmp_g2l(gid) ! remap it to local ID in the lead
                 irow = i
                 icol = lid
                 cval = all_atoms(atom_id)%bonds(b)%bondValue
-!                print*,irow,icol," h=",cval
+
+                ! fill coupling matrix
                 this%valsTau(irow,icol) = cval
 
+                ! filling mapping to the next unit cell
                 this%next_l2g(i,1) = bond_atom_id
                 this%next_l2g(i,2) = sid
-            else
-!                print*,"at l=",atom_id," checking bound ",b," with atom:",bond_atom_id
-                aid = bond_atom_id
-                sid = all_atoms(atom_id)%bonds(b)%toInnerID
-                gid = all_atoms(aid)%globalIDs(sid)
-                lid = tmp_g2l(gid)
+            else ! in case of coupling occures within lead
+
+                aid = bond_atom_id ! id of connected atom
+                sid = all_atoms(atom_id)%bonds(b)%toInnerID ! and its spin ID
+                gid = all_atoms(aid)%globalIDs(sid) ! convert to global state id (atom+spin)
+                lid = tmp_g2l(gid) ! remap to local ID in lead
                 irow = i
                 icol = lid
                 cval = all_atoms(atom_id)%bonds(b)%bondValue
-!                print*,irow,icol,b," h=",cval
                 this%valsH0(irow,icol) = cval
-            endif
-            endif
-        enddo
+            endif ! end of else if "atom is in the lead or outside"
+            endif ! end of if bond comes from the atom with the same spin what site has
+        enddo ! end of do over bond in site
 
-    enddo
-
-
+    enddo ! end of do over sites in lead
+    ! deallocate unnecessary array
     deallocate(tmp_g2l)
 
 end subroutine init_lead
 
-
+! ------------------------------------------------------------------------
+! Free allocated memory
+! ------------------------------------------------------------------------
 subroutine destroy(this)
     class(qlead) :: this
-    if(allocated(this%valsH0))deallocate(this%valsH0)
-!    if(allocated(this%rowcolH0))deallocate(this%rowcolH0)
-    if(allocated(this%valsTau))deallocate(this%valsTau)
-    if(allocated(this%l2g))deallocate(this%l2g)
+    if(allocated(this%valsH0))  deallocate(this%valsH0)
+    if(allocated(this%valsTau)) deallocate(this%valsTau)
+    if(allocated(this%l2g))     deallocate(this%l2g)
     if(allocated(this%next_l2g))deallocate(this%next_l2g)
-!    if(allocated(this%l2a))deallocate(this%l2a)
-!    if(allocated(this%rowcolTau))deallocate(this%rowcolTau)
+    this%no_sites = 0
 end subroutine destroy
 
-
+! ------------------------------------------------------------------------
+! Calculate the band structure for lead. Lead has to be initialized before.
+! filename      - the name of the file with generated data (k_vector,Energy1,Energy2,...)
+! kmin,kmax,dk  - the range of the perfomed scan with step dk. k is dimensionless.
+! Emin,Emax     - search for the eigenvalues which lie in that energy window.
+! ------------------------------------------------------------------------
 subroutine bands(this,filename,kmin,kmax,dk,Emin,Emax)
     class(qlead) :: this
     double precision :: kmin,kmax,dk,Emin,Emax
     character(*)     :: filename
 
-
-    complex*16 :: kvec
+    ! Local variables
+    complex*16      :: kvec
     doubleprecision :: skank
-    integer :: i,j,N
+    integer         :: i,j,N
 
 
     ! -------------------------------------------------
@@ -248,10 +299,13 @@ subroutine bands(this,filename,kmin,kmax,dk,Emin,Emax)
     COMPLEX*16,allocatable,dimension(:)       :: Z( :, : ), WORK( : )
     COMPLEX*16,allocatable,dimension(:,:)     :: Hamiltonian
 
-
-
+    print*,"SYS::LEAD::Generating band structure data to file:",filename
+    ! The size of the system
     N = this%no_sites
-    LWMAX = N*50
+
+
+    ! Initialize lapack and allocate arrays
+    LWMAX = N*24
 
     allocate(ISUPPZ( 2*N ))
     allocate(EVALS ( N ))
@@ -261,7 +315,6 @@ subroutine bands(this,filename,kmin,kmax,dk,Emin,Emax)
     allocate(RWORK ( LWMAX ))
     allocate(WORK  ( LWMAX ))
     allocate(Hamiltonian(N,N))
-
     !
     !     Query the optimal workspace.
     !
@@ -273,21 +326,11 @@ subroutine bands(this,filename,kmin,kmax,dk,Emin,Emax)
     VL     = Emin
     VU     = Emax
 
-
-
-
     do i = 1 , N
     do j = 1 , N
             Hamiltonian(i,j) = this%valsH0(i,j) + this%valsTau(i,j) + conjg(this%valsTau(j,i))
     enddo
     enddo
-
-    open(unit = 33345, file= "Hamiltonian.txt" )
-    do i = 1 , N
-    write(33345,"(5000f10.4)"),dble(Hamiltonian(i,:))
-    enddo
-    close(33345)
-
 
     CALL ZHEEVR( "N", 'Values', 'Lower', N, Hamiltonian, N, VL, VU, IL,&
                 &             IU, ABSTOL, M, EVALS, Z, N, ISUPPZ, WORK, LWORK, RWORK,&
@@ -309,12 +352,7 @@ subroutine bands(this,filename,kmin,kmax,dk,Emin,Emax)
     allocate(WORK  ( LWORK  ))
 
 
-!    print*,"LWORK=" ,LWORK
-!    print*,"LRWORK=",LRWORK
-!    print*,"LIWORK=",LIWORK
-!    print*,"N=",N
-
-
+    ! Perform scan
     open(unit = 782321, file= filename )
     do skank = kmin , kmax , dk
 

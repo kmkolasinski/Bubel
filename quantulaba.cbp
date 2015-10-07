@@ -62,7 +62,10 @@
 		<Unit filename="modscatter.f90" />
 		<Unit filename="modshape.f90" />
 		<Unit filename="modsys.f90" />
+		<Unit filename="modunits.f90" />
 		<Unit filename="modutils.f90" />
+		<Unit filename="tests/makefile" />
+		<Unit filename="tests/simple_sqlat.f90" />
 		<Extensions>
 			<code_completion />
 			<envvars />

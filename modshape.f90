@@ -38,7 +38,7 @@ logical function is_inside(this,vec)
 
             is_inside = this%is_inside_rect(vec)
     case default
-            print*,"SYS::ERROR::There is no such type of shape:",this%SHAPE_TYPE
+            print*,"SYS::SHAPE::ERROR::There is no such type of shape:",this%SHAPE_TYPE
             stop -1
     endselect
 
@@ -54,19 +54,16 @@ subroutine init_rect(this,shape_type,xmin,xmax,ymin,ymax)
     this%xmax = xmax
     this%ymin = ymin
     this%ymax = ymax
-    print"(A,2e12.3,A,2e12.3,A)"," SHAPE::Initializing rectagle box: x=(",xmin,xmax,"), y=(",ymin,ymax,")"
+    print"(A,2e12.3,A,2e12.3,A)"," SYS::SHAPE::Initializing rectagle box: x=(",xmin,xmax,"), y=(",ymin,ymax,")"
 end subroutine init_rect
 
 logical function is_inside_rect(this,vec)
     class(qshape) :: this
     doubleprecision :: vec(3)
-    !print*,"m=",this%ymin,this%ymax
-    !print*,"a=",vec(2),this%ymin < vec(2) .and. this%ymax > vec(2)
     is_inside_rect = .false.
     if( this%xmin < vec(1) .and. this%xmax > vec(1) .and. &
         this%ymin < vec(2) .and. this%ymax > vec(2)  ) is_inside_rect = .true.
 
-    !print*, "F=",is_inside_rect
 end function is_inside_rect
 
 endmodule modshape

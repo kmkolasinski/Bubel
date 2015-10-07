@@ -160,7 +160,7 @@ type qsys
                                                             ! if 0 - no state was found
 
     ! other variables
-    type(qatom)        :: qatom      ! auxiliary variable, can be used by user
+    type(qatom)       :: qatom      ! auxiliary variable, can be used by user
     type(nnb_params)  :: qnnbparam  ! auxiliary variable, can be used by user
 
     contains
@@ -320,7 +320,7 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
                     ! if they are nnb one may create a bond between them
                     if(connect_procedure(sys%atoms(i),sys%atoms(j),k,l,cpl_value)) then
                          call sys%atoms(i)%add_bond(k,j,l,cpl_value)
-                         print"(A,2i6,A,2i6,A,1f6.2)","creating bond: A(",i,k,") -> B(",j,l,") = ",dble(cpl_value)
+!                         print"(A,2i6,A,2i6,A,1f6.2)","creating bond: A(",i,k,") -> B(",j,l,") = ",dble(cpl_value)
 !                         print*,"   pos=",sys%atoms(j)%atom_pos(1:2)
                     endif
                 enddo

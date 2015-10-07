@@ -1,11 +1,7 @@
-! TODO:
-! 1. dodac mapowanie z lokalny na globalny
-! 2. zrobic aby dzialo liczenie stanow wlasnych
-! 3. zrobic rysowanie siatki
-
 program transporter
  use modscatter
  use modshape
+
  implicit none
  type(qscatter) :: qt
  type(qshape) :: rect_shape
@@ -14,7 +10,7 @@ program transporter
 
  integer :: i , j, k , N
  doubleprecision :: dx,zero_array(100)
- integer :: gindex(3,5)
+ integer :: gindex(20,50)
  print*,"Program start"
 
 
@@ -26,7 +22,7 @@ program transporter
     call qt%qatom%init((/ (i-1) * dx , (j-1) * dx + (i-1) * dx * 0.0 , 0.0 * dx /),2)
     !if( abs(i - size(gindex,1)/2) > 5 .and. j > 20 ) qsystem%qatom%bActive = .false.
     !if( abs(i - size(gindex,1)/2.0)**2 + abs(j - size(gindex,2)/2.0)**2 > 200 ) qsystem%qatom%bActive = .false.
-    print*,qt%qatom%atom_pos
+!    print*,qt%qatom%atom_pos
     call qt%qsystem%add_atom(qt%qatom)
     k = k + 1
     gindex(i,j) = k
@@ -44,7 +40,7 @@ program transporter
 ! print*,"System size:",qsystem%no_atoms
 
  qt%qnnbparam%max_distance = (/2*dx,2*dx,0.0D0/)
- qt%qnnbparam%check_all_atoms = .true.
+! qt%qnnbparam%check_all_atoms = .true.
  call qt%qsystem%make_lattice(connect,qt%qnnbparam)
 
 
@@ -64,21 +60,21 @@ program transporter
 !    enddo
 ! enddo
 
- call qt%qsystem%calc_eigenproblem(0.0D0,0.2D0,50)
-! zero_array = 0
-! if(qt%qsystem%no_eigenvalues > 0) then
-! do i = 1 , size(gindex,1)
-! do j = 1 , size(gindex,2)
-!    if(qt%qsystem%atoms(gindex(i,j))%bActive) then
-!    k = qt%qsystem%atoms(gindex(i,j))%globalIDs(1)
-!    write(222,"(500e20.6)"),qt%qsystem%atoms(gindex(i,j))%atom_pos(:),abs(qt%qsystem%eigenvecs(k,:))**2
-!    else
-!    write(222,"(500e20.6)"),qt%qsystem%atoms(gindex(i,j))%atom_pos(:),zero_array(1:qt%qsystem%no_eigenvalues)
-!    endif
-! enddo
-!    write(222,*),""
-! enddo
-! endif
+ call qt%qsystem%calc_eigenproblem(0.0D0,0.2D0,150)
+ zero_array = 0
+ if(qt%qsystem%no_eigenvalues > 0) then
+ do i = 1 , size(gindex,1)
+ do j = 1 , size(gindex,2)
+    if(qt%qsystem%atoms(gindex(i,j))%bActive) then
+    k = qt%qsystem%atoms(gindex(i,j))%globalIDs(1)
+    write(222,"(500e20.6)"),qt%qsystem%atoms(gindex(i,j))%atom_pos(:),abs(qt%qsystem%eigenvecs(k,:))**2
+    else
+    write(222,"(500e20.6)"),qt%qsystem%atoms(gindex(i,j))%atom_pos(:),zero_array(1:qt%qsystem%no_eigenvalues)
+    endif
+ enddo
+    write(222,*),""
+ enddo
+ endif
 
 
 ! do i = 1 , qsystem%no_atoms

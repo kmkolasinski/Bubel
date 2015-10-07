@@ -1,5 +1,9 @@
 #!/usr/bin/python
+"""
+Created on Thu Mar  5 14:16:21 2015
 
+@author: Krzysztof Kolasinski
+"""
 import numpy as np
 import matplotlib.pyplot as plt
 import csv
@@ -38,3 +42,8 @@ for i in range(no_lines):
 for i in range(no_lines):  
     if(data[i,6] > 1.0):
         ax.plot(data[i,0],data[i,1],c='r',markersize=data[i,6]*pscale,marker='.',markeredgecolor='k')                  
+
+plt.xlabel("x")
+plt.xlabel("y")
+plt.savefig("lattice.png")        
+#plt.show()        
