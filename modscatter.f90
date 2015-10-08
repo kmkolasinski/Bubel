@@ -42,13 +42,14 @@ subroutine destroy_system(this)
     this%no_leads = 0
 end subroutine destroy_system
 
-subroutine add_lead(this,lshape)
+subroutine add_lead(this,lshape,lvec)
     class(qscatter) :: this
     type(qshape) :: lshape
+    doubleprecision :: lvec(3)
 
     this%no_leads = this%no_leads + 1
 
-    call this%leads(this%no_leads)%init_lead(lshape,this%qsystem%atoms)
+    call this%leads(this%no_leads)%init_lead(lshape,lvec,this%qsystem%atoms)
 
 
 end subroutine add_lead

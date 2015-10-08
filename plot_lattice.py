@@ -23,9 +23,9 @@ xWidth = abs(minCorner[0]-maxCorner[0])
 yWidth = abs(minCorner[1]-maxCorner[1])
 zWidth = abs(minCorner[2]-maxCorner[2])
 
-ax.set_xlim([minCorner[0]-xWidth*0.1,maxCorner[0]+xWidth*0.1])
-ax.set_ylim([minCorner[1]-yWidth*0.1,maxCorner[1]+yWidth*0.1])
-
+#ax.set_xlim([minCorner[0]-xWidth*0.1,maxCorner[0]+xWidth*0.1])
+#ax.set_ylim([minCorner[1]-yWidth*0.1,maxCorner[1]+yWidth*0.1])
+ax.margins(0.1)
 data = np.loadtxt(file,skiprows=4)
 no_lines = np.size(data[:,0])
 #no_lines = 200

@@ -21,6 +21,7 @@ complex*16,parameter :: II = cmplx(0.0D0,1.0D0)
 type qlead
     type(qshape) :: lead_shape                         ! contains the area/volume in which are
                                                        ! located atoms which belong to the lead.
+    doubleprecision :: lead_vector(3)                  ! direction of propagation of the lead in the periodic structur
 
     complex*16,dimension(:,:) , allocatable :: valsH0  ! Hamiltonian of the lead - unit cell
     complex*16,dimension(:,:) , allocatable :: valsTau ! Coupling matrix to the next unit cell
@@ -35,6 +36,8 @@ type qlead
     procedure,pass(this) :: init_lead!()
     procedure,pass(this) :: bands!(this,filename,kmin,kmax,dk,Emin,Emax)
     procedure,pass(this) :: destroy!()
+    procedure,pass(this) :: print_lead!(this,filename,all_atoms)
+
 endtype qlead
 
 public :: qlead
@@ -45,6 +48,7 @@ contains
 ! Initialize lead structure - which is a unit cell in periodic lattice.
 ! lshape - contains information of the volume in which all the atoms which
 !          belong to the lead are located.
+! lvec   - contains vector (x,y,z) of the translational symmetry of the lead
 ! all_atoms - list of all atoms in the system.
 ! Based on those both information lead will generate Hamiltonian matrix
 ! for atoms located in this lead as well as coupling matrix to the next
@@ -52,21 +56,25 @@ contains
 ! Note: Unit cell must lie at the edge of the system such that there will
 ! be only one unit cell ajacent to main unit cell of the lead.
 ! ------------------------------------------------------------------------
-subroutine init_lead(this,lshape,all_atoms)
+subroutine init_lead(this,lshape,lvec,all_atoms)
     class(qlead) :: this
     type(qshape) :: lshape
     type(qatom),dimension(:) :: all_atoms
+    doubleprecision :: lvec(3)
     ! local variables
     integer ,allocatable ,dimension(:) :: tmp_g2l ! contains mapping between global ID of the state (atom+spin)
                                                   ! to local id of that site (atom,spin) in unit cell
     integer :: i,j,b,b_child
     integer :: no_sites,system_size, atom_id,bond_id,bond_atom_id,bond_id_child,bond_atom_id_child
     integer :: irow,icol,aid,gid,sid,lid
+    integer :: no_atoms
     complex :: cval
+    integer,allocatable :: next_cell_atoms(:)
     doubleprecision,dimension(3) :: cellA_pos,cellB_pos,tmp_pos,cellBA_vec
 
     ! copy shape for future possible usage
-    this%lead_shape = lshape
+    this%lead_shape  = lshape
+    this%lead_vector = lvec
 
     print*,"SYS::LEAD::Initializing lead unit cell parameters"
     ! calculate the number of states in whole system: sum over active atoms and their spins
@@ -83,10 +91,12 @@ subroutine init_lead(this,lshape,all_atoms)
     ! and creat mapping between its globalID and localID
     ! -----------------------------------------------------------
     no_sites = 0
+    no_atoms = 0
     tmp_g2l  = 0
     do i = 1 , size(all_atoms)
         if(all_atoms(i)%bActive) then
             if( lshape%is_inside(all_atoms(i)%atom_pos) == .true. ) then
+                no_atoms = no_atoms + 1
                 do j = 1 , all_atoms(i)%no_in_states ! loop over spins of that atom
 
                     no_sites = no_sites + 1
@@ -98,13 +108,9 @@ subroutine init_lead(this,lshape,all_atoms)
         endif ! end of if active atom
     enddo ! end of do all_atoms
 
-
-
-    print*,"SYS::LEAD::Number of states in lead=",no_sites
-
+    allocate(next_cell_atoms(no_atoms))
     this%no_sites = no_sites
-
-
+    print*,"SYS::LEAD::Number of states in lead=",no_sites," with n=",no_atoms," atoms"
 
 
     if(allocated(this%valsH0))  deallocate(this%valsH0)
@@ -131,11 +137,19 @@ subroutine init_lead(this,lshape,all_atoms)
     ! -----------------------------------------------------------
 
     no_sites = 0
+    no_atoms = 0
     do i = 1 , size(all_atoms) ! Search in all active atoms
         if(all_atoms(i)%bActive) then
             ! if atom is in the unit cell
+            tmp_pos = all_atoms(i)%atom_pos-lvec
+            if( lshape%is_inside(tmp_pos) == .true. ) then
+                no_atoms = no_atoms + 1
+                next_cell_atoms(no_atoms) = i
+            endif
+
             if( lshape%is_inside(all_atoms(i)%atom_pos) == .true. ) then
                 ! create mapping between localID (l2g array) and the atom (j) and its spin (j)
+
                 do j = 1 , all_atoms(i)%no_in_states
                     no_sites = no_sites + 1
                     this%l2g(no_sites,1) = i ! } mapping
@@ -153,71 +167,40 @@ subroutine init_lead(this,lshape,all_atoms)
         endif ! end of if active atom
     enddo ! end of do all_atoms
 
-    ! -----------------------------------------------------------
-    ! Initializing lowest atom position in next cell
-    ! -----------------------------------------------------------
-    do i = 1 , no_sites ! Now we use no_sites
-        atom_id = this%l2g(i,1) ! Get atom index of local site in lead
-        do b = 1 , all_atoms(atom_id)%no_bonds ! iterate over all the bonds of that atom
-            ! bond_atom_id - id of connected atom
-            ! bond_id      - global id of that atom in spin state 1
-            bond_atom_id = all_atoms(atom_id)%bonds(b)%toAtomID
-            bond_id      = all_atoms(bond_atom_id)%globalIDs(1)
-            ! if tmp_g2l(bond_id) == 0 it means that this atom with id = bond_atom_id
-            ! is not in the lead, so it has to be located in the next unit cell.
-            if( tmp_g2l(bond_id) == 0 ) then
-                cellB_pos = all_atoms(bond_atom_id)%atom_pos
-            endif
-        enddo
-    enddo
 
-    ! -----------------------------------------------------------
-    ! Searching for the lowest XYZ of atom in the next unit cell
-    ! -----------------------------------------------------------
-    do i = 1 , no_sites
-        atom_id = this%l2g(i,1) ! get atom index
-        do b = 1 , all_atoms(atom_id)%no_bonds
-            bond_atom_id = all_atoms(atom_id)%bonds(b)%toAtomID
-            bond_id      = all_atoms(bond_atom_id)%globalIDs(1)
-            if( tmp_g2l(bond_id) == 0 ) then
-                tmp_pos = all_atoms(bond_atom_id)%atom_pos
-                if( tmp_pos(1) < cellB_pos(1) .or. &
-                    tmp_pos(2) < cellB_pos(2) .or. &
-                    tmp_pos(3) < cellB_pos(3)) then
-                    cellB_pos = tmp_pos
+
+    no_atoms = 0
+    do i = 1 , size(all_atoms) ! Search in all active atoms
+        if(all_atoms(i)%bActive) then
+            ! if atom is in the unit cell
+            tmp_pos = all_atoms(i)%atom_pos - lvec
+            if( lshape%is_inside(tmp_pos) == .true. ) then
+                ! search for atom with the same position
+                do j = 1 , no_sites
+                    cellA_pos = all_atoms(this%l2g(j,1))%atom_pos
+                    if( sqrt(sum( tmp_pos - cellA_pos )**2) < 1.0E-10 ) then
+                        exit
+                    endif
+                enddo
+                if( j > no_sites ) then
+                    print"(A)",              " SYS::LEAD::ERROR::The translation"
+                    print"(A,i9,A,3e10.2,A)","                   from atom:",i," at position r=(",all_atoms(i)%atom_pos,")"
+                    print"(A,i9,A,3e10.2,A)","                   to atom  :",i," at position r=(",all_atoms(i)%atom_pos,")"
+                    print"(A)",              "                   is impossible by applying lead translation vector. Maybe some of the "
+                    print"(A)",              "                   atoms have not been inlcuded in the lead. Check lead area and T vector."
+                    stop -1
                 endif
+                ! j keeps local ID of the same atom in unit
+                this%next_l2g(j,1) = i
+                this%next_l2g(j,2) = this%l2g(j,2)
+
             endif
-        enddo
-    enddo
+
+        endif ! end of if active atom
+    enddo ! end of do all_atoms
 
 
-!    do i = 1 , no_sites
-!        atom_id = this%l2g(i,1) ! get atom index
-!        do b = 1 , all_atoms(atom_id)%no_bonds
-!            bond_atom_id = all_atoms(atom_id)%bonds(b)%toAtomID
-!            bond_id      = all_atoms(bond_atom_id)%globalIDs(1)
-!            if( tmp_g2l(bond_id) == 0 ) then
-!
-!                do b_child = 1 , all_atoms(bond_atom_id)%no_bonds
-!                bond_atom_id_child = all_atoms(bond_atom_id)%bonds(b_child)%toAtomID
-!                bond_id_child      = all_atoms(bond_atom_id_child)%globalIDs(1)
-!
-!                if( tmp_g2l(bond_id) == 0 ) then
-!                    tmp_pos = all_atoms(bond_atom_id_child)%atom_pos
-!
-!                    if( tmp_pos(1) < cellB_pos(1) .or. &
-!                        tmp_pos(2) < cellB_pos(2) .or. &
-!                        tmp_pos(3) < cellB_pos(3)) then
-!                        cellB_pos = tmp_pos
-!                    endif
-!                endif
-!
-!                enddo
-!            endif
-!        enddo
-!    enddo
-
-    cellBA_vec = cellB_pos - cellA_pos
+    cellBA_vec = lvec
     print"(A,3f12.4,A)"," SYS::LEAD::Lead translation vector XYZ=(",cellBA_vec,")"
 
 
@@ -239,13 +222,22 @@ subroutine init_lead(this,lshape,all_atoms)
             if( tmp_g2l(bond_id) == 0 ) then
                 ! now we search for an atom in the main uint cell with the same position
                 ! what assiociated atom in the next lead.
+
                 do j = 1 , no_sites
                     cellA_pos = all_atoms(this%l2g(j,1))%atom_pos + cellBA_vec
                     cellB_pos = all_atoms(bond_atom_id)%atom_pos
-                    if( sqrt(sum( cellB_pos - cellA_pos )**2) < 1.0E-20 ) then
+                    if( sqrt(sum( cellB_pos - cellA_pos )**2) < 1.0E-10 ) then
                         exit
                     endif
                 enddo
+                if( j > no_sites ) then
+                    print"(A)",              " SYS::LEAD::ERROR::The translation"
+                    print"(A,i9,A,3e10.2,A)","                   from atom:",atom_id," at position r=(",all_atoms(atom_id)%atom_pos,")"
+                    print"(A,i9,A,3e10.2,A)","                   to atom  :",bond_atom_id," at position r=(",all_atoms(bond_atom_id)%atom_pos,")"
+                    print"(A)",              "                   is impossible by applying lead translation vector. Maybe some of the "
+                    print"(A)",              "                   atoms have not been inlcuded in the lead. Check lead area and T vector."
+                    stop -1
+                endif
                 ! now "j" contains of localID of the state in the lead which is equivalent
                 ! to same state but in the next unit cell.
 
@@ -260,9 +252,7 @@ subroutine init_lead(this,lshape,all_atoms)
                 ! fill coupling matrix
                 this%valsTau(irow,icol) = cval
 
-                ! filling mapping to the next unit cell
-                this%next_l2g(i,1) = bond_atom_id
-                this%next_l2g(i,2) = sid
+
             else ! in case of coupling occures within lead
 
                 aid = bond_atom_id ! id of connected atom
@@ -273,6 +263,7 @@ subroutine init_lead(this,lshape,all_atoms)
                 icol = lid
                 cval = all_atoms(atom_id)%bonds(b)%bondValue
                 this%valsH0(irow,icol) = cval
+!                print*,irow,icol,atom_id,aid,sqrt(sum((all_atoms(atom_id)%atom_pos-all_atoms(aid)%atom_pos)**2 ))
             endif ! end of else if "atom is in the lead or outside"
             endif ! end of if bond comes from the atom with the same spin what site has
         enddo ! end of do over bond in site
@@ -280,6 +271,7 @@ subroutine init_lead(this,lshape,all_atoms)
     enddo ! end of do over sites in lead
     ! deallocate unnecessary array
     deallocate(tmp_g2l)
+    deallocate(next_cell_atoms)
 
 end subroutine init_lead
 
@@ -380,7 +372,7 @@ subroutine bands(this,filename,kmin,kmax,dk,Emin,Emax)
 
     ! Perform scan
     open(unit = 782321, file= filename )
-    do skank = kmin , kmax , dk
+    do skank = kmin , kmax + dk/2 , dk
 
         kvec = II*skank
         do i = 1 , N
@@ -419,5 +411,100 @@ subroutine bands(this,filename,kmin,kmax,dk,Emin,Emax)
 
 end subroutine bands
 
+subroutine print_lead(this,filename,all_atoms)
+    class(qlead) :: this
+    character(*) :: filename
+    type(qatom),dimension(:) :: all_atoms
+    integer,parameter :: funit = 5437629
+    integer :: i,j,id_atom_a,id_spin_a,id_atom_b,id_spin_b
+    doubleprecision :: max_abs_matrix_element,normalized_value
+    open(unit=funit,file=filename)
+    write(funit,"(A)"),"<lead>"
+    call this%lead_shape%flush_shape_data_to_file(funit)
+    write(funit,"(A)"),"<lead_vector>"
+    write(funit,"(3e20.6)"),this%lead_vector
+    write(funit,"(A)"),"</lead_vector>"
+
+    write(funit,"(A)"),"<lead_data>"
+
+    max_abs_matrix_element = 0
+    do i = 1 , this%no_sites
+        do j = i , this%no_sites
+            if( abs(this%valsH0(i,j)) > max_abs_matrix_element ) max_abs_matrix_element = abs(this%valsH0(i,j))
+        enddo
+    enddo
+
+    do i = 1 , this%no_sites
+        id_atom_a = this%l2g(i,1)
+        id_spin_a = this%l2g(i,2)
+        do j = i , this%no_sites
+        id_atom_b = this%l2g(j,1)
+        id_spin_b = this%l2g(j,2)
+        normalized_value = abs(this%valsH0(i,j))/max_abs_matrix_element
+!        print*,normalized_value
+!        print*,i,j,abs(this%valsH0(i,j))
+        if( normalized_value > 10.0E-10 ) then
+!            print*,sqrt(sum((all_atoms(id_atom_a)%atom_pos-all_atoms(id_atom_b)%atom_pos)**2 ))
+!            print*,i,j,id_atom_a,id_atom_b,sqrt(sum((all_atoms(id_atom_a)%atom_pos-all_atoms(id_atom_b)%atom_pos)**2 ))
+            write(funit,"(A,7e20.6,2i5,A)"),"   <data>",all_atoms(id_atom_a)%atom_pos,all_atoms(id_atom_b)%atom_pos,normalized_value,id_spin_a,id_spin_b,"</data>"
+        endif
+        enddo
+    enddo
+    write(funit,"(A)"),"</lead_data>"
+
+
+    write(funit,"(A)"),"<next_cell_lead_data>"
+
+
+    do i = 1 , this%no_sites
+        id_atom_a = this%next_l2g(i,1)
+        id_spin_a = this%next_l2g(i,2)
+        do j = i , this%no_sites
+        id_atom_b = this%next_l2g(j,1)
+        id_spin_b = this%next_l2g(j,2)
+        normalized_value = abs(this%valsH0(i,j))/max_abs_matrix_element
+!        print*,normalized_value
+!        print*,i,j,abs(this%valsH0(i,j))
+        if( normalized_value > 10.0E-10 ) then
+!            print*,sqrt(sum((all_atoms(id_atom_a)%atom_pos-all_atoms(id_atom_b)%atom_pos)**2 ))
+!            print*,i,j,id_atom_a,id_atom_b,sqrt(sum((all_atoms(id_atom_a)%atom_pos-all_atoms(id_atom_b)%atom_pos)**2 ))
+            write(funit,"(A,7e20.6,2i5,A)"),"   <data>",all_atoms(id_atom_a)%atom_pos,all_atoms(id_atom_b)%atom_pos,normalized_value,id_spin_a,id_spin_b,"</data>"
+        endif
+        enddo
+    enddo
+    write(funit,"(A)"),"</next_cell_lead_data>"
+
+
+    write(funit,"(A)"),"<lead_coupling>"
+    max_abs_matrix_element = 0
+    do i = 1 , this%no_sites
+        do j = 1 , this%no_sites
+            if( abs(this%valsTau(i,j)) > max_abs_matrix_element ) max_abs_matrix_element = abs(this%valsTau(i,j))
+        enddo
+    enddo
+
+    do i = 1 , this%no_sites
+        id_atom_a = this%l2g(i,1)
+        id_spin_a = this%l2g(i,2)
+        do j = 1 , this%no_sites
+        id_atom_b = this%next_l2g(j,1)
+        id_spin_b = this%next_l2g(j,2)
+        normalized_value = abs(this%valsTau(i,j))/max_abs_matrix_element
+!        print*,normalized_value
+!        print*,i,j,abs(this%valsTau(i,j))
+        if( normalized_value > 10.0E-10 ) then
+!            print*,sqrt(sum((all_atoms(id_atom_a)%atom_pos-all_atoms(id_atom_b)%atom_pos)**2 ))
+!            print*,i,j,id_atom_a,id_atom_b,sqrt(sum((all_atoms(id_atom_a)%atom_pos-all_atoms(id_atom_b)%atom_pos)**2 ))
+            write(funit,"(A,7e20.6,2i5,A)"),"   <data>",all_atoms(id_atom_a)%atom_pos,all_atoms(id_atom_b)%atom_pos,normalized_value,id_spin_a,id_spin_b,"</data>"
+        endif
+        enddo
+    enddo
+    write(funit,"(A)"),"</lead_coupling>"
+
+
+    write(funit,"(A)"),"</lead>"
+    close(funit)
+
+endsubroutine print_lead
 
 endmodule modlead

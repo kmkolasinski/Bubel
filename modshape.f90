@@ -15,6 +15,7 @@ type qshape
     procedure,pass(this) :: is_inside
     procedure,pass(this) :: init_rect
     procedure,pass(this) :: is_inside_rect
+    procedure,pass(this) :: flush_shape_data_to_file!(this,file_id)
 end type qshape
 
 public :: qshape
@@ -42,7 +43,6 @@ logical function is_inside(this,vec)
             stop -1
     endselect
 
-
 end function is_inside
 
 subroutine init_rect(this,shape_type,xmin,xmax,ymin,ymax)
@@ -66,4 +66,25 @@ logical function is_inside_rect(this,vec)
 
 end function is_inside_rect
 
+subroutine flush_shape_data_to_file(this,file_id)
+    class(qshape) :: this
+    integer :: file_id
+
+    selectcase(this%SHAPE_TYPE)
+    case(SHAPE_RECTANGLE_XY)
+
+
+            write(file_id,"(A)"),"<shape_type>"
+            write(file_id,"(A)"),"SHAPE_RECTANGLE_XY"
+            write(file_id,"(A)"),"</shape_type>"
+            write(file_id,"(A)"),"<shape_data>"
+            write(file_id,"(4e20.6)"),this%xmin,this%ymin,this%xmax,this%ymax
+            write(file_id,"(A)"),"</shape_data>"
+
+    case default
+            print*,"SYS::SHAPE::ERROR::There is no such type of shape:",this%SHAPE_TYPE," cannot flush data to file."
+            stop -1
+    endselect
+
+endsubroutine flush_shape_data_to_file
 endmodule modshape

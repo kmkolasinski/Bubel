@@ -7,74 +7,58 @@ program transporter
  type(qscatter) :: qt
  type(qshape) :: rect_shape
 
-
-
  integer :: i , j, k , N
- doubleprecision :: dx,zero_array(100)
- doubleprecision,parameter :: lattice_vectors(2,2) =  (/  (/ 1.0D0,0.0D0 /) , (/ sin(30.0/180.0*M_PI) , cos(30.0/180.0*M_PI) /) /)
- doubleprecision,parameter :: atoms_positions(2,2) =  (/  (/ 0.0D0,0.0D0 /) , (/ 0.0D0 , 1.0D0/sqrt(3.0) /) /)
+ doubleprecision,parameter :: alpha30 =  30.0/180.0*M_PI
+ doubleprecision,parameter :: vecs_armchair(2,2) =  (/  (/ 1.0D0,0.0D0 /) , (/ sin(alpha30) , cos(alpha30) /) /)
+ doubleprecision,parameter :: atoms_armchair(2,2) =  (/  (/ 0.0D0,0.0D0 /) , (/ 0.0D0 , 1.0D0/sqrt(3.0) /) /)
+
+ doubleprecision,parameter :: vecs_zigzag(2,2) =   (/  (/ (3.0/2.0)/sqrt(3.0D0)  ,0.5D0 /) , (/ -(3.0/2.0)/sqrt(3.0D0) , 0.5D0 /) /)
+ doubleprecision,parameter :: atoms_zigzag(2,2) =  (/  (/ 0.0D0,0.0D0 /) , (/ 1.0D0/sqrt(3.0)  ,0.0D0  /) /)
+
  doubleprecision,parameter :: pos_offset(2) =  (/ -5.0D0,0.0D0 /)
- doubleprecision :: atom_pos(3)
+ doubleprecision,parameter :: pos_offset_zigzag(2) =  (/ -5.0D0,-10.0D0 /)
+ doubleprecision :: atom_pos(3),lead_translation_vec(3)
  integer ,parameter :: atom_A = 1 , atom_B = 2 , atom_C = 3
  integer :: atom
- integer :: gindex(19,11)
- print*,"Program start"
+ integer :: gindex(30,31)
 
-
- print*,"latice vector 1=",lattice_vectors(:,1)
- print*,"latice vector 2=",lattice_vectors(:,2)
  call qt%init_system()
- dx = 1.0
- k = 0
- atom_pos = 0
- gindex   = 0
- do i = 1 , size(gindex,1)
- do j = 1 , size(gindex,2)
-    do atom = atom_A , atom_B
-    ! set atom position in space
-    atom_pos(1:2) = atoms_positions(:,atom) + (i-1) * lattice_vectors(:,1) +  (j-1) * lattice_vectors(:,2) + pos_offset
-    ! cut some atoms to have rectangular flake
-    if(atom_pos(1) > 0.2 .and. atom_pos(1) < 11.7 ) then
-        call qt%qatom%init( (/ atom_pos(1) , atom_pos(2) , 0.0D0 /),flag=atom)
-        call qt%qsystem%add_atom(qt%qatom)
-        k = k + 1
-        gindex(i,j) = k
-    endif
-    enddo ! end of atom loop
 
-    !if( abs(i - size(gindex,1)/2) > 5 .and. j > 20 ) qsystem%qatom%bActive = .false.
-    !if( abs(i - size(gindex,1)/2.0)**2 + abs(j - size(gindex,2)/2.0)**2 > 200 ) qsystem%qatom%bActive = .false.
-!    print*,qt%qatom%atom_pos
-
-
-enddo
-enddo
-
-qt%qnnbparam%distance   = 0.6
-qt%qnnbparam%NNB_FILTER = QSYS_NNB_FILTER_DISTANCE
-call qt%qsystem%make_lattice(connect,qt%qnnbparam)
-
-! remove single bonds
-do atom = 1 ,qt%qsystem%no_atoms
-    if(qt%qsystem%atoms(atom)%no_bonds == 1)   qt%qsystem%atoms(atom)%bActive  = .false.
-enddo
-call qt%qsystem%make_lattice(connect,qt%qnnbparam)
-
-call qt%qsystem%save_lattice("lattice.dat")
-
-call rect_shape%init_rect(SHAPE_RECTANGLE_XY,0.4D0,1.1D0,0.0D0,9.0D0)
-call qt%add_lead(rect_shape)
-
-call qt%leads(1)%bands("rel.txt",-3.14D0,3.14D0,0.1D0,-20.0D0,20.0D0)
-
-
-! do i = 1 , 50
+! k = 0
+! atom_pos = 0
+! gindex   = 0
+! do i = 1 , size(gindex,1)
+! do j = 1 , size(gindex,2)
+!    do atom = atom_A , atom_B
+!    ! set atom position in space
+!    atom_pos(1:2) = atoms_armchair(:,atom) + (i-1) * vecs_armchair(:,1) +  (j-1) * vecs_armchair(:,2) + pos_offset
+!    ! cut some atoms to have rectangular flake
+!    if(atom_pos(1) > 0.2 .and. atom_pos(1) < 11.7 .and.  atom_pos(2) < 10.5 ) then
+!        call qt%qatom%init( (/ atom_pos(1) , atom_pos(2) , 0.0D0 /),flag=atom)
+!        call qt%qsystem%add_atom(qt%qatom)
+!        k = k + 1
+!        gindex(i,j) = k
+!    endif
+!    enddo ! end of atom loop
+!enddo
+!enddo
 !
-!    !print*,i,qsystem%atoms(i)%no_bonds
-!    do k = 1 , qsystem%atoms(i)%no_bonds
-!        !print"(A,4i,2f6.2)"," ",k,qsystem%atoms(i)%bonds(k)%fromInnerID,qsystem%atoms(i)%bonds(k)%toAtomID,qsystem%atoms(i)%bonds(k)%toInnerID,qsystem%atoms(i)%bonds(k)%bondValue
-!    enddo
-! enddo
+!qt%qnnbparam%distance   = 0.6
+!qt%qnnbparam%NNB_FILTER = QSYS_NNB_FILTER_DISTANCE
+!call qt%qsystem%make_lattice(connect,qt%qnnbparam)
+!
+!! remove single bonds
+!do atom = 1 ,qt%qsystem%no_atoms
+!    if(qt%qsystem%atoms(atom)%no_bonds == 1)   qt%qsystem%atoms(atom)%bActive  = .false.
+!enddo
+!call qt%qsystem%make_lattice(connect,qt%qnnbparam)
+!call qt%qsystem%save_lattice("lattice.dat")
+!
+!! adding lead
+!call rect_shape%init_rect(SHAPE_RECTANGLE_XY,0.4D0,1.1D0,0.0D0,11.0D0)
+!call qt%add_lead(rect_shape,(/1.0D0,0.0D0,0.0D0/))
+!call qt%leads(1)%print_lead("lead.dat",qt%qsystem%atoms)
+!call qt%leads(1)%bands("dispersion_armchair.txt",-3.14D0,3.14D0,0.1D0,-15.0D0,15.0D0)
 
 ! call qt%qsystem%calc_eigenproblem(0.0D0,0.2D0,150)
 ! zero_array = 0
@@ -93,13 +77,42 @@ call qt%leads(1)%bands("rel.txt",-3.14D0,3.14D0,0.1D0,-20.0D0,20.0D0)
 ! endif
 
 
-! do i = 1 , qsystem%no_atoms
-!    k = qsystem%atoms(i)%globalIDs(1)
-!    write(222,"(500e20.6)"),qsystem%atoms(i)%atom_pos(:),abs(qsystem%eigenvecs(k,:))**2
-! enddo
+ ! --------------------------------------------------------------------------
+ ! ZIGZAG test
+ ! --------------------------------------------------------------------------
 
- call qt%destroy_system()
- contains
+k = 0
+gindex   = 0
+do i = 1 , size(gindex,1)
+do j = 1 , size(gindex,2)
+    do atom = atom_A , atom_B
+        ! set atom position in space
+        atom_pos(1:2) = atoms_zigzag(:,atom) + (i-1) * vecs_zigzag(:,1) +  (j-1) * vecs_zigzag(:,2) + pos_offset_zigzag
+        ! cut some atoms to have rectangular flake
+        if(atom_pos(1) > 0.2 .and. atom_pos(1) < 12.5 .and. &
+           atom_pos(2) > 0.0 .and. atom_pos(2) < 9.9 ) then
+            call qt%qatom%init( (/ atom_pos(1) , atom_pos(2) , 0.0D0 /),flag=atom)
+            call qt%qsystem%add_atom(qt%qatom)
+            k = k + 1
+            gindex(i,j) = k
+        endif
+    enddo ! end of atom loop
+enddo
+enddo
+
+qt%qnnbparam%distance   = 0.6
+qt%qnnbparam%NNB_FILTER = QSYS_NNB_FILTER_DISTANCE
+call qt%qsystem%make_lattice(connect,qt%qnnbparam)
+call qt%qsystem%save_lattice("lattice.dat")
+
+! Do not add new lead - overwrite exisiting one
+call rect_shape%init_rect(SHAPE_RECTANGLE_XY,0.4D0,2.1D0,0.0D0,10.0D0)
+lead_translation_vec = (/ 3.0/sqrt(3.0D0) ,  0.0D0 , 0.0D0 /)
+call qt%add_lead(rect_shape,lead_translation_vec)
+call qt%leads(1)%print_lead("lead.dat",qt%qsystem%atoms)
+call qt%leads(1)%bands("dispersion_zigzag.txt",-3.14D0,3.14D0,0.1D0,-15.0D0,15.0D0)
+call qt%destroy_system()
+contains
 
 logical function connect(atomA,atomB,s1,s2,coupling_val)
     use modatom
@@ -111,12 +124,12 @@ logical function connect(atomA,atomB,s1,s2,coupling_val)
     connect = .false.
 
     ! In clean graphene atom from sublattice A always couples to atom from lattice B
-    test = atomA%flag == atom_A .and. atomB%flag == atom_B
-    test = test .or. atomB%flag == atom_A .and. atomA%flag == atom_B
+    test = .not.(atomA%flag == atomB%flag)
+
 
     if(test) then
         connect = .true.
-        coupling_val = 4.0D0
+        coupling_val = 1.0D0
     endif
 
 

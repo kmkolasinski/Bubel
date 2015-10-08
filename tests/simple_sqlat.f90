@@ -71,7 +71,7 @@ program transporter
  ! Set criterium for the nearest neightbours "radius" search algorithm.
  ! Same as above qsystem%qnnbparam is a auxiliary variable of type(nnb_params) - more details in modsys.f90
  ! This structure is responsible for different criteria of nearest neighbour searching
-  qsystem%qnnbparam%max_distance = (/2*dx,2*dx,0.0D0/) ! do not search for the sites far than (-dx:+dx) direction
+  qsystem%qnnbparam%box = (/2*dx,2*dx,0.0D0/) ! do not search for the sites far than (-dx:+dx) direction
  ! Setup connections between sites with provided by you function "connect", see below for example.
  call qsystem%make_lattice(connect,qsystem%qnnbparam)
 
