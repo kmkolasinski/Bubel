@@ -415,9 +415,15 @@ subroutine print_lead(this,filename,all_atoms)
     class(qlead) :: this
     character(*) :: filename
     type(qatom),dimension(:) :: all_atoms
+
     integer,parameter :: funit = 5437629
-    integer :: i,j,id_atom_a,id_spin_a,id_atom_b,id_spin_b
+    integer         :: i,j,id_atom_a,id_spin_a,id_atom_b,id_spin_b
     doubleprecision :: max_abs_matrix_element,normalized_value
+    doubleprecision :: CUTOFF_LEVEL,weight
+    doubleprecision :: tmp_pos(3)
+
+    CUTOFF_LEVEL = 1.0D-10
+    print*,"SYS::LEAD::Writing lead data to file:",filename
     open(unit=funit,file=filename)
     write(funit,"(A)"),"<lead>"
     call this%lead_shape%flush_shape_data_to_file(funit)
@@ -425,56 +431,56 @@ subroutine print_lead(this,filename,all_atoms)
     write(funit,"(3e20.6)"),this%lead_vector
     write(funit,"(A)"),"</lead_vector>"
 
+    ! ----------------------------------------------------------------------------
+    ! LEAD DATA
+    ! ----------------------------------------------------------------------------
     write(funit,"(A)"),"<lead_data>"
-
     max_abs_matrix_element = 0
     do i = 1 , this%no_sites
         do j = i , this%no_sites
             if( abs(this%valsH0(i,j)) > max_abs_matrix_element ) max_abs_matrix_element = abs(this%valsH0(i,j))
         enddo
     enddo
-
     do i = 1 , this%no_sites
         id_atom_a = this%l2g(i,1)
+
+        if( all_atoms(id_atom_a)%bActive) then
+
         id_spin_a = this%l2g(i,2)
         do j = i , this%no_sites
         id_atom_b = this%l2g(j,1)
         id_spin_b = this%l2g(j,2)
         normalized_value = abs(this%valsH0(i,j))/max_abs_matrix_element
-!        print*,normalized_value
-!        print*,i,j,abs(this%valsH0(i,j))
-        if( normalized_value > 10.0E-10 ) then
-!            print*,sqrt(sum((all_atoms(id_atom_a)%atom_pos-all_atoms(id_atom_b)%atom_pos)**2 ))
-!            print*,i,j,id_atom_a,id_atom_b,sqrt(sum((all_atoms(id_atom_a)%atom_pos-all_atoms(id_atom_b)%atom_pos)**2 ))
+        if( normalized_value > CUTOFF_LEVEL ) then
             write(funit,"(A,7e20.6,2i5,A)"),"   <data>",all_atoms(id_atom_a)%atom_pos,all_atoms(id_atom_b)%atom_pos,normalized_value,id_spin_a,id_spin_b,"</data>"
         endif
         enddo
+        endif
     enddo
     write(funit,"(A)"),"</lead_data>"
-
-
+    ! ----------------------------------------------------------------------------
+    ! NEXT UNIT CELL DATA
+    ! ----------------------------------------------------------------------------
     write(funit,"(A)"),"<next_cell_lead_data>"
-
-
     do i = 1 , this%no_sites
         id_atom_a = this%next_l2g(i,1)
+        if(all_atoms(id_atom_a)%bActive) then
         id_spin_a = this%next_l2g(i,2)
         do j = i , this%no_sites
         id_atom_b = this%next_l2g(j,1)
         id_spin_b = this%next_l2g(j,2)
         normalized_value = abs(this%valsH0(i,j))/max_abs_matrix_element
-!        print*,normalized_value
-!        print*,i,j,abs(this%valsH0(i,j))
-        if( normalized_value > 10.0E-10 ) then
-!            print*,sqrt(sum((all_atoms(id_atom_a)%atom_pos-all_atoms(id_atom_b)%atom_pos)**2 ))
-!            print*,i,j,id_atom_a,id_atom_b,sqrt(sum((all_atoms(id_atom_a)%atom_pos-all_atoms(id_atom_b)%atom_pos)**2 ))
+        if( normalized_value > CUTOFF_LEVEL ) then
             write(funit,"(A,7e20.6,2i5,A)"),"   <data>",all_atoms(id_atom_a)%atom_pos,all_atoms(id_atom_b)%atom_pos,normalized_value,id_spin_a,id_spin_b,"</data>"
         endif
         enddo
+        endif
     enddo
     write(funit,"(A)"),"</next_cell_lead_data>"
 
-
+    ! ----------------------------------------------------------------------------
+    ! COUPLING TO THE NEXT CELL DATA
+    ! ----------------------------------------------------------------------------
     write(funit,"(A)"),"<lead_coupling>"
     max_abs_matrix_element = 0
     do i = 1 , this%no_sites
@@ -482,24 +488,44 @@ subroutine print_lead(this,filename,all_atoms)
             if( abs(this%valsTau(i,j)) > max_abs_matrix_element ) max_abs_matrix_element = abs(this%valsTau(i,j))
         enddo
     enddo
-
     do i = 1 , this%no_sites
         id_atom_a = this%l2g(i,1)
+        if( all_atoms(id_atom_a)%bActive) then
         id_spin_a = this%l2g(i,2)
         do j = 1 , this%no_sites
         id_atom_b = this%next_l2g(j,1)
         id_spin_b = this%next_l2g(j,2)
         normalized_value = abs(this%valsTau(i,j))/max_abs_matrix_element
-!        print*,normalized_value
-!        print*,i,j,abs(this%valsTau(i,j))
-        if( normalized_value > 10.0E-10 ) then
-!            print*,sqrt(sum((all_atoms(id_atom_a)%atom_pos-all_atoms(id_atom_b)%atom_pos)**2 ))
-!            print*,i,j,id_atom_a,id_atom_b,sqrt(sum((all_atoms(id_atom_a)%atom_pos-all_atoms(id_atom_b)%atom_pos)**2 ))
+        if( normalized_value > CUTOFF_LEVEL ) then
             write(funit,"(A,7e20.6,2i5,A)"),"   <data>",all_atoms(id_atom_a)%atom_pos,all_atoms(id_atom_b)%atom_pos,normalized_value,id_spin_a,id_spin_b,"</data>"
         endif
         enddo
+        endif
     enddo
     write(funit,"(A)"),"</lead_coupling>"
+
+    ! ----------------------------------------------------------------------------
+    ! SET OF ATOMS NEAR TO LEAD
+    ! ----------------------------------------------------------------------------
+    write(funit,"(A)"),"<nearest_atoms>"
+
+    do i = 1 , size(all_atoms)
+        if(all_atoms(i)%bActive) then
+
+        do j = 1 , 5 ! check five nearest unit cells
+            tmp_pos = all_atoms(i)%atom_pos - (j-1)*this%lead_vector
+            if(this%lead_shape%is_inside(tmp_pos)) then
+                weight = 1-(j-1)/(5.0-1.0)
+                if(weight >= 0.5) weight = 1
+                write(funit,"(A,4e20.6,A)"),"   <data>",all_atoms(i)%atom_pos,weight,"</data>"
+                exit
+            endif
+        enddo
+
+        endif
+
+    enddo
+    write(funit,"(A)"),"</nearest_atoms>"
 
 
     write(funit,"(A)"),"</lead>"

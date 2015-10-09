@@ -28,6 +28,7 @@ program transporter
  doubleprecision,parameter  :: dx = 5.0 ! [nm]
  integer , dimension(nx,ny) :: gindex ! converts local index (i,j) to global index
  integer :: i,j,k
+ doubleprecision            :: lead_translation_vec(3)
 
 
  ! Use atomic units in effective band model -> see modunit.f90 for more details
@@ -123,8 +124,10 @@ program transporter
  call lead_shape%init_rect(SHAPE_RECTANGLE_XY,-0.5*dx,0.5*dx,-0.5*dx,(ny+1)*dx)
  ! Lead needs to know where it is (lead_shape) and using this information it will
  ! create propper matrices and connections using list of atoms
- call lead%init_lead(lead_shape,qsystem%atoms)
+ lead_translation_vec = (/  dx , 0.0D0 , 0.0D0 /)
+ call lead%init_lead(lead_shape,lead_translation_vec,qsystem%atoms)
  a_Emin = 0.0 / A0 / 1000.0 ! converting from [meV] to atomic units
+ call lead%print_lead(output_folder//"lead.dat",qsystem%atoms)
  a_Emax = 0.3 / A0 / 1000.0 ! converting from [meV] to atomic units
  call lead%bands(output_folder//"bands.dat",-M_PI,+M_PI,M_PI/50.0,a_Emin,a_Emax)
  ! ----------------------------------------------------------
@@ -139,6 +142,8 @@ program transporter
  call system("cd "//output_folder//"; ./plot_eigenvecs.py")
  print*,"Plotting lattice..."
  call system("cd "//output_folder//"; ./plot_lattice.py")
+ print*,"Plotting lead..."
+ call system("cd "//output_folder//"; ./plot_lead.py")
  contains
 
 ! ---------------------------------------------------------------------------

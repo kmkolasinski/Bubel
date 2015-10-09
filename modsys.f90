@@ -578,7 +578,7 @@ subroutine save_lattice(sys,filename,innerA,innerB)
         if( sys%atoms(ida)%bActive ) then
         if( ida >= i ) then
             lWidth = 0.1
-            if(ida == i) lWidth = 10.0
+            if(ida == i) lWidth = 1.0
 
             if(s1 == ids1 .and. s2 == ids2) then
                 write(765819,"(7e20.6)"),sys%atoms(i)%atom_pos,sys%atoms(ida)%atom_pos,lWidth

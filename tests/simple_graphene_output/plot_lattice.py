@@ -52,7 +52,7 @@ for i in range(no_lines):
             
 points = np.array(points)
 wlist  = np.array(wlist)
-if(size(points) > 0):        
+if(np.size(points) > 0):        
     ax.scatter(points[:,0],points[:,1], cmap='PuBu', c=wlist , s=50 , edgecolors='k' , zorder=2 )     
 
 plt.savefig("lattice.pdf")

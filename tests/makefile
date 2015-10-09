@@ -10,6 +10,8 @@ debug:
 build_simple_sqlat:
 	make simple_sqlat C=ifort P=simple_sqlat
 
+build_simple_graphene:
+	make simple_graphene C=ifort P=simple_graphene
 
 EXEC_FILE=$(P)
 # -----------------------------------
@@ -84,5 +86,5 @@ $(EXEC_FILE): $(EXEC_FILE).f90  $(UMFPACK_FILES)
 
 
 clean:
-	rm simple_sqlat
-	rm simple_sqlat_output/*.dat simple_sqlat_output/*.pdf simple_sqlat_output/*.png
+	rm simple_sqlat simple_graphene
+	rm */*.dat */*.pdf */*.png

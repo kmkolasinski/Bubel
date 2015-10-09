@@ -1,13 +1,9 @@
 #!/usr/bin/python
-"""
-Created on Thu Mar  5 14:16:21 2015
 
-@author: Krzysztof Kolasinski
-"""
 import numpy as np
 import matplotlib.pyplot as plt
 import csv
-
+from matplotlib.collections import LineCollection
 
 file = "lattice.dat"
 #ax = plt.gca(projection='3d')
@@ -27,23 +23,36 @@ xWidth = abs(minCorner[0]-maxCorner[0])
 yWidth = abs(minCorner[1]-maxCorner[1])
 zWidth = abs(minCorner[2]-maxCorner[2])
 
-ax.set_xlim([minCorner[0]-xWidth*0.1,maxCorner[0]+xWidth*0.1])
-ax.set_ylim([minCorner[1]-yWidth*0.1,maxCorner[1]+yWidth*0.1])
+ax.scatter(minCorner[0],minCorner[1],s=0)
+ax.scatter(maxCorner[0],maxCorner[1],s=0)
 
+ax.margins(0.1)
 data = np.loadtxt(file,skiprows=4)
 no_lines = np.size(data[:,0])
-#no_lines = 200
+            
+
+
+        
+wlist = []
+lines = []
 for i in range(no_lines):
-    x = [data[i,0],data[i,3]]
-    y = [data[i,1],data[i,4]]
-    #z = [data[i,2],data[i,5]]
-    ax.plot(x,y,c='k',lw=data[i,6]*lscale,ls='-')              
+        lines.append([ (data[i,0],data[i,1]) , (data[i,3],data[i,4]) ])
+        wlist.extend([data[i,6]*lscale])        
+        
+lc = LineCollection(lines, linewidths=wlist,colors='black',lw=1.0)
+ax.add_collection(lc)        
 
-for i in range(no_lines):  
-    if(data[i,6] > 1.0):
-        ax.plot(data[i,0],data[i,1],c='r',markersize=data[i,6]*pscale,marker='.',markeredgecolor='k')                  
 
-plt.xlabel("x")
-plt.xlabel("y")
-plt.savefig("lattice.png")        
-#plt.show()        
+wlist  = []
+points = []
+for i in range(no_lines):
+        if(data[i,6] > 1.0):
+            points.append([data[i,0],data[i,1] ])
+            wlist.extend([data[i,6]*pscale])        
+            
+points = np.array(points)
+wlist  = np.array(wlist)
+if(np.size(points) > 0):        
+    ax.scatter(points[:,0],points[:,1], cmap='PuBu', c='red' , s=20 , edgecolors='k' , zorder=2 )     
+
+plt.savefig("lattice.png")
