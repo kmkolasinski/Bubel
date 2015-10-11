@@ -17,10 +17,10 @@ program transporter
 
  doubleprecision,parameter :: pos_offset(2) =  (/ -5.0D0,0.0D0 /)
  doubleprecision,parameter :: pos_offset_zigzag(2) =  (/ -5.0D0,-10.0D0 /)
- doubleprecision :: atom_pos(3),lead_translation_vec(3)
+ doubleprecision :: atom_pos(3),lead_translation_vec(3),range_base(3),range_dir(3)
  integer ,parameter :: atom_A = 1 , atom_B = 2 , atom_C = 3
  integer :: atom
- integer :: gindex(30,31)
+ integer :: gindex(30,6)
 
  call qt%init_system()
 
@@ -66,7 +66,10 @@ quad_positions(2,:) = (/-4.8 ,  0.2  /)
 quad_positions(3,:) = (/ 10.4 , 26.0  /)
 quad_positions(4,:) = (/ 9.63 , 26.44  /)
 
-call rect_shape%init_convex_quad(quad_positions)
+range_base = (/ -5.5,0.0,0.0 /)
+range_dir =  0.8*(/cos(alpha30),-sin(alpha30),0.0D0/)
+call rect_shape%init_range_3d(range_base,range_dir)
+!call rect_shape%init_convex_quad(quad_positions)
 
 !!call rect_shape%init_rect(SHAPE_RECTANGLE_XY,0.4D0,1.1D0,0.0D0,11.0D0)
 call qt%add_lead(rect_shape,(/1.0D0,0.0D0,0.0D0/))

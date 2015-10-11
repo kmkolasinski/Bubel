@@ -291,7 +291,7 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
     double precision  :: bbox(cmin:cmax,ix:iz)
     ! verlet box searching method
     integer              :: verlet_dims(3) , verlet_max_atoms_in_cell , ivpos(3) , vc
-    integer              :: vx,vy,vz,vp,vnnba
+    integer              :: vx,vy,vz,vp
     integer, allocatable :: verlet_box(:,:,:,:) , verlet_counter(:,:,:)
 
 

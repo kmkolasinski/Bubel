@@ -144,8 +144,20 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
             tmp_pos = all_atoms(i)%atom_pos-lvec
             if( lshape%is_inside(tmp_pos) == .true. ) then
                 no_atoms = no_atoms + 1
+
+                if( no_atoms > this%no_sites ) then
+                    print*,"---------------------------------------------------------------------------"
+                    print*,"SYS::LEAD::WARNING::Unit cell parameters (shape area?) has not "
+                    print*,"           been chosen properly. Plot lead data to see where "
+                    print*,"           is the problem."
+                    print*,"---------------------------------------------------------------------------"
+                    return
+                endif
+
                 next_cell_atoms(no_atoms) = i
             endif
+
+
 
             if( lshape%is_inside(all_atoms(i)%atom_pos) == .true. ) then
                 ! create mapping between localID (l2g array) and the atom (j) and its spin (j)
@@ -464,6 +476,10 @@ subroutine print_lead(this,filename,all_atoms)
     write(funit,"(A)"),"<next_cell_lead_data>"
     do i = 1 , this%no_sites
         id_atom_a = this%next_l2g(i,1)
+
+        if(this%next_l2g(i,1) == 0) then
+            exit
+        endif
         if(all_atoms(id_atom_a)%bActive) then
         id_spin_a = this%next_l2g(i,2)
         do j = i , this%no_sites
@@ -512,10 +528,10 @@ subroutine print_lead(this,filename,all_atoms)
     do i = 1 , size(all_atoms)
         if(all_atoms(i)%bActive) then
 
-        do j = 1 , 5 ! check five nearest unit cells
+        do j = -5 , 5 ! check five nearest unit cells
             tmp_pos = all_atoms(i)%atom_pos - (j-1)*this%lead_vector
             if(this%lead_shape%is_inside(tmp_pos)) then
-                weight = 1-(j-1)/(5.0-1.0)
+                weight = 1-(abs(j)-1)/(5.0-1.0)
                 if(weight >= 0.5) weight = 1
                 write(funit,"(A,4e20.6,A)"),"   <data>",all_atoms(i)%atom_pos,weight,"</data>"
                 exit

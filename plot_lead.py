@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import csv
 from xml.dom import minidom
 from matplotlib.collections import LineCollection
-
+from numpy import linalg as LA
 xmldoc = minidom.parse('lead.dat')
 
 file = "lattice.dat"
@@ -81,8 +81,36 @@ if(shape_type == "SHAPE_CONVEX_QUAD_XY"):
         )
     )
 
+if(shape_type == "SHAPE_RANGE_3D"):  
+    coords = np.array(f_shape_data).reshape(2,3)
+    base   = coords[0][0:2]
+    normal = coords[1][0:2]
+    
+    tangent = [normal[1],-normal[0]]    
+    tangent = np.array(tangent)
+    tangent = tangent/LA.norm(tangent)
+    normal  = np.array(normal)    
+    base    = np.array(base)
+    
+    offset  = np.array([[f_lead_vector[0],f_lead_vector[1]]]*4)
+    scale = 100
+    
+    
+    coords  = [ base - scale*tangent , base - scale*tangent + normal , base + scale*tangent + normal , base + scale*tangent]
+    ax.add_patch(
+        patches.Polygon(coords,
+            alpha=0.2,
+            color='gray'
+        )
+    )    
+    ax.add_patch(
+        patches.Polygon(coords+offset,
+            alpha=0.2,
+            color='green'
+        )
+    )
 
-
+print "Plotting unit cell"
 # rebuild ends using none to separate line segments
 wlist = []
 lines = []
@@ -97,12 +125,12 @@ for ldatas in lead_datas:
         lines.append([ (fdata[0],fdata[1]) , (fdata[3],fdata[4]) ])
         wlist.extend([fdata[6]])
 
+if(np.size(wlist) > 0):
+    lc = LineCollection(lines, linewidths=wlist,colors='gray',lw=2.0)
+    ax.add_collection(lc)
 
-lc = LineCollection(lines, linewidths=wlist,colors='gray',lw=2.0)
-ax.add_collection(lc)
 
-
-
+print "Plotting next unit cells"
 # rebuild ends using none to separate line segments
 wlist = []
 lines = []
@@ -117,11 +145,11 @@ for ldatas in lead_datas:
         lines.append([ (fdata[0],fdata[1]) , (fdata[3],fdata[4]) ])
         wlist.extend([fdata[6]])
 
+if(np.size(wlist) > 0):
+    lc = LineCollection(lines, linewidths=wlist,colors='green',lw=2.0)
+    ax.add_collection(lc)
 
-lc = LineCollection(lines, linewidths=wlist,colors='green',lw=2.0)
-ax.add_collection(lc)
-
-
+print "Plotting coupling between units cells"
 # rebuild ends using none to separate line segments
 wlist = []
 lines = []
@@ -136,10 +164,11 @@ for ldatas in lead_datas:
         lines.append([ (fdata[0],fdata[1]) , (fdata[3],fdata[4]) ])
         wlist.extend([fdata[6]])
 
+if(np.size(wlist) > 0):
+    lc = LineCollection(lines, linewidths=wlist,colors='red',lw=2.0)
+    ax.add_collection(lc)
 
-lc = LineCollection(lines, linewidths=wlist,colors='red',lw=2.0)
-ax.add_collection(lc)
-
+print "Plotting lattice"
 # rebuild ends using none to separate line segments
 wlist = []
 points = []
@@ -153,9 +182,14 @@ for ldatas in lead_datas:
         fdata = [float(j) for j in fdata]              
         points.append([ fdata[0],fdata[1]])
         wlist.extend([fdata[3]])
-        
-points = np.array(points)
-wlist = np.array(wlist)
-ax.scatter(points[:,0],points[:,1], cmap='PuBu', c=wlist , s=10 , edgecolors='k' , zorder=2 )
 
+if(np.size(wlist) > 0):        
+    points = np.array(points)
+    wlist = np.array(wlist)
+    ax.scatter(points[:,0],points[:,1], cmap='PuBu', c=wlist , s=10 , edgecolors='k' , zorder=2 )
+
+
+ax.set_xlim([min(points[:,0]),max(points[:,0])])
+ax.set_ylim([min(points[:,1]),max(points[:,1])])
+ax.margins(0.2)
 plt.savefig("lead.pdf")
