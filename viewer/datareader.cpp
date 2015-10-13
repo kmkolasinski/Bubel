@@ -33,6 +33,7 @@ void DataReader::read_data(QString filename){
 
     QDomElement root=xmlBOM.documentElement();
     if(root.tagName() == "lattice") {
+        qDebug() << "#Reading lattice:";
         QDomElement Component=root.firstChild().toElement();
         while(!Component.isNull())
         {
@@ -75,38 +76,23 @@ void DataReader::read_atoms(QDomElement& root){
     while(!Component.isNull())
     {
         // Check if the child tag name is COMPONENT
-        if (Component.tagName()=="data")
+        if (Component.tagName()=="d")
         {
-
-            // Get the first child of the component
-            QDomElement Child=Component.firstChild().toElement();
-
             double position[3];
             int flag,active,no_states,no_bounds;
-
-
             // Read each child of the component node
-            while (!Child.isNull())
-            {
-                // Read Name and value
-                if (Child.tagName()=="x")  position[0]=Child.firstChild().toText().data().toDouble();
-                if (Child.tagName()=="y")  position[1]=Child.firstChild().toText().data().toDouble();
-                if (Child.tagName()=="z")  position[2]=Child.firstChild().toText().data().toDouble();
-                if (Child.tagName()=="flag")      flag=Child.firstChild().toText().data().toInt();
-                if (Child.tagName()=="active")    active=Child.firstChild().toText().data().toInt();
-                if (Child.tagName()=="no_states") no_states=Child.firstChild().toText().data().toInt();
-                if (Child.tagName()=="no_bounds") no_bounds=Child.firstChild().toText().data().toInt();
-                // Next child
-                Child = Child.nextSibling().toElement();
-            }
+            QString line;
+            line=Component.firstChild().toText().data();
 
-            // Display component data
-//            qDebug() << "  pos      = "  << position[0] << "," << position[1] << "," << position[2] ;
-//            qDebug() << "  flag     = " << (flag);
-//            qDebug() << "  active   = " << (active);
-//            qDebug() << "  no_states= " << (no_states);
-//            qDebug() << "  no_bounds= " << (no_bounds);
 
+            std::stringstream stream(line.toStdString());
+            stream >> position[0];
+            stream >> position[1];
+            stream >> position[2];
+            stream >> flag;
+            stream >> active;
+            stream >> no_states;
+            stream >> no_bounds;
             Atom atom;
             atom.pos       = QVector3D(position[0],position[1],position[2]);
             atom.flag      = flag;
@@ -158,41 +144,50 @@ void DataReader::read_connections(QDomElement& root){
     while(!Component.isNull())
     {
         // Check if the child tag name is COMPONENT
-        if (Component.tagName()=="data")
+        if (Component.tagName()=="d")
         {
-
             // Get the first child of the component
-            QDomElement Child=Component.firstChild().toElement();
+            //QDomElement Child=Component.firstChild().toElement();
 
             AtomConnection connection;
-            // Read each child of the component node
-            while (!Child.isNull())
-            {
-                // Read Name and value
-                if (Child.tagName()=="A")   connection.atomA=Child.firstChild().toText().data().toInt()-1;
-                if (Child.tagName()=="B")   connection.atomB=Child.firstChild().toText().data().toInt()-1;
-                if (Child.tagName()=="sA")  connection.spinA=Child.firstChild().toText().data().toInt();
-                if (Child.tagName()=="sB")  connection.spinB=Child.firstChild().toText().data().toInt();
-                if (Child.tagName()=="vr")  connection.realC=Child.firstChild().toText().data().toDouble();
-                if (Child.tagName()=="vi")  connection.imagC=Child.firstChild().toText().data().toDouble();
-                // Next child
-                Child = Child.nextSibling().toElement();
-            }
+
+            QString line = Component.firstChild().toText().data();
+            std::stringstream stream(line.toStdString());
+            stream >> connection.atomA;
+            stream >> connection.atomB;
+            stream >> connection.spinA;
+            stream >> connection.spinB;
+            stream >> connection.realC;
+            stream >> connection.imagC;
+
+            connection.atomA--;
+            connection.atomB--;
+
+//            // Read each child of the component node
+//            while (!Child.isNull())
+//            {
+//                // Read Name and value
+//                if (Child.tagName()=="A")   connection.atomA=Child.firstChild().toText().data().toInt()-1;
+//                if (Child.tagName()=="B")   connection.atomB=Child.firstChild().toText().data().toInt()-1;
+//                if (Child.tagName()=="sA")  connection.spinA=Child.firstChild().toText().data().toInt();
+//                if (Child.tagName()=="sB")  connection.spinB=Child.firstChild().toText().data().toInt();
+//                if (Child.tagName()=="vr")  connection.realC=Child.firstChild().toText().data().toDouble();
+//                if (Child.tagName()=="vi")  connection.imagC=Child.firstChild().toText().data().toDouble();
+//                // Next child
+//                Child = Child.nextSibling().toElement();
+//            }
+
             connections.push_back(connection);
             if(connection.atomA != connection.atomB){
                 dist = atoms[connection.atomA].pos - atoms[connection.atomB].pos;
                 atoms_stats.ave_dist += dist.length();
                 iter++;
             }
-//            qDebug() << "A=" << connection.atomA;
-//            qDebug() << "B=" << connection.atomB;
         }
         // Next component
         Component = Component.nextSibling().toElement();
     }
-
     atoms_stats.ave_dist /= iter;
-
 }
 
 
@@ -327,11 +322,12 @@ void DataReader::precalculate_data(){
     double scale = 1.0;
     if(dims.x() > dims.y()){
         if(dims.x() > dims.z()) scale = inv_dims.x();
+        else scale = inv_dims.z();
     }else if(dims.y() > dims.z()) scale = inv_dims.y();
     else scale = inv_dims.z();
 
-
-    atoms_stats.atom_radius = 0.3*atoms_stats.ave_dist*scale;
+    atoms_stats.scale = scale;
+    atoms_stats.atom_radius = atoms_stats.ave_dist;
 
 
     p_atoms.clear();

@@ -63,7 +63,7 @@ close(3)
 ! ----------------------------------
 ! Translating unit cell
 ! ----------------------------------
-do k = 1 , 3
+do k = 1 , 5
     deltaR = (/0.0,0.0,(k-1)*4.26/)
     do i=1,tmpsystem%no_atoms
         posA  = tmpsystem%atoms(i)%atom_pos
@@ -143,10 +143,10 @@ call lead%bands(output_folder//"bands.dat",-M_PI,+M_PI,M_PI/60.0,a_Emin,a_Emax)
 ! ! number of expected states in that region. Eigen problem
 ! ! is solved with FEAST library.
 ! ! ----------------------------------------------------------
-!! no_expected_states = 80
+ !no_expected_states = 340
 !! a_Emin = 0.0  / E0 / 1000.0 ! converting from [meV] to atomic units
 !! a_Emax = 0.5  / E0 / 1000.0 ! converting from [meV] to atomic units
-!! call qsystem%calc_eigenproblem(a_Emin,a_Emax,no_expected_states)
+ !call qsystem%calc_eigenproblem(a_Emin,a_Emax,no_expected_states)
 !!
 !!
 !! ! Write founded eigenstates to file if there are states in the range (Emin,Emax)

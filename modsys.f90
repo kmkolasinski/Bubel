@@ -714,7 +714,7 @@ subroutine save_lattice(sys,filename,innerA,innerB)
     integer,optional:: innerA , innerB
 
     integer :: s1,s2
-    integer :: i,b,ida,ids1,ids2,j
+    integer :: i,b,ida,ids1,ids2,j,itmp
     integer,parameter :: ix = 1 , iy = 2 , iz = 3 , cmin = 1 , cmax =  2
     double precision :: lWidth , bbox(2,3)
     print*,"SYS::Saving lattice to file:",filename
@@ -769,20 +769,27 @@ subroutine save_lattice(sys,filename,innerA,innerB)
     write(765819,*),"<atoms>"
     do i = 1 , sys%no_atoms
 
-        write(765819,*),"<data>"
-        write(765819,"(A,e20.6,A)"),"<x>",sys%atoms(i)%atom_pos(1),"</x>"
-        write(765819,"(A,e20.6,A)"),"<y>",sys%atoms(i)%atom_pos(2),"</y>"
-        write(765819,"(A,e20.6,A)"),"<z>",sys%atoms(i)%atom_pos(3),"</z>"
-        write(765819,"(A,i10,A)"),"<flag>",sys%atoms(i)%flag       ,"</flag>"
         if(sys%atoms(i)%bActive) then
-            write(765819,"(A,i10,A)"),"<active>"   ,1,"</active>"
+            itmp = 1;
         else
-            write(765819,"(A,i10,A)"),"<active>"   ,0,"</active>"
+            itmp = 0;
         endif
 
-        write(765819,"(A,i10,A)"),"<no_states>",sys%atoms(i)%no_in_states,"</no_states>"
-        write(765819,"(A,i10,A)"),"<no_bounds>",sys%atoms(i)%no_bonds,"</no_bounds>"
-        write(765819,*),"</data>"
+        write(765819,"(A,3e16.6,4i10,A)"),"<d>",sys%atoms(i)%atom_pos,sys%atoms(i)%flag,itmp,sys%atoms(i)%no_in_states,sys%atoms(i)%no_bonds,"</d>"
+!        write(765819,*),"<data>"
+!        write(765819,"(A,e20.6,A)"),"<x>",sys%atoms(i)%atom_pos(1),"</x>"
+!        write(765819,"(A,e20.6,A)"),"<y>",sys%atoms(i)%atom_pos(2),"</y>"
+!        write(765819,"(A,e20.6,A)"),"<z>",sys%atoms(i)%atom_pos(3),"</z>"
+!        write(765819,"(A,i10,A)"),"<flag>",sys%atoms(i)%flag       ,"</flag>"
+!        if(sys%atoms(i)%bActive) then
+!            write(765819,"(A,i10,A)"),"<active>"   ,1,"</active>"
+!        else
+!            write(765819,"(A,i10,A)"),"<active>"   ,0,"</active>"
+!        endif
+!
+!        write(765819,"(A,i10,A)"),"<no_states>",sys%atoms(i)%no_in_states,"</no_states>"
+!        write(765819,"(A,i10,A)"),"<no_bounds>",sys%atoms(i)%no_bonds,"</no_bounds>"
+!        write(765819,*),"</data>"
 
 
     enddo
@@ -792,14 +799,18 @@ subroutine save_lattice(sys,filename,innerA,innerB)
     do i = 1 , sys%no_atoms
         do j = 1 , sys%atoms(i)%no_bonds
             if( sys%atoms(i)%bonds(j)%toAtomID >= i )then
-                write(765819,*),"<data>"
-                write(765819,*),"<A>" ,i,"</A>"
-                write(765819,*),"<B>" ,sys%atoms(i)%bonds(j)%toAtomID       ,"</B>"
-                write(765819,*),"<sA>",sys%atoms(i)%bonds(j)%fromInnerID    ,"</sA>"
-                write(765819,*),"<sB>",sys%atoms(i)%bonds(j)%toInnerID      ,"</sB>"
-                write(765819,*),"<vr>",DBLE(sys%atoms(i)%bonds(j)%bondValue),"</vr>"
-                write(765819,*),"<vi>",IMAG(sys%atoms(i)%bonds(j)%bondValue),"</vi>"
-                write(765819,*),"</data>"
+
+                write(765819,"(A,4i10,2e16.6,A)"),"<d>",i,sys%atoms(i)%bonds(j)%toAtomID,sys%atoms(i)%bonds(j)%fromInnerID,&
+                            sys%atoms(i)%bonds(j)%toInnerID,DBLE(sys%atoms(i)%bonds(j)%bondValue),IMAG(sys%atoms(i)%bonds(j)%bondValue),"</d>"
+
+!                write(765819,*),"<data>"
+!                write(765819,*),"<A>" ,i,"</A>"
+!                write(765819,*),"<B>" ,sys%atoms(i)%bonds(j)%toAtomID       ,"</B>"
+!                write(765819,*),"<sA>",sys%atoms(i)%bonds(j)%fromInnerID    ,"</sA>"
+!                write(765819,*),"<sB>",sys%atoms(i)%bonds(j)%toInnerID      ,"</sB>"
+!                write(765819,*),"<vr>",DBLE(sys%atoms(i)%bonds(j)%bondValue),"</vr>"
+!                write(765819,*),"<vi>",IMAG(sys%atoms(i)%bonds(j)%bondValue),"</vi>"
+!                write(765819,*),"</data>"
             endif
         enddo
 

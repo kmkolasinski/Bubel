@@ -41,6 +41,7 @@ struct Lead{
 struct AtomsStats{
     QVector3D mass_center;
     double ave_dist;
+    double scale;
     QVector<int> flag_list;
     unsigned int no_atoms;
     int max_spin;

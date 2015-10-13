@@ -3,18 +3,16 @@ INCLUDEPATH += ../shared
 
 HEADERS       = glwidget.h \
                 window.h \
-                qtlogo.h \
     datareader.h \
     mainwindow.h \
     formleadparams.h
 SOURCES       = glwidget.cpp \
                 main.cpp \
                 window.cpp \
-                qtlogo.cpp \
     datareader.cpp \
     mainwindow.cpp \
     formleadparams.cpp
-QT           += opengl
+QT           += opengl widgets
 QT           += xml
 LIBS += -lGLU
 # install

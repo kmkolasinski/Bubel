@@ -47,12 +47,24 @@
 #include <QDomDocument>
 #include <vector>
 #include <iostream>
+#include <map>
 #include <datareader.h>
 
 using namespace std;
-class QtLogo;
+
+enum MainPlain{
+    MAIN_PLAIN_XY = 0,
+    MAIN_PLAIN_XZ = 1,
+    MAIN_PLAIN_YZ = 2
+};
+
+struct DisplaySettings{
+    double atom_size;
+    int atom_quality;
+    QColor color;
 
 
+};
 
 //! [0]
 class GLWidget : public QGLWidget
@@ -97,16 +109,23 @@ private:
     int yRot;
     int zRot;
     QPoint lastPos;
-
     QColor qtPurple;
 
     QVector3D mass_center;
     QVector3D XY_offset;
     double zoom;
+
 public:
     vector<Atom> *atoms;
     vector<AtomConnection> *cnts;
     vector<Lead> *leads;
+    MainPlain mainPlain;
+    bool bUseSettingsPerFlag;
+
+    vector<DisplaySettings> displayPerFlag;
+    DisplaySettings          displayAllSettings;
+    DisplaySettings          displayConnections;
+    map<int,unsigned int> flag2id;
 
 };
 //! [3]

@@ -44,7 +44,7 @@
 #include <math.h>
 
 #include "glwidget.h"
-#include "qtlogo.h"
+
 
 #ifndef GL_MULTISAMPLE
 #define GL_MULTISAMPLE  0x809D
@@ -62,6 +62,9 @@ GLWidget::GLWidget(QWidget *parent)
 
     qtPurple = QColor::fromCmykF(0.39, 0.39, 0.0, 0.0);
     this->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Expanding);
+    mainPlain = MAIN_PLAIN_XY;
+    bUseSettingsPerFlag = false;
+
 }
 //! [0]
 
@@ -142,6 +145,7 @@ void GLWidget::initializeGL()
     glLightfv(GL_LIGHT0, GL_POSITION, lightPosition);
     zoom   = 10.0;
 
+
 }
 //! [6]
 void renderCylinder(double x1, double y1, double z1, double x2,double y2, double z2, double radius,int subdivisions,GLUquadricObj *quadric)
@@ -181,14 +185,21 @@ gluDeleteQuadric(quadric);
 //! [7]
 void GLWidget::paintGL()
 {
+    makeCurrent();
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_CULL_FACE);
     glLoadIdentity();
 
     GLfloat d1[4] = { 0.4, 0.5, 0.9, 1.0 };
     GLfloat d2[4] = { 0.9, 0.5, 0.6, 1.0 };
     GLfloat d3[4] = { 0.4, 0.9, 0.2, 1.0 };
-    GLfloat d4[4] = { 0.9, 0.9, 0.7, 1.0 };
-    GLfloat d5[4] = { 0.9, 0.9, 1.0, 1.0 };
+    GLfloat d4[4] = { displayAllSettings.color.redF(),
+                      displayAllSettings.color.greenF(),
+                      displayAllSettings.color.blueF(), 1.0 };
+    GLfloat d5[4] = { displayConnections.color.redF(),
+                      displayConnections.color.greenF(),
+                      displayConnections.color.blueF(), 1.0 };
     GLfloat d6[4] = { 0.8, 0.7, 3.0, 1.0 };
     glMaterialfv(GL_FRONT,GL_DIFFUSE,d4);
 
@@ -196,30 +207,61 @@ void GLWidget::paintGL()
     glRotatef(xRot / 16.0, 1.0, 0.0, 0.0);
     glRotatef(yRot / 16.0, 0.0, 1.0, 0.0);
     glRotatef(zRot / 16.0, 0.0, 0.0, 1.0);
-    glTranslatef(XY_offset.x(),XY_offset.y(), 0.0);
-    glColor3f( 0.95f, 0.207, 0.031f );
+
+
+    switch(mainPlain){
+        case(MAIN_PLAIN_XY):
+        glTranslatef(XY_offset.x(),XY_offset.y(), 0.0);
+        break;
+        case(MAIN_PLAIN_XZ):
+        glTranslatef(XY_offset.y(),0.0,-XY_offset.x());
+        break;
+        case(MAIN_PLAIN_YZ):
+        glTranslatef(0.0,XY_offset.y(),-XY_offset.x());
+        break;
+
+    }
+
+
     GLUquadricObj *quadric = gluNewQuadric();
-    double radius = DataReader::atoms_stats.atom_radius;
+
+    double radius  = displayAllSettings.atom_size * DataReader::atoms_stats.scale * 0.3;
+    int no_subdivs = displayAllSettings.atom_quality;
+
     for(unsigned int i = 0 ; i < atoms->size() ; i++){
         glPushMatrix();
         Atom &atom = (*atoms)[i];
+        if(bUseSettingsPerFlag){
+            int id = flag2id[atom.flag];
+            radius     = displayPerFlag[id].atom_size * DataReader::atoms_stats.scale * 0.3;
+            no_subdivs = displayPerFlag[id].atom_quality;
+            GLfloat df[4] = { displayPerFlag[id].color.redF(),
+                              displayPerFlag[id].color.greenF(),
+                              displayPerFlag[id].color.blueF(), 1.0 };
+            glMaterialfv(GL_FRONT,GL_DIFFUSE,df);
+        }
         glTranslated(atom.pos.x(),atom.pos.y(),atom.pos.z());
-        gluSphere( quadric , radius , 5 , 5 );
+        gluSphere( quadric , radius , no_subdivs , no_subdivs );
         glPopMatrix();
     }
+
+    radius     = displayConnections.atom_size * DataReader::atoms_stats.scale * 0.3;
+    no_subdivs = displayConnections.atom_quality;
+
     glMaterialfv(GL_FRONT,GL_DIFFUSE,d5);
     for(unsigned int i = 0 ; i < cnts->size() ; i++){
         AtomConnection &cnt = (*cnts)[i];
         Atom& atomA = (*atoms)[cnt.atomA];
         Atom& atomB = (*atoms)[cnt.atomB];
-        renderCylinder(atomA.pos.x(),atomA.pos.y(),atomA.pos.z(),atomB.pos.x(),atomB.pos.y(),atomB.pos.z(),0.2*radius,4,quadric);
+        renderCylinder(atomA.pos.x(),atomA.pos.y(),atomA.pos.z(),atomB.pos.x(),atomB.pos.y(),atomB.pos.z(),0.2*radius,no_subdivs,quadric);
 
     }
 
 
     glMaterialfv(GL_FRONT,GL_DIFFUSE,d4);
 
-
+    radius      = displayAllSettings.atom_size * DataReader::atoms_stats.scale * 0.3;
+    no_subdivs  = displayAllSettings.atom_quality;
 
     for(unsigned int l = 0 ; l < leads->size() ; l++){
         Lead& lead = (*leads)[l];
@@ -228,6 +270,12 @@ void GLWidget::paintGL()
         for(unsigned int i = 0 ; i < lead.atoms.size() ; i++){
             glPushMatrix();
             Atom &atom = (*atoms)[lead.atoms[i]];
+            if(bUseSettingsPerFlag){
+                int id = flag2id[atom.flag];
+                radius     = displayPerFlag[id].atom_size * DataReader::atoms_stats.scale * 0.3;
+                no_subdivs = displayPerFlag[id].atom_quality;
+            }
+
             glTranslated(atom.pos.x(),atom.pos.y(),atom.pos.z());
             gluSphere( quadric , radius*1.1 , 10 , 10 );
             glPopMatrix();
@@ -236,11 +284,18 @@ void GLWidget::paintGL()
         for(unsigned int i = 0 ; i < lead.nex_atoms.size() ; i++){
             glPushMatrix();
             Atom &atom = (*atoms)[lead.nex_atoms[i]];
+            if(bUseSettingsPerFlag){
+                int id = flag2id[atom.flag];
+                radius     = displayPerFlag[id].atom_size * DataReader::atoms_stats.scale * 0.3;
+                no_subdivs = displayPerFlag[id].atom_quality;
+            }
             glTranslated(atom.pos.x(),atom.pos.y(),atom.pos.z());
             gluSphere( quadric , radius*1.1 , 10 , 10 );
             glPopMatrix();
         }
         glMaterialfv(GL_FRONT,GL_DIFFUSE,d3);
+        radius     = displayConnections.atom_size * DataReader::atoms_stats.scale * 0.3;
+        no_subdivs = displayConnections.atom_quality;
         for(unsigned int i = 0 ; i < lead.cnts.size() ; i++){
             AtomConnection &cnt = lead.cnts[i];
             Atom& atomA = (*atoms)[cnt.atomA];
@@ -255,8 +310,8 @@ void GLWidget::paintGL()
             renderCylinder(atomA.pos.x(),atomA.pos.y(),atomA.pos.z(),atomB.pos.x(),atomB.pos.y(),atomB.pos.z(),0.25*radius,10,quadric);
         }
     }
+    gluDeleteQuadric(quadric);
 
-    delete quadric;
 }
 //! [7]
 
