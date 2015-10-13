@@ -8,16 +8,16 @@ import numpy as np
 import matplotlib.pyplot as plt
 import csv
 
-plt.cla()
+
 file = "bands.dat"
 
 data = np.loadtxt(file)
 no_lines = np.size(data[0,:])
 x = data[:,0]
-for i in range(no_lines-1):
+for i in range(no_lines-1):    
     plt.plot(x,data[:,i+1],c='k',ls='-')     
     
 plt.xlabel("k [1/unit size]")    
 plt.ylabel("Energy [some units]")   
-plt.savefig("bands.png")
+plt.savefig("bands.pdf")
 #plt.show()        

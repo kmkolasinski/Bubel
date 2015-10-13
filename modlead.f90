@@ -31,7 +31,7 @@ type qlead
 
     integer,dimension(:,:),allocatable        ::      l2g ! mapping from local id in lead to global id (:,1)  = atom_ID , (:,2) = spin_ID
     integer,dimension(:,:),allocatable        :: next_l2g ! the same as above but mapping to the atoms in the next unit cell
-
+    logical :: LEAD_BAD_NEARST = .false.
     contains
     procedure,pass(this) :: init_lead!()
     procedure,pass(this) :: bands!(this,filename,kmin,kmax,dk,Emin,Emax)
@@ -64,13 +64,14 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
     ! local variables
     integer ,allocatable ,dimension(:) :: tmp_g2l ! contains mapping between global ID of the state (atom+spin)
                                                   ! to local id of that site (atom,spin) in unit cell
-    integer :: i,j,b,b_child
-    integer :: no_sites,system_size, atom_id,bond_id,bond_atom_id,bond_id_child,bond_atom_id_child
+    integer :: i,j,k,b
+    integer :: no_sites,system_size, atom_id,bond_atom_id,bond_id
     integer :: irow,icol,aid,gid,sid,lid
     integer :: no_atoms
     complex :: cval
     integer,allocatable :: next_cell_atoms(:)
     doubleprecision,dimension(3) :: cellA_pos,cellB_pos,tmp_pos,cellBA_vec
+    doubleprecision :: minimum_distance,dist
 
     ! copy shape for future possible usage
     this%lead_shape  = lshape
@@ -129,6 +130,7 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
     this%next_l2g = 0
 
 
+
     ! -----------------------------------------------------------
     ! Now we want to find some unique atom in lead -> has lowest
     ! corrdinates (X_min,Y_min,Z_min). Then we will find the same
@@ -151,6 +153,7 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
                     print*,"           been chosen properly. Plot lead data to see where "
                     print*,"           is the problem."
                     print*,"---------------------------------------------------------------------------"
+                    this%LEAD_BAD_NEARST = .true.
                     return
                 endif
 
@@ -179,6 +182,34 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
         endif ! end of if active atom
     enddo ! end of do all_atoms
 
+    ! -----------------------------------------------------
+    ! Searching for the minium distance between atoms. Stage 1
+    ! -----------------------------------------------------
+    do i = 1 , no_sites
+        atom_id = this%l2g(i,1) ! get atom index , this%l2g(i,2) tells what is the spinID of that atom
+        ! iterate over all bonds in that atom (A)
+        do b = 1 , all_atoms(atom_id)%no_bonds
+        bond_atom_id = all_atoms(atom_id)%bonds(b)%toAtomID
+        if(bond_atom_id /= atom_id)then
+            minimum_distance = sqrt(sum((all_atoms(atom_id)%atom_pos-all_atoms(bond_atom_id)%atom_pos)**2))
+        endif
+        enddo
+    enddo
+
+    ! Searching for the minium distance between atoms. Stage 2
+    do i = 1 , no_sites
+        atom_id = this%l2g(i,1) ! get atom index , this%l2g(i,2) tells what is the spinID of that atom
+        ! iterate over all bonds in that atom (A)
+        do b = 1 , all_atoms(atom_id)%no_bonds
+        bond_atom_id = all_atoms(atom_id)%bonds(b)%toAtomID
+        if(bond_atom_id /= atom_id)then
+            dist = sqrt(sum((all_atoms(atom_id)%atom_pos-all_atoms(bond_atom_id)%atom_pos)**2))
+            if(dist < minimum_distance ) minimum_distance = dist
+        endif
+        enddo
+    enddo
+    print*,"minum distance=",minimum_distance
+
 
 
     no_atoms = 0
@@ -190,21 +221,25 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
                 ! search for atom with the same position
                 do j = 1 , no_sites
                     cellA_pos = all_atoms(this%l2g(j,1))%atom_pos
-                    if( sqrt(sum( tmp_pos - cellA_pos )**2) < 1.0E-10 ) then
+
+                    if( sqrt(sum( tmp_pos - cellA_pos )**2) < minimum_distance*1.0D-5 ) then
                         exit
                     endif
                 enddo
                 if( j > no_sites ) then
                     print"(A)",              " SYS::LEAD::ERROR::The translation"
-                    print"(A,i9,A,3e10.2,A)","                   from atom:",i," at position r=(",all_atoms(i)%atom_pos,")"
-                    print"(A,i9,A,3e10.2,A)","                   to atom  :",i," at position r=(",all_atoms(i)%atom_pos,")"
+                    print"(A,i9,A,3e12.4,A)","                   at atom:",i," with position r=(",all_atoms(i)%atom_pos,")"
+                    print"(A,3e12.4,A)"     ,"                   with translation vector: v=(",lvec,")"
                     print"(A)",              "                   is impossible by applying lead translation vector. Maybe some of the "
                     print"(A)",              "                   atoms have not been inlcuded in the lead. Check lead area and T vector."
                     stop -1
                 endif
                 ! j keeps local ID of the same atom in unit
-                this%next_l2g(j,1) = i
-                this%next_l2g(j,2) = this%l2g(j,2)
+                do k = 1 , all_atoms(this%l2g(j,1))%no_in_states
+                    b = tmp_g2l(all_atoms(this%l2g(j,1))%globalIDs(k))
+                    this%next_l2g(b,1) = i
+                    this%next_l2g(b,2) = this%l2g(b,2)
+                enddo
 
             endif
 
@@ -238,14 +273,14 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
                 do j = 1 , no_sites
                     cellA_pos = all_atoms(this%l2g(j,1))%atom_pos + cellBA_vec
                     cellB_pos = all_atoms(bond_atom_id)%atom_pos
-                    if( sqrt(sum( cellB_pos - cellA_pos )**2) < 1.0E-10 ) then
+                    if( sqrt(sum( cellB_pos - cellA_pos )**2) < minimum_distance*1.0D-5 ) then
                         exit
                     endif
                 enddo
                 if( j > no_sites ) then
                     print"(A)",              " SYS::LEAD::ERROR::The translation"
-                    print"(A,i9,A,3e10.2,A)","                   from atom:",atom_id," at position r=(",all_atoms(atom_id)%atom_pos,")"
-                    print"(A,i9,A,3e10.2,A)","                   to atom  :",bond_atom_id," at position r=(",all_atoms(bond_atom_id)%atom_pos,")"
+                    print"(A,i9,A,3e12.4,A)","                   from atom:",atom_id," at position r=(",all_atoms(atom_id)%atom_pos,")"
+                    print"(A,i9,A,3e12.4,A)","                   to atom  :",bond_atom_id," at position r=(",all_atoms(bond_atom_id)%atom_pos,")"
                     print"(A)",              "                   is impossible by applying lead translation vector. Maybe some of the "
                     print"(A)",              "                   atoms have not been inlcuded in the lead. Check lead area and T vector."
                     stop -1
@@ -437,62 +472,31 @@ subroutine print_lead(this,filename,all_atoms)
     CUTOFF_LEVEL = 1.0D-10
     print*,"SYS::LEAD::Writing lead data to file:",filename
     open(unit=funit,file=filename)
-    write(funit,"(A)"),"<lead>"
-    call this%lead_shape%flush_shape_data_to_file(funit)
-    write(funit,"(A)"),"<lead_vector>"
-    write(funit,"(3e20.6)"),this%lead_vector
-    write(funit,"(A)"),"</lead_vector>"
 
-    ! ----------------------------------------------------------------------------
-    ! LEAD DATA
-    ! ----------------------------------------------------------------------------
-    write(funit,"(A)"),"<lead_data>"
-    max_abs_matrix_element = 0
-    do i = 1 , this%no_sites
-        do j = i , this%no_sites
-            if( abs(this%valsH0(i,j)) > max_abs_matrix_element ) max_abs_matrix_element = abs(this%valsH0(i,j))
-        enddo
-    enddo
+
+
+    write(funit,"(A)"),"<lead>"
+    write(funit,"(A)"),"<vector>"
+    write(funit,"(3e20.6)"),this%lead_vector
+    write(funit,"(A)"),"</vector>"
+
+    write(funit,"(A)"),"<atoms>"
     do i = 1 , this%no_sites
         id_atom_a = this%l2g(i,1)
-
-        if( all_atoms(id_atom_a)%bActive) then
-
-        id_spin_a = this%l2g(i,2)
-        do j = i , this%no_sites
-        id_atom_b = this%l2g(j,1)
-        id_spin_b = this%l2g(j,2)
-        normalized_value = abs(this%valsH0(i,j))/max_abs_matrix_element
-        if( normalized_value > CUTOFF_LEVEL ) then
-            write(funit,"(A,7e20.6,2i5,A)"),"   <data>",all_atoms(id_atom_a)%atom_pos,all_atoms(id_atom_b)%atom_pos,normalized_value,id_spin_a,id_spin_b,"</data>"
-        endif
-        enddo
+        if(this%l2g(i,2) == 1) then
+            write(funit,*),"<d>",id_atom_a,"</d>"
         endif
     enddo
-    write(funit,"(A)"),"</lead_data>"
-    ! ----------------------------------------------------------------------------
-    ! NEXT UNIT CELL DATA
-    ! ----------------------------------------------------------------------------
-    write(funit,"(A)"),"<next_cell_lead_data>"
+    write(funit,"(A)"),"</atoms>"
+
+    write(funit,"(A)"),"<next_atoms>"
     do i = 1 , this%no_sites
-        id_atom_a = this%next_l2g(i,1)
-
-        if(this%next_l2g(i,1) == 0) then
-            exit
-        endif
-        if(all_atoms(id_atom_a)%bActive) then
-        id_spin_a = this%next_l2g(i,2)
-        do j = i , this%no_sites
-        id_atom_b = this%next_l2g(j,1)
-        id_spin_b = this%next_l2g(j,2)
-        normalized_value = abs(this%valsH0(i,j))/max_abs_matrix_element
-        if( normalized_value > CUTOFF_LEVEL ) then
-            write(funit,"(A,7e20.6,2i5,A)"),"   <data>",all_atoms(id_atom_a)%atom_pos,all_atoms(id_atom_b)%atom_pos,normalized_value,id_spin_a,id_spin_b,"</data>"
-        endif
-        enddo
+        id_atom_b = this%next_l2g(i,1)
+        if(this%next_l2g(i,2) == 1) then
+            write(funit,*),"<d>",id_atom_b,"</d>"
         endif
     enddo
-    write(funit,"(A)"),"</next_cell_lead_data>"
+    write(funit,"(A)"),"</next_atoms>"
 
     ! ----------------------------------------------------------------------------
     ! COUPLING TO THE NEXT CELL DATA
@@ -506,45 +510,176 @@ subroutine print_lead(this,filename,all_atoms)
     enddo
     do i = 1 , this%no_sites
         id_atom_a = this%l2g(i,1)
-        if( all_atoms(id_atom_a)%bActive) then
         id_spin_a = this%l2g(i,2)
         do j = 1 , this%no_sites
+        if(this%next_l2g(j,1) == 0) then
+            exit
+        endif
         id_atom_b = this%next_l2g(j,1)
         id_spin_b = this%next_l2g(j,2)
         normalized_value = abs(this%valsTau(i,j))/max_abs_matrix_element
         if( normalized_value > CUTOFF_LEVEL ) then
-            write(funit,"(A,7e20.6,2i5,A)"),"   <data>",all_atoms(id_atom_a)%atom_pos,all_atoms(id_atom_b)%atom_pos,normalized_value,id_spin_a,id_spin_b,"</data>"
+            write(funit,"(A,4i5,A)"),"   <d>",id_atom_a,id_atom_b,id_spin_a,id_spin_b,"</d>"
         endif
         enddo
-        endif
     enddo
     write(funit,"(A)"),"</lead_coupling>"
 
-    ! ----------------------------------------------------------------------------
-    ! SET OF ATOMS NEAR TO LEAD
-    ! ----------------------------------------------------------------------------
-    write(funit,"(A)"),"<nearest_atoms>"
-
-    do i = 1 , size(all_atoms)
-        if(all_atoms(i)%bActive) then
-
-        do j = -5 , 5 ! check five nearest unit cells
-            tmp_pos = all_atoms(i)%atom_pos - (j-1)*this%lead_vector
-            if(this%lead_shape%is_inside(tmp_pos)) then
-                weight = 1-(abs(j)-1)/(5.0-1.0)
-                if(weight >= 0.5) weight = 1
-                write(funit,"(A,4e20.6,A)"),"   <data>",all_atoms(i)%atom_pos,weight,"</data>"
-                exit
-            endif
+    write(funit,"(A)"),"<inner_coupling>"
+    max_abs_matrix_element = 0
+    do i = 1 , this%no_sites
+        do j = i , this%no_sites
+            if( abs(this%valsH0(i,j)) > max_abs_matrix_element ) max_abs_matrix_element = abs(this%valsH0(i,j))
+        enddo
+    enddo
+    do i = 1 , this%no_sites
+        id_atom_a = this%l2g(i,1)
+        id_spin_a = this%l2g(i,2)
+        do j = i , this%no_sites
+        id_atom_b = this%l2g(j,1)
+        id_spin_b = this%l2g(j,2)
+        normalized_value = abs(this%valsH0(i,j))/max_abs_matrix_element
+        if( normalized_value > CUTOFF_LEVEL ) then
+            write(funit,"(A,4i5,A)"),"   <d>",id_atom_a,id_atom_b,id_spin_a,id_spin_b,"</d>"
+        endif
         enddo
 
-        endif
-
     enddo
-    write(funit,"(A)"),"</nearest_atoms>"
+    write(funit,"(A)"),"</inner_coupling>"
 
 
     write(funit,"(A)"),"</lead>"
+
+
+
+
+
+
+
+
+!
+!
+!
+!
+!
+!    write(funit,"(A)"),"<lead>"
+!    call this%lead_shape%flush_shape_data_to_file(funit)
+!    write(funit,"(A)"),"<lead_vector>"
+!    write(funit,"(3e20.6)"),this%lead_vector
+!    write(funit,"(A)"),"</lead_vector>"
+!
+!    ! ----------------------------------------------------------------------------
+!    ! LEAD DATA
+!    ! ----------------------------------------------------------------------------
+!    write(funit,"(A)"),"<lead_data>"
+!    max_abs_matrix_element = 0
+!    do i = 1 , this%no_sites
+!        do j = i , this%no_sites
+!            if( abs(this%valsH0(i,j)) > max_abs_matrix_element ) max_abs_matrix_element = abs(this%valsH0(i,j))
+!        enddo
+!    enddo
+!    do i = 1 , this%no_sites
+!        id_atom_a = this%l2g(i,1)
+!
+!        if( all_atoms(id_atom_a)%bActive) then
+!
+!        id_spin_a = this%l2g(i,2)
+!        do j = i , this%no_sites
+!        id_atom_b = this%l2g(j,1)
+!        id_spin_b = this%l2g(j,2)
+!        normalized_value = abs(this%valsH0(i,j))/max_abs_matrix_element
+!        if( normalized_value > CUTOFF_LEVEL ) then
+!            write(funit,"(A,7e20.6,2i5,A)"),"   <data>",all_atoms(id_atom_a)%atom_pos,all_atoms(id_atom_b)%atom_pos,normalized_value,id_spin_a,id_spin_b,"</data>"
+!        endif
+!        enddo
+!        endif
+!    enddo
+!    write(funit,"(A)"),"</lead_data>"
+!    ! ----------------------------------------------------------------------------
+!    ! NEXT UNIT CELL DATA
+!    ! ----------------------------------------------------------------------------
+!    if(this%LEAD_BAD_NEARST == .false.) then
+!    write(funit,"(A)"),"<next_cell_lead_data>"
+!    do i = 1 , this%no_sites
+!        id_atom_a = this%next_l2g(i,1)
+!
+!        if(this%next_l2g(i,1) == 0) then
+!            exit
+!        endif
+!        if(all_atoms(id_atom_a)%bActive) then
+!        id_spin_a = this%next_l2g(i,2)
+!        do j = i , this%no_sites
+!        if(this%next_l2g(j,1) == 0) then
+!            exit
+!        endif
+!        id_atom_b = this%next_l2g(j,1)
+!        id_spin_b = this%next_l2g(j,2)
+!
+!        normalized_value = abs(this%valsH0(i,j))/max_abs_matrix_element
+!        if( normalized_value > CUTOFF_LEVEL ) then
+!            write(funit,"(A,7e20.6,2i5,A)"),"   <data>",all_atoms(id_atom_a)%atom_pos,all_atoms(id_atom_b)%atom_pos,normalized_value,id_spin_a,id_spin_b,"</data>"
+!        endif
+!        enddo
+!        endif
+!    enddo
+!    write(funit,"(A)"),"</next_cell_lead_data>"
+!
+!
+!    ! ----------------------------------------------------------------------------
+!    ! COUPLING TO THE NEXT CELL DATA
+!    ! ----------------------------------------------------------------------------
+!    write(funit,"(A)"),"<lead_coupling>"
+!    max_abs_matrix_element = 0
+!    do i = 1 , this%no_sites
+!        do j = 1 , this%no_sites
+!            if( abs(this%valsTau(i,j)) > max_abs_matrix_element ) max_abs_matrix_element = abs(this%valsTau(i,j))
+!        enddo
+!    enddo
+!    do i = 1 , this%no_sites
+!        id_atom_a = this%l2g(i,1)
+!        if( all_atoms(id_atom_a)%bActive) then
+!        id_spin_a = this%l2g(i,2)
+!        do j = 1 , this%no_sites
+!        if(this%next_l2g(j,1) == 0) then
+!            exit
+!        endif
+!        id_atom_b = this%next_l2g(j,1)
+!        id_spin_b = this%next_l2g(j,2)
+!        normalized_value = abs(this%valsTau(i,j))/max_abs_matrix_element
+!        if( normalized_value > CUTOFF_LEVEL ) then
+!            write(funit,"(A,7e20.6,2i5,A)"),"   <data>",all_atoms(id_atom_a)%atom_pos,all_atoms(id_atom_b)%atom_pos,normalized_value,id_spin_a,id_spin_b,"</data>"
+!        endif
+!        enddo
+!        endif
+!    enddo
+!    write(funit,"(A)"),"</lead_coupling>"
+!
+!    endif ! end of if BAD_NEARST
+!    ! ----------------------------------------------------------------------------
+!    ! SET OF ATOMS NEAR TO LEAD
+!    ! ----------------------------------------------------------------------------
+!    write(funit,"(A)"),"<nearest_atoms>"
+!
+!    do i = 1 , size(all_atoms)
+!        if(all_atoms(i)%bActive) then
+!
+!        do j = -5 , 5 ! check five nearest unit cells
+!            tmp_pos = all_atoms(i)%atom_pos - (j-1)*this%lead_vector
+!            if(this%lead_shape%is_inside(tmp_pos)) then
+!                weight = 1-(abs(j)-1)/(5.0-1.0)
+!                if(weight >= 0.5) weight = 1
+!                write(funit,"(A,4e20.6,A)"),"   <data>",all_atoms(i)%atom_pos,weight,"</data>"
+!                exit
+!            endif
+!        enddo
+!
+!        endif
+!
+!    enddo
+!    write(funit,"(A)"),"</nearest_atoms>"
+!
+!
+!    write(funit,"(A)"),"</lead>"
     close(funit)
 
 endsubroutine print_lead

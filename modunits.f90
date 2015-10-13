@@ -6,7 +6,7 @@ MODULE modunits
     double precision,parameter  :: M_PI      = 3.1415926
     double precision,parameter  :: A0        = 0.0529177249 ! Bohr radius in [nm]
     double precision,parameter  :: E0        = 27.211384523 ! Atomic unit of energy in [eV]
-    complex*16 ,parameter        :: II        = CMPLX(0,1)
+    complex*16 ,parameter        :: II       = CMPLX(0.0D0,1.0D0)
 
     double precision  :: KbT
     double precision  :: Rd    ! For donors units
@@ -26,6 +26,10 @@ MODULE modunits
 !        ENUMERATOR :: USING_PARDISO       = 2
 !    END ENUM
 
+    complex*16 ,parameter :: MAT_SX  (2,2) = (/ (/ 0.0  , 1.0 /) , (/ 1.0 , 0.0  /) /)
+    complex*16 ,parameter :: MAT_SY  (2,2) = (/ (/ 0*II , -II /) , (/ II  , 0*II /) /)
+    complex*16 ,parameter :: MAT_SZ  (2,2) = (/ (/ 1.0  , 0.0 /)    , (/ 0.0 , -1.0   /) /)
+    doubleprecision ,parameter :: MAT_DIAG(2,2) = (/ (/ 1.0  , 0.0 /)    , (/ 0.0 , 1.0  /) /)
 
     contains
     subroutine modunits_set_GaAs_params()

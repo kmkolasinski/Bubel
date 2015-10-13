@@ -133,7 +133,8 @@ implicit none
 private
 integer,parameter :: QSYS_NO_ATOMS_INC_VALUE      = 10000
 logical           :: QSYS_DISABLE_HERMICITY_CHECK = .false.
-
+doubleprecision   :: QSYS_COUPLING_CUTOFF = 1.0D-20 ! coupling smaller than this number will not be included in the matrix
+                                                    ! used by c_matrix connection method
 ENUM , BIND(C)
   ENUMERATOR :: QSYS_NNB_FILTER_BOX       = 1
   ENUMERATOR :: QSYS_NNB_FILTER_CHECK_ALL = 2
@@ -229,7 +230,7 @@ end subroutine destroy
 ! ------------------------------------------------------------------------
 subroutine add_atom(sys,site)
     class(qsys)           :: sys
-    type(qatom),intent(in) :: site
+    type(qatom)           :: site
     type(qatom),allocatable,dimension(:) :: tmp_atoms
 
 
@@ -249,6 +250,7 @@ subroutine add_atom(sys,site)
     ! add new atom to the system
     sys%atoms(sys%no_atoms) = site
 
+
 end subroutine add_atom
 
 
@@ -261,7 +263,7 @@ end subroutine add_atom
 ! If there is no need for Hamiltonina to be hermitian one may disable this
 ! check with changing the variable QSYS_DISABLE_HERMICITY_CHECK.
 ! Parameters:
-! connect_procedure - user provided procedure which check if atomA in spin
+! c_default   - user provided procedure which check if atomA in spin
 !                     state s1 has coupling with atomB in spin state s2.
 !                     If not function returns false. If yes function returns
 !                     true and override the coupling_val argument with
@@ -269,23 +271,37 @@ end subroutine add_atom
 ! nnbparams         - nnbparams structure which contains some information
 !                     how to search for the nearest neightbours atoms.
 ! ------------------------------------------------------------------------
-subroutine make_lattice(sys,connect_procedure,nnbparams)
+subroutine make_lattice(sys,nnbparams,c_default,c_simple,c_matrix)
     class(qsys) :: sys
     interface
-        logical function connect_procedure(atomA,atomB,s1,s2,coupling_val)
+        logical function c_default(atomA,atomB,s1,s2,coupling_val)
             use modatom
             implicit none
             type(qatom) :: atomA,atomB
             integer    :: s1,s2
             complex*16 :: coupling_val
-        end function connect_procedure
+        end function c_default
+        logical function c_simple(atomA,atomB,coupling_val)
+            use modatom
+            implicit none
+            type(qatom) :: atomA,atomB
+            complex*16 :: coupling_val
+        end function c_simple
+        logical function c_matrix(atomA,atomB,coupling_val)
+            use modatom
+            implicit none
+            type(qatom) :: atomA,atomB
+            complex*16  :: coupling_val(:,:)
+        end function c_matrix
     endinterface
+    optional :: c_default,c_simple,c_matrix
     type(nnb_params) :: nnbparams
 
     ! local variables
     integer         :: i,j,k,l,p,no_active_atoms
     doubleprecision :: time_start
     complex*16      :: cpl_value,cpl_value_inverse
+    complex*16,allocatable :: cpl_matrix(:,:)
     ! bounding box parameters
     integer,parameter :: ix = 1 , iy = 2 , iz = 3 , cmin = 1 , cmax =  2
     double precision  :: bbox(cmin:cmax,ix:iz)
@@ -294,7 +310,13 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
     integer              :: vx,vy,vz,vp
     integer, allocatable :: verlet_box(:,:,:,:) , verlet_counter(:,:,:)
 
-
+    if(.not. present(c_default) .and. &
+       .not. present(c_simple)  .and. &
+       .not. present(c_matrix)) then
+        print*,"SYS::ERROR::No connection function has been provided to make_lattice()."
+        print*,"            Cannont creat logical connection between atoms."
+        stop -1
+    endif
 
     time_start = get_clock()
 
@@ -327,19 +349,70 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
     ! if all posible connections are tested enter this node
     do i = 1 , sys%no_atoms
     if(sys%atoms(i)%bActive == .true.) then
+        ! -----------------------------------------------
+        ! C_DEFAULT
+        ! -----------------------------------------------
+        if(present(c_default)) then
         do k = 1 , sys%atoms(i)%no_in_states
         do j = 1 , sys%no_atoms
             ! both sites have to be active
             if(sys%atoms(j)%bActive == .true.) then
                 do l = 1 , sys%atoms(j)%no_in_states
                     ! if they are nnb one may create a bond between them
-                    if(connect_procedure(sys%atoms(i),sys%atoms(j),k,l,cpl_value)) then
+                    if(c_default(sys%atoms(i),sys%atoms(j),k,l,cpl_value)) then
                          call sys%atoms(i)%add_bond(k,j,l,cpl_value)
+!                         print"(4i4,2e12.2)",i,k,j,l,cpl_value
                     endif
                 enddo
             endif
         enddo
         enddo ! end of k
+        endif ! end of if c_Default
+        ! -----------------------------------------------
+        ! C_SIMPLE
+        ! -----------------------------------------------
+        if(present(c_simple)) then
+        do j = 1 , sys%no_atoms
+            ! both sites have to be active
+            if(sys%atoms(j)%bActive == .true.) then
+                ! if they are nnb one may create a bond between them
+                if(c_simple(sys%atoms(i),sys%atoms(j),cpl_value)) then
+                     call sys%atoms(i)%add_bond(1,j,1,cpl_value)
+                endif
+            endif
+        enddo
+        endif ! end of if c_simple
+        ! -----------------------------------------------
+        ! C_MATRIX
+        ! -----------------------------------------------
+        if(present(c_matrix)) then
+
+        do k = 1 , sys%atoms(i)%no_in_states
+        do j = 1 , sys%no_atoms
+            ! both sites have to be active
+            if(sys%atoms(j)%bActive == .true.) then
+
+                if(.not. allocated(cpl_matrix)) allocate(cpl_matrix(sys%atoms(i)%no_in_states,sys%atoms(j)%no_in_states))
+                if(size(cpl_matrix,1) /= sys%atoms(i)%no_in_states .or. &
+                   size(cpl_matrix,2) /= sys%atoms(j)%no_in_states) then
+                   deallocate(cpl_matrix)
+                   allocate(cpl_matrix(sys%atoms(i)%no_in_states,sys%atoms(j)%no_in_states))
+                endif
+
+                do l = 1 , sys%atoms(j)%no_in_states
+
+                    ! if they are nnb one may create a bond between them
+                    if(c_matrix(sys%atoms(i),sys%atoms(j),cpl_matrix)) then
+                         if( abs(cpl_matrix(k,l)) > QSYS_COUPLING_CUTOFF) & ! skip zero values
+                         call sys%atoms(i)%add_bond(k,j,l,cpl_matrix(k,l))
+!                         print"(4i4,2e12.2)",i,k,j,l,cpl_matrix(k,l)
+                    endif
+                enddo
+            endif
+        enddo
+        enddo ! end of k
+        endif ! end of if c_matrix
+
     endif ! end of i bactive i
     enddo ! end of i
     ! ---------------------------------------------------------------------
@@ -426,6 +499,10 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
         do p = 1 , 3
         ivpos(p) = 1+FLOOR(verlet_dims(p)*(sys%atoms(i)%atom_pos(p) - bbox(cmin,p))/(bbox(cmax,p)-bbox(cmin,p)+1.0D-6))
         enddo
+        ! -----------------------------------------------
+        ! C_DEFAULT
+        ! -----------------------------------------------
+        if(present(c_default)) then
 
         do k = 1 , sys%atoms(i)%no_in_states
 
@@ -442,7 +519,7 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
                 if(nnbparams%NNB_FILTER == QSYS_NNB_FILTER_BOX) then
                 do l = 1 , sys%atoms(j)%no_in_states
                     ! if they are nnb one may create a qbond between them
-                    if(connect_procedure(sys%atoms(i),sys%atoms(j),k,l,cpl_value)) then
+                    if(c_default(sys%atoms(i),sys%atoms(j),k,l,cpl_value)) then
                          call sys%atoms(i)%add_bond(k,j,l,cpl_value)
                     endif
                 enddo
@@ -452,7 +529,7 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
                     if( sqrt(sum((sys%atoms(i)%atom_pos-sys%atoms(j)%atom_pos)**2)) < nnbparams%distance) then
                     do l = 1 , sys%atoms(j)%no_in_states
                         ! if they are nnb one may create a qbond between them
-                        if(connect_procedure(sys%atoms(i),sys%atoms(j),k,l,cpl_value)) then
+                        if(c_default(sys%atoms(i),sys%atoms(j),k,l,cpl_value)) then
                              call sys%atoms(i)%add_bond(k,j,l,cpl_value)
                         endif
                     enddo
@@ -467,12 +544,108 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
         enddo ! } nearest verlet cells
         enddo ! }
 
-        enddo ! end of do i atom
+        enddo ! end of do k atom
+
+        endif ! end of if c_default
+        ! -----------------------------------------------
+        ! C_SIMPLE
+        ! -----------------------------------------------
+        if(present(c_simple)) then
+        ! search in nearest verlet cells
+        do vx = max(ivpos(1)-1,1),min(ivpos(1)+1,verlet_dims(1))
+        do vy = max(ivpos(2)-1,1),min(ivpos(2)+1,verlet_dims(2))
+        do vz = max(ivpos(3)-1,1),min(ivpos(3)+1,verlet_dims(3))
+            ! loop over nnb verlet boxes
+            do vp = 1 , verlet_counter(vx,vy,vz)
+                j        = verlet_box(vx,vy,vz,vp)
+                if(sys%atoms(j)%bActive == .true.) then
+                ! loop around spin states
+
+                if(nnbparams%NNB_FILTER == QSYS_NNB_FILTER_BOX) then
+                    ! if they are nnb one may create a qbond between them
+                    if(c_simple(sys%atoms(i),sys%atoms(j),cpl_value)) then
+                         call sys%atoms(i)%add_bond(1,j,1,cpl_value)
+                    endif
+                else if(nnbparams%NNB_FILTER == QSYS_NNB_FILTER_DISTANCE) then
+                    ! check distance before asking
+                    if( sqrt(sum((sys%atoms(i)%atom_pos-sys%atoms(j)%atom_pos)**2)) < nnbparams%distance) then
+                    ! if they are nnb one may create a qbond between them
+                    if(c_simple(sys%atoms(i),sys%atoms(j),cpl_value)) then
+                         call sys%atoms(i)%add_bond(1,j,1,cpl_value)
+                    endif
+                    endif ! end of if check distance
+                endif
+                endif! end of if active atom
+            enddo
+        enddo ! }
+        enddo ! } nearest verlet cells
+        enddo ! }
+
+        endif ! end of if c_simple
+
+        ! -----------------------------------------------
+        ! C_MATRIX
+        ! -----------------------------------------------
+        if(present(c_matrix)) then
+
+        do k = 1 , sys%atoms(i)%no_in_states
+
+        ! search in nearest verlet cells
+        do vx = max(ivpos(1)-1,1),min(ivpos(1)+1,verlet_dims(1))
+        do vy = max(ivpos(2)-1,1),min(ivpos(2)+1,verlet_dims(2))
+        do vz = max(ivpos(3)-1,1),min(ivpos(3)+1,verlet_dims(3))
+            ! loop over nnb verlet boxes
+            do vp = 1 , verlet_counter(vx,vy,vz)
+                j        = verlet_box(vx,vy,vz,vp)
+                if(sys%atoms(j)%bActive == .true.) then
+                ! loop around spin states
+
+                if(.not. allocated(cpl_matrix)) allocate(cpl_matrix(sys%atoms(i)%no_in_states,sys%atoms(j)%no_in_states))
+                if(size(cpl_matrix,1) /= sys%atoms(i)%no_in_states .or. &
+                   size(cpl_matrix,2) /= sys%atoms(j)%no_in_states) then
+                   deallocate(cpl_matrix)
+                   allocate(cpl_matrix(sys%atoms(i)%no_in_states,sys%atoms(j)%no_in_states))
+                endif
+
+                if(nnbparams%NNB_FILTER == QSYS_NNB_FILTER_BOX) then
+                do l = 1 , sys%atoms(j)%no_in_states
+                    ! if they are nnb one may create a qbond between them
+                    if(c_matrix(sys%atoms(i),sys%atoms(j),cpl_matrix)) then
+                             if( abs(cpl_matrix(k,l)) > QSYS_COUPLING_CUTOFF) & ! skip zero values
+                             call sys%atoms(i)%add_bond(k,j,l,cpl_matrix(k,l))
+                    endif
+                enddo
+                else if(nnbparams%NNB_FILTER == QSYS_NNB_FILTER_DISTANCE) then
+
+                    ! check distance before asking
+                    if( sqrt(sum((sys%atoms(i)%atom_pos-sys%atoms(j)%atom_pos)**2)) < nnbparams%distance) then
+                    do l = 1 , sys%atoms(j)%no_in_states
+                        ! if they are nnb one may create a qbond between them
+                        if(c_matrix(sys%atoms(i),sys%atoms(j),cpl_matrix)) then
+!                             if( abs(cpl_matrix(k,l)) > QSYS_COUPLING_CUTOFF) & ! skip zero values
+                             call sys%atoms(i)%add_bond(k,j,l,cpl_matrix(k,l))
+                        endif
+                    enddo
+                    endif ! end of if check distance
+
+                endif ! end if DISTANCE filter
+
+
+                endif! end of if active atom
+            enddo
+        enddo ! }
+        enddo ! } nearest verlet cells
+        enddo ! }
+
+        enddo ! end of do k atom
+
+        endif ! end of if c_matrix
+        ! -----------------------------------------------
+        ! end of C_MATRIX
+        ! -----------------------------------------------
 
         endif ! end of if active atom
-
-
-    enddo
+    enddo ! end of i
         ! free verlet arrays
         deallocate(verlet_box)
         deallocate(verlet_counter)
@@ -520,7 +693,7 @@ subroutine make_lattice(sys,connect_procedure,nnbparams)
     enddo
     endif ! end of if disable hermiticity check
 
-
+    if(present(c_matrix))deallocate(cpl_matrix)
     print*,"SYS::Connections has been found in ", get_clock()-time_start , " sec."
 
 end subroutine make_lattice
@@ -541,7 +714,7 @@ subroutine save_lattice(sys,filename,innerA,innerB)
     integer,optional:: innerA , innerB
 
     integer :: s1,s2
-    integer :: i,b,ida,ids1,ids2
+    integer :: i,b,ida,ids1,ids2,j
     integer,parameter :: ix = 1 , iy = 2 , iz = 3 , cmin = 1 , cmax =  2
     double precision :: lWidth , bbox(2,3)
     print*,"SYS::Saving lattice to file:",filename
@@ -562,33 +735,78 @@ subroutine save_lattice(sys,filename,innerA,innerB)
         endif ! end of if active atom
     enddo
 
-    open(unit=765819,file=filename)
-    write(765819,*),"# Bounding box to estimate the scale of the system"
-    write(765819,*),bbox(cmin,:)
-    write(765819,*),bbox(cmax,:)
-    write(765819,*),"# Lines which connect the atoms by qbonding."
-    write(765819,*),"# Connections between spin ",s1," and ",s2
-    do i = 1 , sys%no_atoms
-        if(sys%atoms(i)%bActive) then
-        do b = 1 , sys%atoms(i)%no_bonds
-        ! write only unique connections
-        ida  = sys%atoms(i)%bonds(b)%toAtomID
-        ids1 = sys%atoms(i)%bonds(b)%toInnerID
-        ids2 = sys%atoms(i)%bonds(b)%fromInnerID
-        if( sys%atoms(ida)%bActive ) then
-        if( ida >= i ) then
-            lWidth = 0.1
-            if(ida == i) lWidth = 1.0
+!    open(unit=765819,file=filename)
+!    write(765819,*),"# Bounding box to estimate the scale of the system"
+!    write(765819,*),bbox(cmin,:)
+!    write(765819,*),bbox(cmax,:)
+!    write(765819,*),"# Lines which connect the atoms by bonding."
+!    write(765819,*),"# Connections between spin ",s1," and ",s2
+!    do i = 1 , sys%no_atoms
+!        if(sys%atoms(i)%bActive) then
+!        do b = 1 , sys%atoms(i)%no_bonds
+!        ! write only unique connections
+!        ida  = sys%atoms(i)%bonds(b)%toAtomID
+!        ids1 = sys%atoms(i)%bonds(b)%toInnerID
+!        ids2 = sys%atoms(i)%bonds(b)%fromInnerID
+!        if( sys%atoms(ida)%bActive ) then
+!        if( ida >= i ) then
+!            lWidth = 0.1
+!            if(ida == i) lWidth = 1.0
+!
+!            if(s1 == ids1 .and. s2 == ids2) then
+!                write(765819,"(7e20.6)"),sys%atoms(i)%atom_pos,sys%atoms(ida)%atom_pos,lWidth
+!            endif
+!        endif
+!        endif ! end of if active
+!        enddo
+!        endif ! end of if active atom
+!
+!    enddo
+!    close(765819)
 
-            if(s1 == ids1 .and. s2 == ids2) then
-                write(765819,"(7e20.6)"),sys%atoms(i)%atom_pos,sys%atoms(ida)%atom_pos,lWidth
-            endif
+    open(unit=765819,file=filename)
+    write(765819,*),"<lattice>"
+    write(765819,*),"<atoms>"
+    do i = 1 , sys%no_atoms
+
+        write(765819,*),"<data>"
+        write(765819,"(A,e20.6,A)"),"<x>",sys%atoms(i)%atom_pos(1),"</x>"
+        write(765819,"(A,e20.6,A)"),"<y>",sys%atoms(i)%atom_pos(2),"</y>"
+        write(765819,"(A,e20.6,A)"),"<z>",sys%atoms(i)%atom_pos(3),"</z>"
+        write(765819,"(A,i10,A)"),"<flag>",sys%atoms(i)%flag       ,"</flag>"
+        if(sys%atoms(i)%bActive) then
+            write(765819,"(A,i10,A)"),"<active>"   ,1,"</active>"
+        else
+            write(765819,"(A,i10,A)"),"<active>"   ,0,"</active>"
         endif
-        endif ! end of if active
-        enddo
-        endif ! end of if active atom
+
+        write(765819,"(A,i10,A)"),"<no_states>",sys%atoms(i)%no_in_states,"</no_states>"
+        write(765819,"(A,i10,A)"),"<no_bounds>",sys%atoms(i)%no_bonds,"</no_bounds>"
+        write(765819,*),"</data>"
+
 
     enddo
+    write(765819,*),"</atoms>"
+
+    write(765819,*),"<connections>"
+    do i = 1 , sys%no_atoms
+        do j = 1 , sys%atoms(i)%no_bonds
+            if( sys%atoms(i)%bonds(j)%toAtomID >= i )then
+                write(765819,*),"<data>"
+                write(765819,*),"<A>" ,i,"</A>"
+                write(765819,*),"<B>" ,sys%atoms(i)%bonds(j)%toAtomID       ,"</B>"
+                write(765819,*),"<sA>",sys%atoms(i)%bonds(j)%fromInnerID    ,"</sA>"
+                write(765819,*),"<sB>",sys%atoms(i)%bonds(j)%toInnerID      ,"</sB>"
+                write(765819,*),"<vr>",DBLE(sys%atoms(i)%bonds(j)%bondValue),"</vr>"
+                write(765819,*),"<vi>",IMAG(sys%atoms(i)%bonds(j)%bondValue),"</vi>"
+                write(765819,*),"</data>"
+            endif
+        enddo
+
+    enddo
+    write(765819,*),"</connections>"
+    write(765819,*),"</lattice>"
+
     close(765819)
 
 
@@ -681,8 +899,10 @@ subroutine calc_eigenproblem(sys,pEmin,pEmax,NoStates,no_feast_contours,print_in
     ! Filling matrix and row-col array
     itmp = 0
     do i = 1 ,  sys%no_atoms
+
         if(sys%atoms(i)%bActive) then
         do j = 1, sys%atoms(i)%no_bonds
+
         itmp = itmp + 1
         MATHVALS(itmp)   = sys%atoms(i)%bonds(j)%bondValue
         ROWCOLID(itmp,1) = sys%atoms(i)%globalIDs(sys%atoms(i)%bonds(j)%fromInnerID)
@@ -690,7 +910,7 @@ subroutine calc_eigenproblem(sys,pEmin,pEmax,NoStates,no_feast_contours,print_in
         ta = sys%atoms(i)%bonds(j)%toAtomID
         ts = sys%atoms(i)%bonds(j)%toInnerID
         ROWCOLID(itmp,2) = sys%atoms(ta)%globalIDs(ts)
-!        print*,ROWCOLID(itmp,:),MATHVALS(itmp)
+!        print"(3i4,2f10.4)",itmp,ROWCOLID(itmp,:),MATHVALS(itmp)
         enddo
         endif ! end of if active atom
     enddo

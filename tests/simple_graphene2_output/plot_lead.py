@@ -46,6 +46,69 @@ import matplotlib.patches as patches
 #ax3.add_patch(Polygon([[0,0],[4,1.1],[6,2.5],[2,1.4]], closed=True,
                       #fill=False, hatch='/')
 
+if(shape_type == "SHAPE_RECTANGLE_XY"):
+    ax.add_patch(
+    patches.Rectangle(
+        (f_shape_data[0], f_shape_data[1]),
+        f_shape_data[2] - f_shape_data[0],
+        f_shape_data[3] - f_shape_data[1],
+        alpha=0.1,
+        color='gray'
+    )
+    )
+    ax.add_patch(
+        patches.Rectangle(
+            (f_shape_data[0]+f_lead_vector[0], f_shape_data[1]+f_lead_vector[1]),
+            f_shape_data[2] - f_shape_data[0],
+            f_shape_data[3] - f_shape_data[1],
+            alpha=0.1,
+            color='g'
+        )
+    )
+if(shape_type == "SHAPE_CONVEX_QUAD_XY"):  
+    coords = np.array(f_shape_data).reshape(4,2)
+    offset = np.array([[f_lead_vector[0],f_lead_vector[1]]]*4)
+    ax.add_patch(
+        patches.Polygon(coords,
+            alpha=0.2,
+            color='gray'
+        )
+    )
+    ax.add_patch(
+        patches.Polygon(coords+offset,
+            alpha=0.2,
+            color='green'
+        )
+    )
+
+if(shape_type == "SHAPE_RANGE_3D"):  
+    coords = np.array(f_shape_data).reshape(2,3)
+    base   = coords[0][0:2]
+    normal = coords[1][0:2]
+    
+    tangent = [normal[1],-normal[0]]    
+    tangent = np.array(tangent)
+    tangent = tangent/LA.norm(tangent)
+    normal  = np.array(normal)    
+    base    = np.array(base)
+    
+    offset  = np.array([[f_lead_vector[0],f_lead_vector[1]]]*4)
+    scale = 100
+    
+    
+    coords  = [ base - scale*tangent , base - scale*tangent + normal , base + scale*tangent + normal , base + scale*tangent]
+    ax.add_patch(
+        patches.Polygon(coords,
+            alpha=0.2,
+            color='gray'
+        )
+    )    
+    ax.add_patch(
+        patches.Polygon(coords+offset,
+            alpha=0.2,
+            color='green'
+        )
+    )
 
 print "Plotting unit cell"
 # rebuild ends using none to separate line segments
@@ -126,71 +189,7 @@ if(np.size(wlist) > 0):
     ax.scatter(points[:,0],points[:,1], cmap='PuBu', c=wlist , s=10 , edgecolors='k' , zorder=2 )
 
 
-if(shape_type == "SHAPE_RECTANGLE_XY"):
-    ax.add_patch(
-    patches.Rectangle(
-        (f_shape_data[0], f_shape_data[1]),
-        f_shape_data[2] - f_shape_data[0],
-        f_shape_data[3] - f_shape_data[1],
-        alpha=0.1,
-        color='gray'
-    )
-    )
-    ax.add_patch(
-        patches.Rectangle(
-            (f_shape_data[0]+f_lead_vector[0], f_shape_data[1]+f_lead_vector[1]),
-            f_shape_data[2] - f_shape_data[0],
-            f_shape_data[3] - f_shape_data[1],
-            alpha=0.1,
-            color='g'
-        )
-    )
-if(shape_type == "SHAPE_CONVEX_QUAD_XY"):  
-    coords = np.array(f_shape_data).reshape(4,2)
-    offset = np.array([[f_lead_vector[0],f_lead_vector[1]]]*4)
-    ax.add_patch(
-        patches.Polygon(coords,
-            alpha=0.2,
-            color='gray'
-        )
-    )
-    ax.add_patch(
-        patches.Polygon(coords+offset,
-            alpha=0.2,
-            color='green'
-        )
-    )
-
-if(shape_type == "SHAPE_RANGE_3D"):  
-    coords = np.array(f_shape_data).reshape(2,3)
-    base   = coords[0][0:2]
-    normal = coords[1][0:2]
-    
-    tangent = [normal[1],-normal[0]]    
-    tangent = np.array(tangent)
-    tangent = tangent/LA.norm(tangent)
-    normal  = np.array(normal)    
-    base    = np.array(base)
-    
-    offset  = np.array([[f_lead_vector[0],f_lead_vector[1]]]*4)
-    scale = 100
-    
-    
-    coords  = [ base - scale*tangent , base - scale*tangent + normal , base + scale*tangent + normal , base + scale*tangent]
-    ax.add_patch(
-        patches.Polygon(coords,
-            alpha=0.2,
-            color='gray'
-        )
-    )    
-    ax.add_patch(
-        patches.Polygon(coords+offset,
-            alpha=0.2,
-            color='green'
-        )
-    )
-    ax.set_xlim([min(points[:,0]),max(points[:,0])])
-    ax.set_ylim([min(points[:,1]),max(points[:,1])])
-
+ax.set_xlim([min(points[:,0]),max(points[:,0])])
+ax.set_ylim([min(points[:,1]),max(points[:,1])])
 ax.margins(0.2)
 plt.savefig("lead.pdf")

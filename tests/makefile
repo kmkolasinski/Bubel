@@ -13,6 +13,9 @@ build_simple_sqlat:
 build_simple_graphene:
 	make simple_graphene C=ifort P=simple_graphene
 
+build_simple_graphene2:
+	make simple_graphene2 C=ifort P=simple_graphene2
+
 EXEC_FILE=$(P)
 # -----------------------------------
 # Uzyj polecenia
@@ -86,5 +89,5 @@ $(EXEC_FILE): $(EXEC_FILE).f90  $(UMFPACK_FILES)
 
 
 clean:
-	rm simple_sqlat simple_graphene
-	rm */*.dat */*.pdf */*.png
+	rm -f */*.dat */*.pdf */*.png  2> /dev/null
+	rm -f simple_sqlat simple_graphene simple_graphene2  2> /dev/null
