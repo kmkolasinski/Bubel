@@ -74,11 +74,11 @@ program transporter
  ! This structure is responsible for different criteria of nearest neighbour searching
   qsystem%qnnbparam%box = (/2*dx,2*dx,0.0D0/) ! do not search for the sites far than (-dx:+dx) direction
  ! Setup connections between sites with provided by you function "connect", see below for example.
- call qsystem%make_lattice(connect,qsystem%qnnbparam)
+ call qsystem%make_lattice(qsystem%qnnbparam,c_default=connect)
 
  ! Save lattice to file to see if constructed system is OK!
  ! Use plot_lattice.py to see the results.
- call qsystem%save_lattice(output_folder//"lattice.dat")
+ call qsystem%save_lattice(output_folder//"lattice.xml")
 
  ! ----------------------------------------------------------
  ! 3. Find eigenvalues of the system.
@@ -127,7 +127,7 @@ program transporter
  lead_translation_vec = (/  dx , 0.0D0 , 0.0D0 /)
  call lead%init_lead(lead_shape,lead_translation_vec,qsystem%atoms)
  a_Emin = 0.0 / A0 / 1000.0 ! converting from [meV] to atomic units
- call lead%print_lead(output_folder//"lead.dat",qsystem%atoms)
+ call lead%print_lead(output_folder//"lead.xml",qsystem%atoms)
  a_Emax = 0.3 / A0 / 1000.0 ! converting from [meV] to atomic units
  call lead%bands(output_folder//"bands.dat",-M_PI,+M_PI,M_PI/50.0,a_Emin,a_Emax)
  ! ----------------------------------------------------------
@@ -140,10 +140,8 @@ program transporter
  call system("cd "//output_folder//"; ./plot_bands.py")
  print*,"Plotting eigenvectors..."
  call system("cd "//output_folder//"; ./plot_eigenvecs.py")
- print*,"Plotting lattice..."
- call system("cd "//output_folder//"; ./plot_lattice.py")
- print*,"Plotting lead..."
- call system("cd "//output_folder//"; ./plot_lead.py")
+ print*,"Use Viewer program to see the structure and crated lead."
+
  contains
 
 ! ---------------------------------------------------------------------------

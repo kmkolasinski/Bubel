@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>796</width>
-    <height>599</height>
+    <height>691</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -60,7 +60,51 @@
           </property>
          </widget>
         </item>
+        <item row="1" column="0">
+         <widget class="QLabel" name="label_11">
+          <property name="text">
+           <string>Rotation X</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QSpinBox" name="spinBoxRotX">
+          <property name="minimum">
+           <number>-360</number>
+          </property>
+          <property name="maximum">
+           <number>360</number>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="3">
+         <widget class="QSpinBox" name="spinBoxRotY">
+          <property name="minimum">
+           <number>-360</number>
+          </property>
+          <property name="maximum">
+           <number>360</number>
+          </property>
+          <property name="value">
+           <number>0</number>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="2">
+         <widget class="QLabel" name="label_12">
+          <property name="text">
+           <string>Rotation Y</string>
+          </property>
+         </widget>
+        </item>
        </layout>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkBoxOrthoProj">
+        <property name="text">
+         <string>Orthographic projection</string>
+        </property>
+       </widget>
       </item>
       <item>
        <widget class="QToolBox" name="toolBox">
@@ -85,7 +129,7 @@
            <x>0</x>
            <y>0</y>
            <width>350</width>
-           <height>409</height>
+           <height>433</height>
           </rect>
          </property>
          <attribute name="label">
@@ -117,7 +161,7 @@
                <x>0</x>
                <y>0</y>
                <width>330</width>
-               <height>323</height>
+               <height>337</height>
               </rect>
              </property>
              <layout class="QVBoxLayout" name="verticalLayout_2">
@@ -144,7 +188,7 @@ p, li { white-space: pre-wrap; }
            <x>0</x>
            <y>0</y>
            <width>350</width>
-           <height>409</height>
+           <height>433</height>
           </rect>
          </property>
          <attribute name="label">
@@ -231,6 +275,14 @@ p, li { white-space: pre-wrap; }
          </layout>
         </widget>
         <widget class="QWidget" name="page_3">
+         <property name="geometry">
+          <rect>
+           <x>0</x>
+           <y>0</y>
+           <width>359</width>
+           <height>393</height>
+          </rect>
+         </property>
          <attribute name="label">
           <string>Settings</string>
          </attribute>
@@ -413,7 +465,7 @@ p, li { white-space: pre-wrap; }
      <x>0</x>
      <y>0</y>
      <width>796</width>
-     <height>25</height>
+     <height>30</height>
     </rect>
    </property>
   </widget>

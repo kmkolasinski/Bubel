@@ -16,6 +16,12 @@ build_simple_graphene:
 build_simple_graphene2:
 	make simple_graphene2 C=ifort P=simple_graphene2
 
+build_rashba_2deg:
+	make rashba_2deg C=ifort P=rashba_2deg
+
+build_carbon_nanotube:
+	make carbon_nanotube C=ifort P=carbon_nanotube
+
 EXEC_FILE=$(P)
 # -----------------------------------
 # Uzyj polecenia
@@ -89,5 +95,5 @@ $(EXEC_FILE): $(EXEC_FILE).f90  $(UMFPACK_FILES)
 
 
 clean:
-	rm -f */*.dat */*.pdf */*.png  2> /dev/null
-	rm -f simple_sqlat simple_graphene simple_graphene2  2> /dev/null
+	rm -f */*.dat */*.pdf */*.png */*.xml */*.txt  2> /dev/null
+	rm -f simple_sqlat simple_graphene simple_graphene2 carbon_nanotube rashba_2deg  2> /dev/null

@@ -20,6 +20,7 @@ MainWindow::MainWindow(QWidget *parent) :
     group->addButton(ui->radioButtonMainXZ);
     group->addButton(ui->radioButtonMainYZ);
     connect(group,SIGNAL(buttonClicked(int)),this,SLOT(receiveCheckBoxes(int)));
+    connect(ui->checkBoxOrthoProj,SIGNAL(stateChanged(int)),this,SLOT(receiveCheckBoxes(int)));
 
     connect(ui->doubleSpinBoxAtomSize,SIGNAL(valueChanged(double)),this,SLOT(receiveDoubleSpinBoxes(double)));
     connect(ui->spinBoxAtomQ,SIGNAL(valueChanged(int)),this,SLOT(receiveSpinBoxes(int)));
@@ -35,15 +36,26 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(ui->comboBoxFlags,SIGNAL(currentIndexChanged(int)),this,SLOT(updatePerFlagSettings(int)));
 
 
+    connect(glWidget,SIGNAL(xRotationChanged(int)),ui->spinBoxRotX,SLOT(setValue(int)));
+    connect(glWidget,SIGNAL(yRotationChanged(int)),ui->spinBoxRotY,SLOT(setValue(int)));
+
+
+    connect(ui->spinBoxRotX,SIGNAL(valueChanged(int)),glWidget,SLOT(setXRotation(int)));
+    connect(ui->spinBoxRotY,SIGNAL(valueChanged(int)),glWidget,SLOT(setYRotation(int)));
+
     xmlData.read_data("../lattice.xml");
     xmlData.read_data("../lead.xml");
     xmlData.precalculate_data();
     glWidget->atoms = &xmlData.p_atoms;
     glWidget->cnts  = &xmlData.p_connections;
-    glWidget->leads = &xmlData.leads;
+    glWidget->leads = &xmlData.p_leads;
     bSkipSignals = false;
-
+    lastDir = "";
     update_gui();
+
+    glWidget->setAcceptDrops(true);
+    setAcceptDrops(true);
+
 }
 
 MainWindow::~MainWindow()
@@ -66,7 +78,8 @@ void MainWindow::update_gui(){
     ui->doubleSpinBoxAtomSize->setValue(xmlData.atoms_stats.atom_radius);
     ui->doubleSpinBoxConnectionSize->setValue(xmlData.atoms_stats.atom_radius);
 
-
+    ui->doubleSpinBoxAtomSize->setSingleStep(xmlData.atoms_stats.atom_radius/10.0);
+    ui->doubleSpinBoxConnectionSize->setSingleStep(xmlData.atoms_stats.atom_radius/10.0);
 
     for(unsigned i=0; ui->listWidgetLeads->count(); i++){
              QListWidgetItem *item = ui->listWidgetLeads->item(i);
@@ -122,13 +135,11 @@ void MainWindow::update_gui(){
 
     bSkipSignals = false;
     updateWidgets();
-    glWidget->updateGL();
 }
-
 
 void MainWindow::toggleLead(unsigned int id,bool toggle){
     xmlData.leads[id].visible = toggle;
-    glWidget->updateGL();
+    updateWidgets();
 }
 
 void MainWindow::receiveSpinBoxes(int){
@@ -140,17 +151,18 @@ void MainWindow::receiveDoubleSpinBoxes(double){
 }
 
 void MainWindow::receiveCheckBoxes(int toggle){
-
+    toggle = 0;
     if(ui->radioButtonMainXY->isChecked()) glWidget->mainPlain = MAIN_PLAIN_XY;
     if(ui->radioButtonMainXZ->isChecked()) glWidget->mainPlain = MAIN_PLAIN_XZ;
     if(ui->radioButtonMainYZ->isChecked()) glWidget->mainPlain = MAIN_PLAIN_YZ;
 
-
+    glWidget->bUseOrtho = ui->checkBoxOrthoProj->isChecked();
     glWidget->updateGL();
 }
 
 void MainWindow::updateWidgets(){
     if(bSkipSignals) return;
+    glWidget->bCompileDisplayList = true;
     xmlData.atoms_stats.filter_spin_A = ui->spinBoxSpinA->value();
     xmlData.atoms_stats.filter_spin_B = ui->spinBoxSpinB->value();
     xmlData.precalculate_data();
@@ -181,13 +193,42 @@ void MainWindow::updateWidgets(){
 
 void MainWindow::open(){
     QString fn = QFileDialog::getOpenFileName(this, tr("Open Quantulaba XML File"),
-                                                  QString(), tr("xml (*.xml);;All Files (*)"));
+                                                  lastDir, tr("xml (*.xml);;All Files (*)"));
     if (!fn.isEmpty()){
+        lastDir = fn;
         xmlData.read_data(fn);
         xmlData.precalculate_data();
         update_gui();
     }
 }
+
+void MainWindow::dragEnterEvent(QDragEnterEvent *event)
+{
+
+    if (event->mimeData()->hasFormat("text/plain"))
+        event->acceptProposedAction();
+}
+
+void MainWindow::dropEvent(QDropEvent *event)
+{
+    QList<QUrl> urls = event->mimeData()->urls();
+    if (urls.isEmpty())
+        return;
+
+    for(int i = 0 ; i < urls.size() ; i++){
+        QString fileName = urls[i].toLocalFile();
+        QFileInfo fileInfo(fileName);
+        if(fileInfo.suffix() == "xml"){
+            qDebug() << "Opening:" << fileName ;
+            lastDir = fileName;
+            xmlData.read_data(fileName);
+        }
+    }
+    xmlData.precalculate_data();
+    update_gui();
+
+}
+
 
 void MainWindow::chooseColor(){
 

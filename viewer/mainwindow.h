@@ -2,6 +2,7 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
+#include <QMimeData>
 #include <glwidget.h>
 #include <formleadparams.h>
 namespace Ui {
@@ -28,7 +29,8 @@ public slots:
     void chooseConnectionColor();
     void togglePerFlagDisplaySettings(bool);
     void updatePerFlagSettings(int);
-
+    void dragEnterEvent(QDragEnterEvent *event);
+    void dropEvent(QDropEvent *event);
 private:
     bool bSkipSignals;
     void update_gui();
@@ -36,6 +38,7 @@ private:
     Ui::MainWindow *ui;
     GLWidget* glWidget;
     DataReader xmlData;
+    QString lastDir;
 
 };
 

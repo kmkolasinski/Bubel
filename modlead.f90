@@ -283,7 +283,8 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
                     print"(A,i9,A,3e12.4,A)","                   to atom  :",bond_atom_id," at position r=(",all_atoms(bond_atom_id)%atom_pos,")"
                     print"(A)",              "                   is impossible by applying lead translation vector. Maybe some of the "
                     print"(A)",              "                   atoms have not been inlcuded in the lead. Check lead area and T vector."
-                    stop -1
+                    cycle
+                    !stop -1
                 endif
                 ! now "j" contains of localID of the state in the lead which is equivalent
                 ! to same state but in the next unit cell.
@@ -476,6 +477,7 @@ subroutine print_lead(this,filename,all_atoms)
 
 
     write(funit,"(A)"),"<lead>"
+    call this%lead_shape%flush_shape_data_to_file(funit)
     write(funit,"(A)"),"<vector>"
     write(funit,"(3e20.6)"),this%lead_vector
     write(funit,"(A)"),"</vector>"
@@ -519,7 +521,7 @@ subroutine print_lead(this,filename,all_atoms)
         id_spin_b = this%next_l2g(j,2)
         normalized_value = abs(this%valsTau(i,j))/max_abs_matrix_element
         if( normalized_value > CUTOFF_LEVEL ) then
-            write(funit,"(A,4i5,A)"),"   <d>",id_atom_a,id_atom_b,id_spin_a,id_spin_b,"</d>"
+            write(funit,"(A,4i10,A)"),"   <d>",id_atom_a,id_atom_b,id_spin_a,id_spin_b,"</d>"
         endif
         enddo
     enddo
@@ -540,7 +542,7 @@ subroutine print_lead(this,filename,all_atoms)
         id_spin_b = this%l2g(j,2)
         normalized_value = abs(this%valsH0(i,j))/max_abs_matrix_element
         if( normalized_value > CUTOFF_LEVEL ) then
-            write(funit,"(A,4i5,A)"),"   <d>",id_atom_a,id_atom_b,id_spin_a,id_spin_b,"</d>"
+            write(funit,"(A,4i10,A)"),"   <d>",id_atom_a,id_atom_b,id_spin_a,id_spin_b,"</d>"
         endif
         enddo
 

@@ -28,9 +28,45 @@ struct AtomConnection{
                      realC(0),imagC(0){
     }
 };
+enum LeadShapeType{
+    SHAPE_NONE = 0,
+    SHAPE_RECTANGLE_XY = 1,
+    SHAPE_CONVEX_QUAD_XY = 2,
+    SHAPE_RANGE_3D = 3
+};
+
+struct LeadShape{
+    LeadShapeType type;
+    QVector3D data[8];
+    unsigned int indices[12][2];
+
+    LeadShape(){
+        type = SHAPE_NONE;
+
+        indices[0][0] = 0;indices[0][1] = 1;
+        indices[1][0] = 1;indices[1][1] = 2;
+        indices[2][0] = 2;indices[2][1] = 3;
+        indices[3][0] = 3;indices[3][1] = 0;
+
+        indices[4][0] = 4;indices[4][1] = 5;
+        indices[5][0] = 5;indices[5][1] = 6;
+        indices[6][0] = 6;indices[6][1] = 7;
+        indices[7][0] = 7;indices[7][1] = 4;
+
+        indices[8 ][0] = 0;indices[8 ][1] = 4;
+        indices[9 ][0] = 1;indices[9 ][1] = 5;
+        indices[10][0] = 2;indices[10][1] = 6;
+        indices[11][0] = 3;indices[11][1] = 7;
+
+    }
+};
+
+
+
 
 struct Lead{
     bool visible;
+    LeadShape shape;
     vector<unsigned int> atoms;
     vector<unsigned int> nex_atoms;
     vector<AtomConnection> cnts;

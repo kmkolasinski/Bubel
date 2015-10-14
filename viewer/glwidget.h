@@ -81,14 +81,16 @@ public:
 
 //! [1]
 public slots:
+    void setXRotation(double angle);
+    void setYRotation(double angle);
     void setXRotation(int angle);
     void setYRotation(int angle);
-    void setZRotation(int angle);
+//    void setZRotation(int angle);
 
 signals:
     void xRotationChanged(int angle);
     void yRotationChanged(int angle);
-    void zRotationChanged(int angle);
+//    void zRotationChanged(int angle);
 //! [1]
 
 //! [2]
@@ -105,15 +107,16 @@ protected:
 //! [3]
 private:
 
-    int xRot;
-    int yRot;
-    int zRot;
+    double xRot;
+    double yRot;
+    double zRot;
     QPoint lastPos;
     QColor qtPurple;
 
     QVector3D mass_center;
     QVector3D XY_offset;
     double zoom;
+    double ratio;
 
 public:
     vector<Atom> *atoms;
@@ -121,6 +124,8 @@ public:
     vector<Lead> *leads;
     MainPlain mainPlain;
     bool bUseSettingsPerFlag;
+    bool bUseOrtho;
+    bool bCompileDisplayList;
 
     vector<DisplaySettings> displayPerFlag;
     DisplaySettings          displayAllSettings;

@@ -1,3 +1,7 @@
+! ------------------------------------------------------ !
+! Quantulaba - simple_graphene.f90 - Krzysztof Kolasinski 2015
+!
+! ------------------------------------------------------ !
 program transporter
  use modscatter
  use modsys
@@ -59,12 +63,12 @@ program transporter
 
 
 !call qt%qsystem%make_lattice(connect,qt%qnnbparam)
-!call qt%qsystem%save_lattice(output_folder//"lattice.dat")
+!call qt%qsystem%save_lattice(output_folder//"lattice.xml")
 !
 !! adding lead
 !call rect_shape%init_rect(SHAPE_RECTANGLE_XY,0.4D0,1.1D0,0.0D0,11.0D0)
 !call qt%add_lead(rect_shape,(/1.0D0,0.0D0,0.0D0/))
-!call qt%leads(1)%print_lead(output_folder//"lead.dat",qt%qsystem%atoms)
+!call qt%leads(1)%print_lead(output_folder//"lead.xml",qt%qsystem%atoms)
 !call qt%leads(1)%bands(output_folder//"bands.dat",-3.14D0,3.14D0,0.1D0,-15.0D0,15.0D0)
 
  ! --------------------------------------------------------------------------
@@ -92,8 +96,8 @@ enddo
 
 qt%qnnbparam%distance   = 0.6
 qt%qnnbparam%NNB_FILTER = QSYS_NNB_FILTER_DISTANCE
-call qt%qsystem%make_lattice(connect,qt%qnnbparam)
-call qt%qsystem%save_lattice(output_folder//"lattice.dat")
+call qt%qsystem%make_lattice(qt%qnnbparam,c_default=connect)
+call qt%qsystem%save_lattice(output_folder//"lattice.xml")
 
 !call rect_shape%init_rect(SHAPE_RECTANGLE_XY,0.4D0,2.1D0,0.0D0,10.0D0)
 !lead_translation_vec = (/ 3.0/sqrt(3.0D0) ,  0.0D0 , 0.0D0 /)
@@ -102,18 +106,15 @@ call rect_shape%init_rect(SHAPE_RECTANGLE_XY,0.4D0,13.1D0,0.4D0,1.3D0)
 lead_translation_vec = (/ 0.0D0 , 1.0D0 , 0.0D0 /)
 
 call qt%add_lead(rect_shape,lead_translation_vec)
-call qt%leads(1)%print_lead(output_folder//"lead.dat",qt%qsystem%atoms)
+call qt%leads(1)%print_lead(output_folder//"lead.xml",qt%qsystem%atoms)
 call qt%leads(1)%bands(output_folder//"bands.dat",-3.14D0,3.14D0,0.1D0,-15.0D0,15.0D0)
 call qt%destroy_system()
 
 
- print*,"Generating plots..."
- print*,"Plotting band structure..."
- call system("cd "//output_folder//"; ./plot_bands.py")
- print*,"Plotting lattice..."
- call system("cd "//output_folder//"; ./plot_lattice.py")
- print*,"Plotting lead..."
- call system("cd "//output_folder//"; ./plot_lead.py")
+print*,"Generating plots..."
+print*,"Plotting band structure..."
+call system("cd "//output_folder//"; ./plot_bands.py")
+print*,"Use Viewer program to see the structure and crated lead."
 
 contains
 

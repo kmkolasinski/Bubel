@@ -1,7 +1,6 @@
 #include "datareader.h"
 AtomsStats  DataReader::atoms_stats;
 
-
 DataReader::DataReader()
 {
     atoms.clear();
@@ -52,7 +51,7 @@ void DataReader::read_data(QString filename){
         }
     }else if(root.tagName() == "atoms") read_atoms(root);
     else if(root.tagName() == "lead"){
-        //leads.clear();
+        leads.clear();
         read_lead(root);
     }
     xmlFile->close();
@@ -198,10 +197,130 @@ void DataReader::read_lead(QDomElement &root){
     QDomElement Component=root.firstChild().toElement();
 
     Lead lead;
+    bool shapeTypeInitialized = false;
+
 
     // Loop while there is a child
     while(!Component.isNull())
     {
+
+        // Check if the child tag name is COMPONENT
+        if (Component.tagName()=="shape_type")
+        {
+
+
+            qDebug() << "Lead area:" << Component.firstChild().toText().data();
+            if(Component.firstChild().toText().data()      == "SHAPE_RECTANGLE_XY")     lead.shape.type = SHAPE_RECTANGLE_XY;
+            else if(Component.firstChild().toText().data() == "SHAPE_CONVEX_QUAD_XY")   lead.shape.type = SHAPE_CONVEX_QUAD_XY;
+            else if(Component.firstChild().toText().data() == "SHAPE_RANGE_3D")         lead.shape.type = SHAPE_RANGE_3D;
+            else{
+                lead.shape.type = SHAPE_NONE;
+                qDebug() << "Warning: Shape:" << Component.firstChild().toText().data() << " is not defined." ;
+            }
+
+            shapeTypeInitialized = true;
+
+        }
+
+
+        // Check if the child tag name is COMPONENT
+        if (Component.tagName()=="shape_data")
+        {
+
+            qDebug() << "Reading shape data";
+            if(!shapeTypeInitialized){
+                qDebug() << "Warning::The shape_type keyword must be before shape_data in XML file.";
+                return;
+            }
+
+            QString line;
+            line=Component.firstChild().toText().data();
+            std::stringstream stream(line.toStdString());
+            double corners[8][3] = {0};
+
+            switch(lead.shape.type){
+                case(SHAPE_RECTANGLE_XY):
+                    stream >> corners[0][0];
+                    stream >> corners[0][1];
+                    stream >> corners[2][0];
+                    stream >> corners[2][1];
+
+                    corners[1][0] = corners[2][0];corners[1][1] = corners[0][1];
+                    corners[3][0] = corners[0][0];corners[3][1] = corners[2][1];
+
+                    for(int k = 0 ; k < 4 ; k ++ ){
+                        corners[k+4][0] = corners[k][0];
+                        corners[k+4][1] = corners[k][1];
+                    }
+                    for(int  k = 0 ; k < 8 ; k++){
+                        lead.shape.data[k] = QVector3D(corners[k][0],corners[k][1],corners[k][2]);
+                    }
+                    break;
+                case(SHAPE_CONVEX_QUAD_XY):
+                    break;
+                case(SHAPE_RANGE_3D):
+                    double x,y,z;
+
+                    stream >> x;
+                    stream >> y;
+                    stream >> z;
+
+                    QVector3D base = QVector3D(x,y,z);
+                    stream >> x;
+                    stream >> y;
+                    stream >> z;
+                    QVector3D dir  = QVector3D(x,y,z);
+//                    qDebug() << base << dir;
+                    // find max component of dir
+                    int cpnt = 1 ;
+                    if( dir.x() > dir.y() ){
+                        if( dir.x() > dir.z() ) cpnt = 1;//x
+                        else cpnt = 3; //z
+                    }else if ( dir.y() > dir.z() ) cpnt = 2;
+                    else cpnt = 3;
+                    QVector3D someVec  = QVector3D( cpnt==3?1.0:0.0, cpnt==1?1.0:0.0 , cpnt==2?1.0:0.0 );
+                    QVector3D tangent  = QVector3D::crossProduct(someVec,dir.normalized()).normalized();
+                    QVector3D btangent = QVector3D::crossProduct(tangent,dir.normalized()).normalized();
+//                    qDebug() << "someVec"  << someVec;
+//                    qDebug() << "tangent"  << tangent;
+//                    qDebug() << "btangent" << btangent;
+                    double scale = (atoms_stats.max_corner -  atoms_stats.min_corner).length();
+                    lead.shape.data[0] =  tangent*scale;
+                    lead.shape.data[1] =  btangent*scale;
+                    lead.shape.data[2] =  - tangent*scale;
+                    lead.shape.data[3] =  - btangent*scale;
+
+                    lead.shape.data[4] =   tangent*scale ;
+                    lead.shape.data[5] =   btangent*scale;
+                    lead.shape.data[6] =  - tangent*scale;
+                    lead.shape.data[7] =  - btangent*scale;
+//                    for(int  k = 0 ; k < 8 ; k++){
+//                        if(lead.shape.data[k].x() < atoms_stats.min_corner.x()) lead.shape.data[k].setX(atoms_stats.min_corner.x());
+//                        if(lead.shape.data[k].y() < atoms_stats.min_corner.y()) lead.shape.data[k].setY(atoms_stats.min_corner.y());
+//                        if(lead.shape.data[k].z() < atoms_stats.min_corner.z()) lead.shape.data[k].setZ(atoms_stats.min_corner.z());
+
+//                        if(lead.shape.data[k].x() > atoms_stats.max_corner.x()) lead.shape.data[k].setX(atoms_stats.max_corner.x());
+//                        if(lead.shape.data[k].y() > atoms_stats.max_corner.y()) lead.shape.data[k].setY(atoms_stats.max_corner.y());
+//                        if(lead.shape.data[k].z() > atoms_stats.max_corner.z()) lead.shape.data[k].setZ(atoms_stats.max_corner.z());
+//                    }
+
+                    lead.shape.data[0] += base;
+                    lead.shape.data[1] += base;
+                    lead.shape.data[2] += base;
+                    lead.shape.data[3] += base;
+
+                    lead.shape.data[4] += base + dir;
+                    lead.shape.data[5] += base + dir;
+                    lead.shape.data[6] += base + dir;
+                    lead.shape.data[7] += base + dir;
+
+                    break;
+            }
+
+
+        }
+        // Next component
+
         // Check if the child tag name is COMPONENT
         if (Component.tagName()=="atoms")
         {
@@ -266,8 +385,6 @@ void DataReader::read_lead(QDomElement &root){
                 lead.cnts.push_back(cnt);
             }
         }
-
-
         // Check if the child tag name is COMPONENT
         if (Component.tagName()=="inner_coupling")
         {
@@ -298,8 +415,6 @@ void DataReader::read_lead(QDomElement &root){
                 lead.inner_cnts.push_back(cnt);
             }
         }
-
-
         // Next component
         Component = Component.nextSibling().toElement();
     }
@@ -347,13 +462,15 @@ void DataReader::precalculate_data(){
     p_leads.clear();
     for(unsigned int l = 0 ; l < leads.size() ; l++){
         Lead& lead = leads[l];
-
-
         Lead p_lead;
 
         p_lead = lead;
         p_lead.cnts.clear();
         p_lead.inner_cnts.clear();
+
+        for(int i = 0;i<12;i++){
+            p_lead.shape.data[i] = (lead.shape.data[i] - atoms_stats.mass_center)*scale;
+        }
 
 
         for(unsigned int i = 0 ; i < lead.cnts.size() ; i++){

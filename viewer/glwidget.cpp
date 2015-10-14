@@ -60,10 +60,13 @@ GLWidget::GLWidget(QWidget *parent)
     zRot = 0;
 
 
-    qtPurple = QColor::fromCmykF(0.39, 0.39, 0.0, 0.0);
+    qtPurple = QColor(100,100,100);
     this->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Expanding);
     mainPlain = MAIN_PLAIN_XY;
     bUseSettingsPerFlag = false;
+    zoom = 1.0;
+    bUseOrtho = false;
+    bCompileDisplayList = true;
 
 }
 //! [0]
@@ -90,45 +93,58 @@ QSize GLWidget::sizeHint() const
 }
 //! [4]
 
-static void qNormalizeAngle(int &angle)
+static void qNormalizeAngle(double &angle)
 {
     while (angle < 0)
-        angle += 360 * 16;
-    while (angle > 360 * 16)
-        angle -= 360 * 16;
+        angle += 360 ;
+    while (angle > 360 )
+        angle -= 360 ;
 }
 
 //! [5]
-void GLWidget::setXRotation(int angle)
+void GLWidget::setXRotation(double angle)
 {
     qNormalizeAngle(angle);
     if (angle != xRot) {
         xRot = angle;
-        emit xRotationChanged(angle);
+        emit xRotationChanged(int(angle)%360);
         updateGL();
     }
+}
+//! [5]
+
+void GLWidget::setYRotation(double angle)
+{
+    qNormalizeAngle(angle);
+    if (angle != yRot) {
+        yRot = angle;
+        emit yRotationChanged(int(angle)%360);
+        updateGL();
+    }
+}
+
+
+
+void GLWidget::setXRotation(int angle)
+{
+    setXRotation((double)angle);
 }
 //! [5]
 
 void GLWidget::setYRotation(int angle)
 {
-    qNormalizeAngle(angle);
-    if (angle != yRot) {
-        yRot = angle;
-        emit yRotationChanged(angle);
-        updateGL();
-    }
+    setYRotation((double)angle);
 }
 
-void GLWidget::setZRotation(int angle)
-{
-    qNormalizeAngle(angle);
-    if (angle != zRot) {
-        zRot = angle;
-        emit zRotationChanged(angle);
-        updateGL();
-    }
-}
+//void GLWidget::setZRotation(int angle)
+//{
+//    qNormalizeAngle(angle);
+//    if (angle != zRot) {
+//        zRot = angle;
+//        emit zRotationChanged(angle);
+//        updateGL();
+//    }
+//}
 
 //! [6]
 void GLWidget::initializeGL()
@@ -143,36 +159,58 @@ void GLWidget::initializeGL()
     glEnable(GL_MULTISAMPLE);
     static GLfloat lightPosition[4] = { 0.5, 5.0, 7.0, 1.0 };
     glLightfv(GL_LIGHT0, GL_POSITION, lightPosition);
-    zoom   = 10.0;
+
 
 
 }
 //! [6]
 void renderCylinder(double x1, double y1, double z1, double x2,double y2, double z2, double radius,int subdivisions,GLUquadricObj *quadric)
 {
-double vx = x2-x1+0.0000001;
-double vy = y2-y1;
-double vz = z2-z1;
 
-//handle the degenerate case of z1 == z2 with an approximation
-if(vz == 0)
-    vz = .0001;
+// This is the default direction for the cylinders to face in OpenGL
+QVector3D z = QVector3D(0,0,1);
+// Get diff between two points you want cylinder along
+QVector3D p;
+if( qAbs(x1-x2) + qAbs(y1-y2) < 1.0e-4 ){
+     p = (QVector3D(x1+0.0001,y1,z1) - QVector3D(x2,y2,z2));
+}else p = (QVector3D(x1,y1,z1) - QVector3D(x2,y2,z2));
 
-double v = sqrt( vx*vx + vy*vy + vz*vz );
-double ax = 57.2957795*acos( vz/v );
-if ( vz < 0.0 )
-    ax = -ax;
-double rx = -vy*vz;
-double ry = vx*vz;
+
+// Get CROSS product (the axis of rotation)
+QVector3D t = QVector3D::crossProduct(z,p);
+
+// Get angle. LENGTH is magnitude of the vector
+double angle = 180.0 / M_PI * acos ((QVector3D::dotProduct(z,p) / p.length()));
+
 glPushMatrix();
+glTranslated(x2,y2,z2);
+glRotated(angle,t.x(),t.y(),t.z());
 
-//draw the cylinder body
-glTranslatef( x1,y1,z1 );
-glRotatef(ax, rx, ry, 0.0);
 gluQuadricOrientation(quadric,GLU_OUTSIDE);
-gluCylinder(quadric, radius, radius, v, subdivisions, 1);
-
+gluCylinder(quadric, radius, radius, p.length(), subdivisions, 1);
 glPopMatrix();
+
+
+
+////handle the degenerate case of z1 == z2 with an approximation
+//if(vz == 0)
+//    vz = .0001;
+
+//double v = sqrt( vx*vx + vy*vy + vz*vz );
+//double ax = 57.2957795*acos( vz/v );
+//if ( vz < 0.0 )
+//    ax = -ax;
+//double rx = -vy*vz;
+//double ry = vx*vz;
+//glPushMatrix();
+
+////draw the cylinder body
+//glTranslatef( x1,y1,z1 );
+//glRotatef(ax, rx, ry, 0.0);
+//gluQuadricOrientation(quadric,GLU_OUTSIDE);
+//gluCylinder(quadric, radius, radius, v, subdivisions, 1);
+
+//glPopMatrix();
 }
 void renderCylinder_convenient(double x1, double y1, double z1, double x2,double y2, double z2, double radius,int subdivisions)
 {
@@ -185,12 +223,22 @@ gluDeleteQuadric(quadric);
 //! [7]
 void GLWidget::paintGL()
 {
+    static GLuint displayIndex = -1;
     makeCurrent();
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
-    glLoadIdentity();
 
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    double s =zoom;
+    if(bUseOrtho)
+        glOrtho(-0.5*s*ratio,0.5*s*ratio,-0.5*s,0.5*s, 4.0, 15.0);
+    else
+        glFrustum(-0.5*s*ratio,0.5*s*ratio,-0.5*s,0.5*s,4.0,15.0);
+
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
     GLfloat d1[4] = { 0.4, 0.5, 0.9, 1.0 };
     GLfloat d2[4] = { 0.9, 0.5, 0.6, 1.0 };
     GLfloat d3[4] = { 0.4, 0.9, 0.2, 1.0 };
@@ -204,9 +252,9 @@ void GLWidget::paintGL()
     glMaterialfv(GL_FRONT,GL_DIFFUSE,d4);
 
     glTranslatef(0.0,0.0,-5.0);
-    glRotatef(xRot / 16.0, 1.0, 0.0, 0.0);
-    glRotatef(yRot / 16.0, 0.0, 1.0, 0.0);
-    glRotatef(zRot / 16.0, 0.0, 0.0, 1.0);
+    glRotatef(xRot , 1.0, 0.0, 0.0);
+    glRotatef(yRot , 0.0, 1.0, 0.0);
+    glRotatef(zRot , 0.0, 0.0, 1.0);
 
 
     switch(mainPlain){
@@ -221,6 +269,13 @@ void GLWidget::paintGL()
         break;
 
     }
+
+
+
+
+
+    if(bCompileDisplayList){
+    glNewList(displayIndex, GL_COMPILE);
 
 
     GLUquadricObj *quadric = gluNewQuadric();
@@ -309,8 +364,41 @@ void GLWidget::paintGL()
             Atom& atomB = (*atoms)[cnt.atomB];
             renderCylinder(atomA.pos.x(),atomA.pos.y(),atomA.pos.z(),atomB.pos.x(),atomB.pos.y(),atomB.pos.z(),0.25*radius,10,quadric);
         }
+        // this is stupid :/
+        lead.shape.indices[0][0] = 0;lead.shape.indices[0][1] = 1;
+        lead.shape.indices[1][0] = 1;lead.shape.indices[1][1] = 2;
+        lead.shape.indices[2][0] = 2;lead.shape.indices[2][1] = 3;
+        lead.shape.indices[3][0] = 3;lead.shape.indices[3][1] = 0;
+
+        lead.shape.indices[4][0] = 4;lead.shape.indices[4][1] = 5;
+        lead.shape.indices[5][0] = 5;lead.shape.indices[5][1] = 6;
+        lead.shape.indices[6][0] = 6;lead.shape.indices[6][1] = 7;
+        lead.shape.indices[7][0] = 7;lead.shape.indices[7][1] = 4;
+
+        lead.shape.indices[8 ][0] = 0;lead.shape.indices[8 ][1] = 4;
+        lead.shape.indices[9 ][0] = 1;lead.shape.indices[9 ][1] = 5;
+        lead.shape.indices[10][0] = 2;lead.shape.indices[10][1] = 6;
+        lead.shape.indices[11][0] = 3;lead.shape.indices[11][1] = 7;
+
+        for(int c = 0 ; c < 12 ; c++){
+
+            int idA = lead.shape.indices[c][0];
+            int idB = lead.shape.indices[c][1];
+
+            renderCylinder(lead.shape.data[idA].x(),lead.shape.data[idA].y(),lead.shape.data[idA].z(),
+                           lead.shape.data[idB].x(),lead.shape.data[idB].y(),lead.shape.data[idB].z(),
+                           0.0015,10,quadric);
+
+        }
+
     }
     gluDeleteQuadric(quadric);
+    bCompileDisplayList  = false;
+    glEndList();
+    } // end of compile display list;
+
+
+    glCallList(displayIndex);
 
 }
 //! [7]
@@ -318,18 +406,8 @@ void GLWidget::paintGL()
 //! [8]
 void GLWidget::resizeGL(int width, int height)
 {
-//    int side = qMin(width, height);
     glViewport(0, 0, width, height);
-
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-//#ifdef QT_OPENGL_ES_1
-//    glOrthof(-0.5, +0.5, -0.5, +0.5, 4.0, 15.0);
-//#else
-    //glOrtho(-0.8, +0.8, -0.8, +0.8, 4.0, 150.0);
-//#endif
-    gluPerspective(zoom,float(width)/height,0.1,5000);
-    glMatrixMode(GL_MODELVIEW);
+    ratio = double(width)/height;
 }
 //! [8]
 
@@ -347,10 +425,10 @@ void GLWidget::mouseMoveEvent(QMouseEvent *event)
     int dy = event->y() - lastPos.y();
 
     if (event->buttons() & Qt::LeftButton) {
-        setXRotation(xRot + 4 * dy);
-        setYRotation(yRot + 4 * dx);
+        setXRotation(xRot + 0.2 * dy);
+        setYRotation(yRot + 0.2 * dx);
     } else if (event->buttons() & Qt::RightButton) {
-        XY_offset += 0.005* QVector3D(dx,-dy,0.0)*zoom/20;
+        XY_offset += 0.002* QVector3D(dx,-dy,0.0)*zoom;
         updateGL();
     }
 
@@ -362,8 +440,8 @@ void GLWidget::wheelEvent(QWheelEvent *event)
 {
     float numDegrees = event->delta() / 100.0;
 
-    zoom += numDegrees;
-    zoom = min(max(2.0,zoom),50.0);
+    zoom += numDegrees/20.0;
+    zoom = min(max(0.001,zoom),2.0);
     resizeGL(width(),height());
     updateGL();
     event->accept();

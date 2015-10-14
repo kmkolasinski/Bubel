@@ -389,27 +389,24 @@ subroutine make_lattice(sys,nnbparams,c_default,c_simple,c_matrix)
 
         do k = 1 , sys%atoms(i)%no_in_states
         do j = 1 , sys%no_atoms
-            ! both sites have to be active
             if(sys%atoms(j)%bActive == .true.) then
-
-                if(.not. allocated(cpl_matrix)) allocate(cpl_matrix(sys%atoms(i)%no_in_states,sys%atoms(j)%no_in_states))
-                if(size(cpl_matrix,1) /= sys%atoms(i)%no_in_states .or. &
-                   size(cpl_matrix,2) /= sys%atoms(j)%no_in_states) then
-                   deallocate(cpl_matrix)
-                   allocate(cpl_matrix(sys%atoms(i)%no_in_states,sys%atoms(j)%no_in_states))
-                endif
-
-                do l = 1 , sys%atoms(j)%no_in_states
-
-                    ! if they are nnb one may create a bond between them
-                    if(c_matrix(sys%atoms(i),sys%atoms(j),cpl_matrix)) then
-                         if( abs(cpl_matrix(k,l)) > QSYS_COUPLING_CUTOFF) & ! skip zero values
-                         call sys%atoms(i)%add_bond(k,j,l,cpl_matrix(k,l))
-!                         print"(4i4,2e12.2)",i,k,j,l,cpl_matrix(k,l)
-                    endif
-                enddo
+            if(.not. allocated(cpl_matrix)) allocate(cpl_matrix(sys%atoms(i)%no_in_states,sys%atoms(j)%no_in_states))
+            if(size(cpl_matrix,1) /= sys%atoms(i)%no_in_states .or. &
+               size(cpl_matrix,2) /= sys%atoms(j)%no_in_states) then
+               deallocate(cpl_matrix)
+               allocate(cpl_matrix(sys%atoms(i)%no_in_states,sys%atoms(j)%no_in_states))
             endif
-        enddo
+            ! if they are nnb one may create a bond between them
+            if(c_matrix(sys%atoms(i),sys%atoms(j),cpl_matrix)) then
+            ! both sites have to be active
+                do l = 1 , sys%atoms(j)%no_in_states
+!                    if( abs(cpl_matrix(k,l)) > QSYS_COUPLING_CUTOFF) & ! skip zero values
+                     call sys%atoms(i)%add_bond(k,j,l,cpl_matrix(k,l))
+!                     print"(4i4,2e12.2)",i,k,j,l,cpl_matrix(k,l)
+                enddo
+            endif ! end of if nnb
+            endif ! end of if j active
+        enddo ! end of j
         enddo ! end of k
         endif ! end of if c_matrix
 
@@ -607,13 +604,16 @@ subroutine make_lattice(sys,nnbparams,c_default,c_simple,c_matrix)
                    allocate(cpl_matrix(sys%atoms(i)%no_in_states,sys%atoms(j)%no_in_states))
                 endif
 
+                if(c_matrix(sys%atoms(i),sys%atoms(j),cpl_matrix)) then
+
                 if(nnbparams%NNB_FILTER == QSYS_NNB_FILTER_BOX) then
                 do l = 1 , sys%atoms(j)%no_in_states
                     ! if they are nnb one may create a qbond between them
-                    if(c_matrix(sys%atoms(i),sys%atoms(j),cpl_matrix)) then
-                             if( abs(cpl_matrix(k,l)) > QSYS_COUPLING_CUTOFF) & ! skip zero values
+
+!                             if( abs(cpl_matrix(k,l)) > QSYS_COUPLING_CUTOFF) & ! skip zero values
                              call sys%atoms(i)%add_bond(k,j,l,cpl_matrix(k,l))
-                    endif
+!                             print"(4i4,2e12.2)",i,k,j,l,cpl_matrix(k,l)
+
                 enddo
                 else if(nnbparams%NNB_FILTER == QSYS_NNB_FILTER_DISTANCE) then
 
@@ -621,14 +621,17 @@ subroutine make_lattice(sys,nnbparams,c_default,c_simple,c_matrix)
                     if( sqrt(sum((sys%atoms(i)%atom_pos-sys%atoms(j)%atom_pos)**2)) < nnbparams%distance) then
                     do l = 1 , sys%atoms(j)%no_in_states
                         ! if they are nnb one may create a qbond between them
-                        if(c_matrix(sys%atoms(i),sys%atoms(j),cpl_matrix)) then
+                        !if(c_matrix(sys%atoms(i),sys%atoms(j),cpl_matrix)) then
 !                             if( abs(cpl_matrix(k,l)) > QSYS_COUPLING_CUTOFF) & ! skip zero values
                              call sys%atoms(i)%add_bond(k,j,l,cpl_matrix(k,l))
-                        endif
+!                             print"(4i4,2e12.2)",i,k,j,l,cpl_matrix(k,l)
+                        !endif
                     enddo
                     endif ! end of if check distance
 
                 endif ! end if DISTANCE filter
+
+                endif ! end if is NNB
 
 
                 endif! end of if active atom
@@ -797,6 +800,7 @@ subroutine save_lattice(sys,filename,innerA,innerB)
 
     write(765819,*),"<connections>"
     do i = 1 , sys%no_atoms
+        if(.not. sys%atoms(i)%bActive) cycle
         do j = 1 , sys%atoms(i)%no_bonds
             if( sys%atoms(i)%bonds(j)%toAtomID >= i )then
 
