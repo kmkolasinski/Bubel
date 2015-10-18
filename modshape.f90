@@ -151,7 +151,7 @@ subroutine init_atoms_list(this,atoms)
         stop -1
     endif
 
-    print"(A)"," SYS::SHAPE::Initializing atoms list of size:",this%no_atoms
+    print"(A,i)"," SYS::SHAPE::Initializing atoms list of size:",this%no_atoms
 end subroutine init_atoms_list
 ! ---------------------------------------------------------------
 ! Check if point vec lies in the SHAPE_RECTANGLE_XY shape
@@ -212,6 +212,7 @@ logical function is_inside_atom_list(this,vec)
     is_inside_atom_list = .false.
 
     do i = 1, this%no_atoms
+        if(.not.this%atoms_list(i)%bActive)cycle
         dist = sqrt(sum( ( vec - this%atoms_list(i)%atom_pos )**2 ))
         if(dist < TOLERANCE) then
             is_inside_atom_list = .true.
@@ -244,6 +245,9 @@ subroutine flush_shape_data_to_file(this,file_id)
             write(file_id,"(A)"),"<shape_data>"
             write(file_id,"(6e20.6)"),this%range_base_pos,this%range_direction
             write(file_id,"(A)"),"</shape_data>"
+    case(SHAPE_ATOMS_LIST)
+            write(file_id,"(A)"),"<shape_type>SHAPE_ATOMS_LIST</shape_type>"
+
     case default
             print*,"SYS::SHAPE::ERROR::There is no such type of shape:",this%SHAPE_TYPE," cannot flush data to file."
             stop -1

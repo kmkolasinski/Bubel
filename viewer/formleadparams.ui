@@ -60,7 +60,7 @@
    <item>
     <widget class="QPushButton" name="pushButtonShowHide">
      <property name="text">
-      <string>Hide</string>
+      <string>Show/Hide</string>
      </property>
      <property name="checkable">
       <bool>true</bool>
@@ -73,7 +73,7 @@
    <item>
     <widget class="QPushButton" name="pushButtonShowArea">
      <property name="text">
-      <string>Area</string>
+      <string>Show/Hide Area/Volume</string>
      </property>
      <property name="checkable">
       <bool>true</bool>

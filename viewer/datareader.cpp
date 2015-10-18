@@ -34,6 +34,7 @@ void DataReader::read_data(QString filename){
 
     if(root.tagName() == "system"){
         qDebug() << "#Reading system data:";
+        loadingType = LOADING_STRUCTURE;
         QDomElement Component=root.firstChild().toElement();
         leads.clear();
         while(!Component.isNull()){
@@ -47,19 +48,23 @@ void DataReader::read_data(QString filename){
 
     }else if(root.tagName() == "lattice") {
         qDebug() << "#Reading lattice data:";
+        loadingType = LOADING_STRUCTURE;
         read_lattice(root);
         qDebug() << "#Reading lattice data: done!";
     }else if(root.tagName() == "atoms"){
         qDebug() << "#Reading atoms data:";
+        loadingType = LOADING_STRUCTURE;
         read_atoms(root);
         qDebug() << "#Reading atoms data: done!";
     }else if(root.tagName() == "lead"){
         qDebug() << "#Reading single lead data:";
+        loadingType = LOADING_LEADS;
         leads.clear();
         read_lead(root);
         qDebug() << "#Reading single lead data: done!";
     }else if(root.tagName() == "sysdata"){
         qDebug() << "#Reading single atoms data:";
+        loadingType = LOADING_VALUES;
         read_atoms_data(root);
         qDebug() << "#Reading single atoms data: done!";
     }
@@ -543,6 +548,9 @@ void DataReader::clear_data(){
 
 
 void DataReader::precalculate_data(){
+
+    if(loadingType == LOADING_VALUES) return;
+
     QVector3D dims = atoms_stats.max_corner - atoms_stats.min_corner;
 
     QVector3D inv_dims = QVector3D(1/dims.x(),1/dims.y(),1/dims.z());
@@ -593,6 +601,7 @@ void DataReader::precalculate_data(){
         p_lead = lead;
         p_lead.cnts.clear();
         p_lead.inner_cnts.clear();
+        p_lead.shape.type = lead.shape.type;
 
         for(int i = 0;i<12;i++){
             p_lead.shape.data[i] = (lead.shape.data[i] - atoms_stats.mass_center)*scale;
@@ -630,6 +639,8 @@ void DataReader::precalculate_data(){
 
         }
         p_leads.push_back(p_lead);
+
+//        qDebug() << "a=" << p_lead.shape.type  << p_leads[l].shape.type;
     }
 
 }

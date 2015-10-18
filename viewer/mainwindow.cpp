@@ -93,7 +93,10 @@ QSize MainWindow::sizeHint() const
 
 void MainWindow::update_gui(){
     QString info;
+    AtomsStats& stats = xmlData.atoms_stats;
 
+
+    if(xmlData.loadingType != LOADING_VALUES){
     bSkipSignals = true;
     ui->doubleSpinBoxAtomSize->setValue(xmlData.atoms_stats.atom_radius);
     ui->doubleSpinBoxConnectionSize->setValue(xmlData.atoms_stats.atom_radius);
@@ -118,7 +121,7 @@ void MainWindow::update_gui(){
             connect(lead,SIGNAL(emittoggleShowLeadArea(uint,bool)),this,SLOT(toggleLeadArea(uint,bool)));
     }
 
-    AtomsStats& stats = xmlData.atoms_stats;
+
     info = QString("<b>Number of atoms:</b> ")+QString::number(stats.no_atoms);
 
     ui->tableWidgetDataStats->setRowCount(1);
@@ -130,6 +133,7 @@ void MainWindow::update_gui(){
                  header->setSectionResizeMode(QHeaderView::Stretch);
 
     info += QString("<br><b>Flags:</b> ");
+    if(stats.flag_list.size() != glWidget->displayPerFlag.size()){
     glWidget->displayPerFlag.clear();
     glWidget->flag2id.clear();
     ui->comboBoxFlags->clear();
@@ -146,6 +150,7 @@ void MainWindow::update_gui(){
         glWidget->displayPerFlag.push_back(ds);
         ui->comboBoxFlags->addItem("Flag="+QString::number(stats.flag_list[i]));
     }
+    }// display per flag
     info += QString("<br>");
     info += QString("<b>Max spin value:</b> ")+QString::number(stats.max_spin);
 
@@ -162,7 +167,7 @@ void MainWindow::update_gui(){
     ui->spinBoxSpinA->setMaximum(stats.max_spin);
     ui->spinBoxSpinB->setMinimum(1);
     ui->spinBoxSpinB->setMaximum(stats.max_spin);
-
+    }// end of if loading data
 
     // Data values
     ui->lineEditDatasetName->setText(xmlData.data.dataname);
@@ -187,11 +192,13 @@ void MainWindow::update_gui(){
 }
 
 void MainWindow::toggleLead(unsigned int id,bool toggle){
+    xmlData.p_leads[id].bShowLeadAtoms = toggle;
     xmlData.leads[id].bShowLeadAtoms = toggle;
     updateWidgets();
 }
 
 void MainWindow::toggleLeadArea(unsigned int id,bool toggle){
+    xmlData.p_leads[id].bShowArea = toggle;
     xmlData.leads[id].bShowArea = toggle;
     updateWidgets();
 }
@@ -268,13 +275,17 @@ void MainWindow::open(){
 
 void MainWindow::close(){
     xmlData.clear_data();
+    xmlData.loadingType = LOADING_STRUCTURE;
     xmlData.precalculate_data();
+
     update_gui();
 }
 
 void MainWindow::reopen(){
     xmlData.read_data(lastDir);
+
     xmlData.precalculate_data();
+
     update_gui();
 }
 

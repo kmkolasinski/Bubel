@@ -109,6 +109,13 @@ struct AtomsStats{
     {}
 };
 
+enum LoadingType{
+    LOADING_FINISHED = -1,
+    LOADING_STRUCTURE = 0,
+    LOADING_LEADS = 2,
+    LOADING_VALUES = 1
+};
+
 class DataReader
 {
 public:
@@ -133,6 +140,7 @@ public:
     vector<Lead> p_leads;
     AtomData    data;
     static AtomsStats   atoms_stats;
+    LoadingType loadingType;
 };
 
 #endif // DATAREADER_H

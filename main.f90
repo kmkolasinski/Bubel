@@ -159,169 +159,175 @@
 
 
 
-! ------------------------------------------------------ !
-! Quantulaba - carbon_nanotube.f90 - Krzysztof Kolasinski 2015
+!! ------------------------------------------------------ !
+!! Quantulaba - carbon_nanotube.f90 - Krzysztof Kolasinski 2015
+!!
+!! Example of hamiltonian creation for simple carbon
+!! nanotube.
+!! ------------------------------------------------------ !
 !
-! Example of hamiltonian creation for simple carbon
-! nanotube.
-! ------------------------------------------------------ !
-
-program transporter
-
- use modunits ! unit conversion tools
- use modsys   ! eigen values
- use modlead  ! bandgap structure
- use modshape
- use modscatter
- implicit none
- character(*),parameter :: output_folder = ""
- type(qsys)                 :: tmpsystem
- type(qshape)               :: lead_shape,ashape
-
- type(qscatter)             :: qt
- doubleprecision            :: posA(3),posB(3),deltaR(3),Emin,Emax,Ef
- integer                    :: flagA,flagB
- logical                    :: activeA
- integer :: i,j,k , M
- doubleprecision            :: lead_translation_vec(3)
- character(300) :: line
-
- ! Initalize system
- call qt%init_system()
- call tmpsystem%init()
-
-!  ----------------------------------------------------------
-!  1. Create mesh - read unit cell from file
-!  ----------------------------------------------------------
-open(unit=3,file=output_folder//"nt-17-0-1.xyz")
-read(3,*) line
-read(3,*) line
-! ----------------------------------
-! Reading unit cell
-! ----------------------------------
-do i=1,17*2
-    read(3,*) line, (posA(j), j=1, 3)
-    read(3,*) line, (posB(j), j=1, 3)
-
-    call tmpsystem%qatom%init(posA,flag=1)
-    if(i==1) tmpsystem%qatom%flag_aux0 = 1
-    call tmpsystem%add_atom(tmpsystem%qatom)
-    call tmpsystem%qatom%init(posB,flag=2)
-!    if(i==2) tmpsystem%qatom%bActive = .false.
-    call tmpsystem%add_atom(tmpsystem%qatom)
-enddo
-close(3)
-
-call ashape%init_atoms_list(tmpsystem%atoms(1:tmpsystem%no_atoms))
-
-
-! ----------------------------------
-! Translating unit cell X-times
-! ----------------------------------
-M = 20
-do k = 1 , M
-    deltaR = (/0.0,0.0,(k-1)*4.26/)
-    do i=1,tmpsystem%no_atoms
-        posA  = tmpsystem%atoms(i)%atom_pos
-        flagA = tmpsystem%atoms(i)%flag
-        activeA = tmpsystem%atoms(i)%bActive
-        call qt%qatom%init(posA+deltaR,flag=flagA,bActive=activeA)
-        qt%qatom%flag_aux0  = tmpsystem%atoms(i)%flag_aux0
-!        if(k>10 .and. k < 12 .and. i<3) qt%qatom%bActive = .false.
-        call qt%qsystem%add_atom(qt%qatom)
-    enddo
-enddo
-
-
-!  ----------------------------------------------------------
-!  2. Set nearest neightbour search radius and make Hmiltonian
-!  ----------------------------------------------------------
-qt%qnnbparam%distance   = 2.0
-qt%qnnbparam%NNB_FILTER = QSYS_NNB_FILTER_DISTANCE
-call qt%qsystem%make_lattice(qt%qnnbparam,c_simple=connect_simple)
-!call qt%qsystem%save_lattice(output_folder//"lattice.xml")
-
-!  ----------------------------------------------------------
-!  3. Set up unit cell
-!  ----------------------------------------------------------
-
-lead_translation_vec = (/  0.0D0 , 0.0D0 , 4.26D0 /)
-posA = (/0.0,0.0,-0.5/)
-posB = lead_translation_vec ! direction and range
-call lead_shape%init_range_3d(posA,posB)
-call qt%add_lead(lead_shape,lead_translation_vec)
-!call qt%leads(1)%save_lead(output_folder//"lead.xml")
-
-
-lead_translation_vec = (/  0.0D0 , 0.0D0 , -4.26D0 /)
-posA = (/0.0,0.0,-0.5/) - lead_translation_vec*M
-posB = lead_translation_vec ! direction and range
-call lead_shape%init_range_3d(posA,posB)
-call qt%add_lead(lead_shape,lead_translation_vec)
-
-call qt%save_system("system.xml")
-Ef = 0.14;
-call qt%calculate_modes(Ef)
-call qt%solve(2,Ef)
-
-
-k = qt%leads(1)%no_in_modes
-do i = 1 , qt%qsystem%no_atoms
-    if(qt%qsystem%atoms(i)%bActive) then
-        m = qt%qsystem%atoms(i)%globalIDs(1)
-        write(111,"(100e20.6)"),qt%qsystem%atoms(i)%atom_pos,sum(qt%densities(:,m)),qt%densities(:,m)
-    endif
-enddo
-
-!  ----------------------------------------------------------
-!  4. Calculate band structure
-!  ----------------------------------------------------------
-Emin = -3.0
-Emax =  3.0
-call qt%leads(1)%bands(output_folder//"bands.dat",-M_PI,+M_PI,M_PI/60.0,Emin,Emax)
-
-
-do i = 1 , size(qt%qauxvec)
-    qt%qauxvec(i) = sum(qt%densities(:,i))
-enddo
-call qt%qsystem%save_data("densities.xml",array2d=qt%densities,array1d=qt%qauxvec)
-call qt%save_system("system.xml")
-call qt%destroy_system()
-!call qsystem%destroy()
-call tmpsystem%destroy()
-
-print*,"Generating plots..."
-!print*,"Plotting band structure..."
-!call system("cd "//output_folder//"; ./plot_bands.py")
-!print*,"Use Viewer program to see the structure and crated lead."
- contains
-
-! ---------------------------------------------------------------------------
-! This function decides if site A (called here atomA) with spin s1 has hoping
-! to atom B with spin s2, and what is the value of the coupling.
-! If there is no interaction between them returns false, otherwise true.
-! ---------------------------------------------------------------------------
-logical function connect_simple(atomA,atomB,coupling_val)
-    use modatom
-    implicit none
-    type(qatom) :: atomA,atomB
-    complex*16  :: coupling_val ! you must overwrite this variable
-
-    ! default return value
-    connect_simple = .false.
-    coupling_val   = 0.0
-    if( atomA%flag /= atomB%flag ) then
-        connect_simple = .true.
-        coupling_val = 1.0
-    endif
-
-    if( atomA%flag_aux0 == 1 .and. (atomA%flag == atomB%flag) ) then
-        coupling_val = coupling_val + 0.00000001
-        connect_simple = .true.
-    endif
-
-end function connect_simple
-end program transporter
+!program transporter
+!
+! use modunits ! unit conversion tools
+! use modsys   ! eigen values
+! use modlead  ! bandgap structure
+! use modshape
+! use modscatter
+! implicit none
+! character(*),parameter :: output_folder = ""
+! type(qsys)                 :: tmpsystem,tmpsystem2
+! type(qshape)               :: lead_shape,ashape
+!
+! type(qscatter)             :: qt
+! doubleprecision            :: posA(3),posB(3),deltaR(3),Emin,Emax,Ef
+! integer                    :: flagA,flagB
+! logical                    :: activeA
+! integer :: i,j,k , M
+! doubleprecision            :: lead_translation_vec(3)
+! character(300) :: line
+!
+! ! Initalize system
+! call qt%init_system()
+! call tmpsystem%init()
+! call tmpsystem2%init()
+!
+!!  ----------------------------------------------------------
+!!  1. Create mesh - read unit cell from file
+!!  ----------------------------------------------------------
+!open(unit=3,file=output_folder//"nt-17-0-1.xyz")
+!read(3,*) line
+!read(3,*) line
+!! ----------------------------------
+!! Reading unit cell
+!! ----------------------------------
+!do i=1,17*2
+!    read(3,*) line, (posA(j), j=1, 3)
+!    read(3,*) line, (posB(j), j=1, 3)
+!
+!    call tmpsystem%qatom%init(posA,flag=1)
+!    if(i==1) tmpsystem%qatom%flag_aux0 = 1
+!    call tmpsystem%add_atom(tmpsystem%qatom)
+!    call tmpsystem%qatom%init(posB,flag=2)
+!!    if(i==2) tmpsystem%qatom%bActive = .false.
+!    call tmpsystem%add_atom(tmpsystem%qatom)
+!enddo
+!close(3)
+!
+!call ashape%init_atoms_list(tmpsystem%atoms(1:tmpsystem%no_atoms))
+!
+!
+!
+!! ----------------------------------
+!! Translating unit cell X-times
+!! ----------------------------------
+!M = 50
+!do k = 1 , M
+!    deltaR = (/0.0,0.0,(k-1)*4.26/)
+!    do i=1,tmpsystem%no_atoms
+!        posA  = tmpsystem%atoms(i)%atom_pos
+!        flagA = tmpsystem%atoms(i)%flag
+!        activeA = tmpsystem%atoms(i)%bActive
+!        call qt%qatom%init(posA+deltaR,flag=flagA,bActive=activeA)
+!        qt%qatom%flag_aux0  = tmpsystem%atoms(i)%flag_aux0
+!        call qt%qsystem%add_atom(qt%qatom)
+!
+!        if(k==M) call tmpsystem2%add_atom(qt%qatom)
+!    enddo
+!enddo
+!
+!
+!!  ----------------------------------------------------------
+!!  2. Set nearest neightbour search radius and make Hmiltonian
+!!  ----------------------------------------------------------
+!qt%qnnbparam%distance   = 2.0
+!qt%qnnbparam%NNB_FILTER = QSYS_NNB_FILTER_DISTANCE
+!call qt%qsystem%make_lattice(qt%qnnbparam,c_simple=connect_simple)
+!!call qt%qsystem%save_lattice(output_folder//"lattice.xml")
+!
+!!  ----------------------------------------------------------
+!!  3. Set up unit cell
+!!  ----------------------------------------------------------
+!
+!lead_translation_vec = (/  0.0D0 , 0.0D0 , 4.26D0 /)
+!posA = (/0.0,0.0,-0.5/)
+!posB = lead_translation_vec ! direction and range
+!!call lead_shape%init_range_3d(posA,posB)
+!call qt%add_lead(ashape,lead_translation_vec)
+!!call qt%leads(1)%save_lead(output_folder//"lead.xml")
+!
+!
+!lead_translation_vec = (/  0.0D0 , 0.0D0 , -4.26D0 /)
+!posA = (/0.0,0.0,-0.5/) - lead_translation_vec*M
+!posB = lead_translation_vec ! direction and range
+!!call lead_shape%init_range_3d(posA,posB)
+!
+!call ashape%init_atoms_list(tmpsystem2%atoms(1:tmpsystem2%no_atoms))
+!
+!call qt%add_lead(ashape,lead_translation_vec)
+!
+!call qt%save_system("system.xml")
+!Ef = 0.14;
+!call qt%calculate_modes(Ef)
+!call qt%solve(2,Ef)
+!
+!
+!k = qt%leads(1)%no_in_modes
+!do i = 1 , qt%qsystem%no_atoms
+!    if(qt%qsystem%atoms(i)%bActive) then
+!        m = qt%qsystem%atoms(i)%globalIDs(1)
+!        write(111,"(100e20.6)"),qt%qsystem%atoms(i)%atom_pos,sum(qt%densities(:,m)),qt%densities(:,m)
+!    endif
+!enddo
+!
+!!  ----------------------------------------------------------
+!!  4. Calculate band structure
+!!  ----------------------------------------------------------
+!Emin = -3.0
+!Emax =  3.0
+!call qt%leads(1)%bands(output_folder//"bands.dat",-M_PI,+M_PI,M_PI/60.0,Emin,Emax)
+!
+!
+!do i = 1 , size(qt%qauxvec)
+!    qt%qauxvec(i) = sum(qt%densities(:,i))
+!enddo
+!call qt%qsystem%save_data("densities.xml",array2d=qt%densities,array1d=qt%qauxvec)
+!call qt%save_system("system.xml")
+!call qt%destroy_system()
+!!call qsystem%destroy()
+!call tmpsystem%destroy()
+!
+!print*,"Generating plots..."
+!!print*,"Plotting band structure..."
+!!call system("cd "//output_folder//"; ./plot_bands.py")
+!!print*,"Use Viewer program to see the structure and crated lead."
+! contains
+!
+!! ---------------------------------------------------------------------------
+!! This function decides if site A (called here atomA) with spin s1 has hoping
+!! to atom B with spin s2, and what is the value of the coupling.
+!! If there is no interaction between them returns false, otherwise true.
+!! ---------------------------------------------------------------------------
+!logical function connect_simple(atomA,atomB,coupling_val)
+!    use modatom
+!    implicit none
+!    type(qatom) :: atomA,atomB
+!    complex*16  :: coupling_val ! you must overwrite this variable
+!
+!    ! default return value
+!    connect_simple = .false.
+!    coupling_val   = 0.0
+!    if( atomA%flag /= atomB%flag ) then
+!        connect_simple = .true.
+!        coupling_val = 1.0
+!    endif
+!    ! lifting up degeneracy
+!    if( atomA%flag_aux0 == 1 .and. (atomA%flag == atomB%flag) ) then
+!        coupling_val = coupling_val + 0.00000001
+!        connect_simple = .true.
+!    endif
+!
+!end function connect_simple
+!end program transporter
 
 
 
@@ -510,245 +516,307 @@ end program transporter
 
 
 
+
+
+! ------------------------------------------------------ !
+! Quantulaba - simple_sqlat.f90 - Krzysztof Kolasinski 2015
 !
+! We want to find few first eigenvalues of rectangular
+! system defined within effective mass Shroedinger
+! equation. Magnetic field will be included into account.
+! We assume that after the finite discretization nodes
+! of the mesh are separated by dx=5nm distance in
+! each direction.
+! ------------------------------------------------------ !
+
+program transporter
+
+ use modunits ! unit conversion tools
+ use modsys   ! eigen values
+ use modlead  ! bandgap structure
+ use modshape
+ use modscatter
+ implicit none
+ character(*),parameter :: output_folder = "./"
+
+ type(qshape)               :: lead_shape
+ type(qsys)                 :: tmpsys
+ type(qscatter)             :: solver
+ doubleprecision            :: zeros_vector(200),posA(3),posB(3),deltaR(3)
+ doubleprecision            :: a_dx,a_Emin,a_Emax,a_Bz
+ integer                    :: no_expected_states,flagA,flagB
+ integer ,parameter         :: nx = 100
+ integer ,parameter         :: ny = 100
+ doubleprecision,parameter  :: dx = 1.0 ! [nm]
+ integer , dimension(nx,ny) :: gindex ! converts local index (i,j) to global index
+ integer                    :: i,j,k,m,l
+ doubleprecision            :: lead_translation_vec(3),x,y,z,Ef,dens,dist
+ integer :: unit_cell_width , flag_start , flag_b_start , itmp
+ character(300) :: line
+
+ ! Use atomic units in effective band model -> see modunit.f90 for more details
+ call modunits_set_GaAs_params()
+ a_dx = dx * L2LA ! convert it to atomic units
+ a_Bz = BtoAtomicB(0.0D0) ! 1 Tesla to atomic units
+
+ ! Initalize system
+
+ call solver%init_system()
+ call tmpsys%init()
+
+ ! ----------------------------------------------------------
+ ! 1. Create mesh - loop over width and height of the lattice
+ ! ----------------------------------------------------------
+ k      = 0
+ gindex = 0
+
+ do i = 1 , nx
+ do j = 1 , ny
+    ! Initalize atom structure with position of the atom.
+    call solver%qatom%init((/ (i-1) * dx , (j-1) * dx + (i-1) * dx * 0.0 , 0.0 * dx /))
+    ! Add atom to the system.
+!    if( i > nx/2 .and. j < ny/2+20 ) solver%qatom%bActive = .false.
+!    if( i > nx/2+30 .and. j < ny/2+20 ) solver%qatom%bActive = .false.
+    if( i < 3 .and. abs(j-ny/2) > 10 ) solver%qatom%bActive = .false.
+!    dist = sqrt(abs(j-ny/2-1)**2.0 + abs(i+20)**2.0)
+!    if( dist >= ny/2+15 ) solver%qatom%bActive = .false.
+!    if( dist <= ny/2+15 .and. dist >= ny/2+14 ) then
+!        solver%qatom%flag = 1
+!        solver%qatom%bActive =.true.
+!    endif
+    call solver%qsystem%add_atom(solver%qatom)
+    k           = k + 1
+    gindex(i,j) = k
+ enddo
+ enddo
+
 !
-!! ------------------------------------------------------ !
-!! Quantulaba - simple_sqlat.f90 - Krzysztof Kolasinski 2015
-!!
-!! We want to find few first eigenvalues of rectangular
-!! system defined within effective mass Shroedinger
-!! equation. Magnetic field will be included into account.
-!! We assume that after the finite discretization nodes
-!! of the mesh are separated by dx=5nm distance in
-!! each direction.
-!! ------------------------------------------------------ !
-!
-!program transporter
-!
-! use modunits ! unit conversion tools
-! use modsys   ! eigen values
-! use modlead  ! bandgap structure
-! use modshape
-! use modscatter
-! implicit none
-! character(*),parameter :: output_folder = "./"
-!
-! type(qshape)               :: lead_shape
-!
-! type(qscatter)             :: solver
-! doubleprecision            :: zeros_vector(200),posA(3),posB(3),deltaR(3)
-! doubleprecision            :: a_dx,a_Emin,a_Emax,a_Bz
-! integer                    :: no_expected_states,flagA,flagB
-! integer ,parameter         :: nx = 200
-! integer ,parameter         :: ny = 100
-! doubleprecision,parameter  :: dx = 1.0 ! [nm]
-! integer , dimension(nx,ny) :: gindex ! converts local index (i,j) to global index
-! integer                    :: i,j,k,m,l
-! doubleprecision            :: lead_translation_vec(3),x,y,z,Ef,dens
-! character(300) :: line
-!
-! ! Use atomic units in effective band model -> see modunit.f90 for more details
-! call modunits_set_GaAs_params()
-! a_dx = dx * L2LA ! convert it to atomic units
-! a_Bz = BtoAtomicB(0.0D0) ! 1 Tesla to atomic units
-!
-! ! Initalize system
-!
-! call solver%init_system()
-!
-! ! ----------------------------------------------------------
-! ! 1. Create mesh - loop over width and height of the lattice
-! ! ----------------------------------------------------------
-! k      = 0
-! gindex = 0
-! j = 1
-! do i = 1 , nx
-!! do j = 1 , ny
-!    ! Initalize atom structure with position of the atom.
-!    call solver%qatom%init((/ (i-1) * dx , (j-1) * dx + (i-1) * dx * 0.0 , 0.0 * dx /))
-!    ! Add atom to the system.
-!!    if( i > nx/2 .and. j < ny/2+20 ) solver%qatom%bActive = .false.
-!!    if( i > nx/2+30 .and. j < ny/2+20 ) solver%qatom%bActive = .false.
-!!    if( abs(i-nx/2) < 5 .and. j < 10 ) solver%qatom%bActive = .false.
-!
-!    call solver%qsystem%add_atom(solver%qatom)
-!    k           = k + 1
-!    gindex(i,j) = k
-!! enddo
-! enddo
-!
-!! ----------------------------------------------------------
-!! 2. Construct logical connections between sites on the mesh.
-!! ----------------------------------------------------------
 !solver%qnnbparam%box = (/2*dx,2*dx,0.0D0/) ! do not search for the sites far than (-dx:+dx) direction
 !call solver%qsystem%make_lattice(solver%qnnbparam,c_matrix=connect_matrix)
-!
-!! Save lattice to file to see if constructed system is OK!
-!! Use plot_lattice.py to see the results.
-!call solver%qsystem%save_lattice(output_folder//"lattice.xml")
-!
-!
-!!! ! ----------------------------------------------------------
-!!! ! 3. Find eigenvalues of the system.
-!!! ! You must provide range of energy (Emin,Emax) and
-!!! ! number of expected states in that region. Eigen problem
-!!! ! is solved with FEAST library.
-!!! ! ----------------------------------------------------------
-!! no_expected_states = 100
-!! ! we choose small window
-!! a_Emin =0.0
-!! a_Emax =0.2
-!! call qsystem%calc_eigenproblem(a_Emin,a_Emax,no_expected_states)
-!!
-!! ! Write founded eigenstates to file if there are states in the range (Emin,Emax)
-!! if(qsystem%no_eigenvalues > 0) then
-!! zeros_vector = 0
-!! open(unit=222,file=output_folder//"eigenvecs.dat")
-!! do i = 1 , nx
-!! do j = 1 , ny
-!!    ! Remapping to graphen lattice
-!!    x = qsystem%atoms(gindex(i,j))%atom_pos(1) !+ qsystem%atoms(gindex(i,j))%atom_pos(2)*sin(alpha30))/dx
-!!    y = qsystem%atoms(gindex(i,j))%atom_pos(2) !- sin(alpha30)*qsystem%atoms(gindex(i,j))%atom_pos(1))/dx
-!!    z = 0
-!!    if(qsystem%atoms(gindex(i,j))%bActive)then
-!!    ! get unique ID of current site
-!!
-!!    m = qsystem%atoms(gindex(i,j))%globalIDs(1)
-!!    write(222,"(500e20.6)"),x,y,z,abs(qsystem%eigenvecs(m,:))**2
-!!    else
-!!    ! fill with zeros empty spaces
-!!    write(222,"(500e20.6)"),x,y,z,zeros_vector(1:qsystem%no_eigenvalues)
-!!    endif
-!! enddo
-!!    write(222,*),"" ! GNUPLOT necessary line break
-!! enddo
-!! close(222)
-!! print*,qsystem%eigenvals
-!! endif ! end of if are there eigenstates?
-!
-!! ----------------------------------------------------------
-!! 4. Use generated mesh to calculate the band structure
-!! in the region of homogenous lead.
-!! ----------------------------------------------------------
-! ! Lead needs to know where it is (lead_shape) and using this information it will
-! ! create propper matrices and connections using list of atoms
-!lead_translation_vec = (/  dx , 0.0D0 , 0.0D0 /)
-!call lead_shape%init_range_3d((/ -0.5*dx , 0.0D0 , 0.0D0 /),lead_translation_vec)
-!call solver%add_lead(lead_shape,lead_translation_vec)
-!call solver%leads(1)%save_lead(output_folder//"lead1.xml")
-!
-!!a_Emin =-10.0
-!!a_Emax = 10.0
-!!call solver%leads(1)%bands(output_folder//"bands.dat",-M_PI,+M_PI,M_PI/160.0,a_Emin,a_Emax)
-!
-!lead_translation_vec = (/ -dx , 0.0D0 , 0.0D0 /)
-!call lead_shape%init_range_3d((/ (+0.5+nx-1)*dx , 0.0D0 , 0.0D0 /),lead_translation_vec)
-!call solver%add_lead(lead_shape,lead_translation_vec)
-!call solver%leads(2)%save_lead(output_folder//"lead2.xml")
-!
-!call solver%save_system("system.xml")
-!Ef = 0.1
-!call solver%calculate_modes(Ef);
-!
-!
-!call solver%solve(1,Ef);
-!
-!
-!
-!l = solver%leads(1)%no_in_modes
-!
-!j = 1
-!do i = 1 , nx
-!!do j = 1 , ny
-!    if(solver%qsystem%atoms(gindex(i,j))%bActive) then
-!    m = solver%qsystem%atoms(gindex(i,j))%globalIDs(1)
-!    k = gindex(i,j)
-!    dens = sum(solver%densities(:,m))
-!    write(111,"(100e20.6)"),solver%qsystem%atoms(k)%atom_pos(1:2),dens,solver%densities(:,m)
-!    else
-!    write(111,"(100e20.6)"),solver%qsystem%atoms(gindex(i,j))%atom_pos(1:2),0.0D0,zeros_vector(1:l)
+!do i = 1 ,solver%qsystem%no_atoms
+!    if(solver%qsystem%atoms(i)%no_bonds == 2) then
+!        solver%qsystem%atoms(i)%bActive  = .false.
+!        solver%qsystem%atoms(i)%flag = 0
 !    endif
-!!enddo
-!!    write(111,*),""
 !enddo
 !
-!!lead_translation_vec = (/  -dx , 0.0D0 , 0.0D0 /)
-!!
-!!call lead_shape%init_range_3d((/ (nx+0.5-1)*dx , 0.0D0 , 0.0D0 /),lead_translation_vec)
-!!call lead%init_lead(lead_shape,lead_translation_vec,qsystem%atoms)
-!!call lead%print_lead(output_folder//"lead.xml",qsystem%atoms)
-!!call lead%calculate_modes(0.08D0)
 !
+!unit_cell_width = 0;
+!do j = 1 , ny
+!    flag_start = 0
+!    itmp = 0
+!do i = 1 , nx
+!    k  = gindex(i,j)
+!    if(solver%qsystem%atoms(k)%flag == 1) then
+!        flag_start = 1
 !
-!
-!!call lead%print_lead(output_folder//"lead.xml",qsystem%atoms)
-!!a_Emin =-10.0
-!!a_Emax = 10.0
-!!call lead%bands(output_folder//"bands.dat",-M_PI,+M_PI,M_PI/160.0,a_Emin,a_Emax)
-!
-!! ! ----------------------------------------------------------
-!! ! X. Clean memory...
-!! ! ----------------------------------------------------------
-! call solver%destroy_system()
-!!!!
-!!!
-!!!
-!
-!!! print*,"Generating plots..."
-!! print*,"Plotting band structure..."
-!! call system("cd "//output_folder//"; ./plot_bands.py")
-!! print*,"Plotting eigenvectors..."
-!! call system("cd "//output_folder//"; ./plot_eigenvecs.py")
-!!! print*,"Plotting lattice..."
-!!! call system("cd "//output_folder//"; ./plot_lattice.py")
-!!! print*,"Plotting lead..."
-!!! call system("cd "//output_folder//"; ./plot_lead.py")
-! contains
-!
-!! ---------------------------------------------------------------------------
-!! Implement coupling
-!! Taken from Kwant tutorial: http://kwant-project.org/doc/1.0/tutorial/tutorial5
-!! ---------------------------------------------------------------------------
-!logical function connect_matrix(atomA,atomB,coupling_mat)
-!    use modatom
-!    implicit none
-!    type(qatom) :: atomA,atomB
-!
-!    complex*16  :: coupling_mat(:,:) ! you must overwrite this variable
-!    ! local variables
-!    integer         :: xdiff,ydiff
-!    doubleprecision :: dydiff,dxdiff,t0,y,x
-!
-!    ! Calculate distance between atoms in units of dx.
-!    dxdiff = -(atomA%atom_pos(1)-atomB%atom_pos(1))/dx
-!    dydiff = -(atomA%atom_pos(2)-atomB%atom_pos(2))/dx
-!    ! Convert it to integers
-!    xdiff = NINT(dxdiff)
-!    ydiff = NINT(dydiff)
-!
-!    x = atomA%atom_pos(1)
-!
-!    ! default return value
-!    connect_matrix = .false.
-!    coupling_mat   = 0.0
-!    ! We assume that there is no spin taken into account so in our
-!    ! case is always s1 = 1 and s2 = 1, thus s1 and s2 are not used
-!    ! here.
-!    t0    = 1.0
-!
-!
-!    if( xdiff == 0 .and. ydiff == 0 ) then
-!        connect_matrix      = .true.
-!        coupling_mat = 2*t0 + 0.1*t0*exp(-0.04*(x-150.0)**2) + 0.1*t0*exp(-0.04*(x-50.0)**2)
-!    else if( abs(xdiff) ==  1 .and. ydiff == 0 ) then
-!        connect_matrix = .true.
-!        y = (atomA%atom_pos(2) - ny/2*dx ) * L2LA
-!        coupling_mat = -t0 * EXP(II*xdiff*y*0.00)
-!    else if( xdiff ==  0 .and. abs(ydiff) == 1 ) then
-!        connect_matrix = .true.
-!        coupling_mat = -t0
+!    else if(flag_start == 1) then
+!        flag_start = 0
 !    endif
+!    if(flag_start == 1) then
+!        itmp = itmp + 1
+!    endif
+!enddo
+!    if(itmp > unit_cell_width) unit_cell_width = itmp
+!enddo
+!unit_cell_width = unit_cell_width + 1
+!print*,"Unit cell width=",unit_cell_width
 !
-!end function connect_matrix
 !
-!end program transporter
+!
+!do j = 1 , ny
+!do i = 1 , nx
+!    k  = gindex(i,j)
+!    if(solver%qsystem%atoms(k)%flag == 1) then
+!        l = gindex(i+unit_cell_width,j)
+!        solver%qsystem%atoms(l)%flag = 2
+!        solver%qsystem%atoms(l)%bActive = .true.
+!    endif
+!enddo
+!enddo
+!
+!
+!do j = 1 , ny
+!    flag_start = 0
+!do i = 1 , nx
+!    k  = gindex(i,j)
+!    if(solver%qsystem%atoms(k)%flag == 1) then
+!        flag_start = 1
+!    endif
+!    if(solver%qsystem%atoms(k)%flag == 2) then
+!        flag_start = 0
+!    endif
+!    if(flag_start == 1) then
+!        if(solver%qsystem%atoms(k)%flag == 0) then
+!            l = gindex(i-unit_cell_width,j)
+!            solver%qsystem%atoms(k)%flag    = 2
+!            solver%qsystem%atoms(k)%bActive = .true.
+!            solver%qsystem%atoms(l)%flag    = 1
+!        endif
+!    endif
+!enddo
+!enddo
+!
+!
+!do j = 1 , ny
+!do i = 1 , nx
+!    k  = gindex(i,j)
+!    if(solver%qsystem%atoms(k)%flag == 2) then
+!        call tmpsys%add_atom(solver%qsystem%atoms(k))
+!    endif
+!enddo
+!enddo
+
+! ----------------------------------------------------------
+! 2. Construct logical connections between sites on the mesh.
+! ----------------------------------------------------------
+solver%qnnbparam%box = (/2*dx,2*dx,0.0D0/) ! do not search for the sites far than (-dx:+dx) direction
+call solver%qsystem%make_lattice(solver%qnnbparam,c_matrix=connect_matrix)
+
+! Save lattice to file to see if constructed system is OK!
+! Use plot_lattice.py to see the results.
+!call solver%qsystem%save_lattice(output_folder//"lattice.xml")
+
+
+!! ! ----------------------------------------------------------
+!! ! 3. Find eigenvalues of the system.
+!! ! You must provide range of energy (Emin,Emax) and
+!! ! number of expected states in that region. Eigen problem
+!! ! is solved with FEAST library.
+!! ! ----------------------------------------------------------
+! no_expected_states = 100
+! ! we choose small window
+! a_Emin =0.0
+! a_Emax =0.2
+! call qsystem%calc_eigenproblem(a_Emin,a_Emax,no_expected_states)
+!
+! ! Write founded eigenstates to file if there are states in the range (Emin,Emax)
+! if(qsystem%no_eigenvalues > 0) then
+! zeros_vector = 0
+! open(unit=222,file=output_folder//"eigenvecs.dat")
+! do i = 1 , nx
+! do j = 1 , ny
+!    ! Remapping to graphen lattice
+!    x = qsystem%atoms(gindex(i,j))%atom_pos(1) !+ qsystem%atoms(gindex(i,j))%atom_pos(2)*sin(alpha30))/dx
+!    y = qsystem%atoms(gindex(i,j))%atom_pos(2) !- sin(alpha30)*qsystem%atoms(gindex(i,j))%atom_pos(1))/dx
+!    z = 0
+!    if(qsystem%atoms(gindex(i,j))%bActive)then
+!    ! get unique ID of current site
+!
+!    m = qsystem%atoms(gindex(i,j))%globalIDs(1)
+!    write(222,"(500e20.6)"),x,y,z,abs(qsystem%eigenvecs(m,:))**2
+!    else
+!    ! fill with zeros empty spaces
+!    write(222,"(500e20.6)"),x,y,z,zeros_vector(1:qsystem%no_eigenvalues)
+!    endif
+! enddo
+!    write(222,*),"" ! GNUPLOT necessary line break
+! enddo
+! close(222)
+! print*,qsystem%eigenvals
+! endif ! end of if are there eigenstates?
+
+! ----------------------------------------------------------
+! 4. Use generated mesh to calculate the band structure
+! in the region of homogenous lead.
+! ----------------------------------------------------------
+ ! Lead needs to know where it is (lead_shape) and using this information it will
+ ! create propper matrices and connections using list of atoms
+lead_translation_vec = (/  dx , 0.0D0 , 0.0D0 /)
+call lead_shape%init_range_3d((/ -0.5*dx , 0.0D0 , 0.0D0 /),lead_translation_vec)
+call solver%add_lead(lead_shape,lead_translation_vec)
+!call solver%leads(1)%save_lead(output_folder//"lead1.xml")
+
+!a_Emin =-10.0
+!a_Emax = 10.0
+!call solver%leads(1)%bands(output_folder//"bands.dat",-M_PI,+M_PI,M_PI/160.0,a_Emin,a_Emax)
+
+lead_translation_vec = (/ -dx , 0.0D0 , 0.0D0 /)
+call lead_shape%init_range_3d((/ (+0.5+nx-1)*dx , 0.0D0 , 0.0D0 /),lead_translation_vec)
+call solver%add_lead(lead_shape,lead_translation_vec)
+!call solver%leads(2)%save_lead(output_folder//"lead2.xml")
+
+
+lead_translation_vec = (/ -unit_cell_width*dx , 0.0D0 , 0.0D0 /)
+call lead_shape%init_atoms_list(tmpsys%atoms(1:tmpsys%no_atoms))
+!call solver%add_lead(lead_shape,lead_translation_vec)
+!call solver%leads(2)%save_lead(output_folder//"lead2.xml")
+
+call solver%save_system("system.xml")
+Ef = 1.0
+call solver%calculate_modes(Ef);
+
+
+call solver%solve(1,Ef);
+
+
+do i = 1 , size(solver%qauxvec)
+     solver%qauxvec(i) = sum(solver%densities(:,i))
+enddo
+call solver%qsystem%save_data("densities.xml",array2d=solver%densities,array1d=solver%qauxvec)
+
+! ! ----------------------------------------------------------
+! ! X. Clean memory...
+! ! ----------------------------------------------------------
+call solver%destroy_system()
+
+call tmpsys%destroy()
+
+!! print*,"Generating plots..."
+! print*,"Plotting band structure..."
+! call system("cd "//output_folder//"; ./plot_bands.py")
+! print*,"Plotting eigenvectors..."
+! call system("cd "//output_folder//"; ./plot_eigenvecs.py")
+!! print*,"Plotting lattice..."
+!! call system("cd "//output_folder//"; ./plot_lattice.py")
+!! print*,"Plotting lead..."
+!! call system("cd "//output_folder//"; ./plot_lead.py")
+ contains
+
+! ---------------------------------------------------------------------------
+! Implement coupling
+! Taken from Kwant tutorial: http://kwant-project.org/doc/1.0/tutorial/tutorial5
+! ---------------------------------------------------------------------------
+logical function connect_matrix(atomA,atomB,coupling_mat)
+    use modatom
+    implicit none
+    type(qatom) :: atomA,atomB
+
+    complex*16  :: coupling_mat(:,:) ! you must overwrite this variable
+    ! local variables
+    integer         :: xdiff,ydiff
+    doubleprecision :: dydiff,dxdiff,t0,y,x
+
+    ! Calculate distance between atoms in units of dx.
+    dxdiff = -(atomA%atom_pos(1)-atomB%atom_pos(1))/dx
+    dydiff = -(atomA%atom_pos(2)-atomB%atom_pos(2))/dx
+    ! Convert it to integers
+    xdiff = NINT(dxdiff)
+    ydiff = NINT(dydiff)
+
+    x = atomA%atom_pos(1)
+
+    ! default return value
+    connect_matrix = .false.
+    coupling_mat   = 0.0
+    ! We assume that there is no spin taken into account so in our
+    ! case is always s1 = 1 and s2 = 1, thus s1 and s2 are not used
+    ! here.
+    t0    = 1.0
+
+
+    if( xdiff == 0 .and. ydiff == 0 ) then
+        connect_matrix      = .true.
+        coupling_mat = 4*t0 !+ 0.1*t0*exp(-0.04*(x-150.0)**2) + 0.1*t0*exp(-0.04*(x-50.0)**2)
+    else if( abs(xdiff) ==  1 .and. ydiff == 0 ) then
+        connect_matrix = .true.
+        y = (atomA%atom_pos(2) - ny/2*dx ) * L2LA
+        coupling_mat = -t0 * EXP(II*xdiff*y*0.001)
+    else if( xdiff ==  0 .and. abs(ydiff) == 1 ) then
+        connect_matrix = .true.
+        coupling_mat = -t0
+    endif
+
+end function connect_matrix
+
+end program transporter

@@ -165,12 +165,24 @@ void GLWidget::initializeGL()
     glEnable(GL_CULL_FACE);
     glShadeModel(GL_SMOOTH);
     glEnable(GL_LIGHTING);
-    glEnable(GL_LIGHT0);
     glEnable(GL_MULTISAMPLE);
-    static GLfloat lightPosition[4] = { 0.5, 5.0, 7.0, 1.0 };
-    glLightfv(GL_LIGHT0, GL_POSITION, lightPosition);
 
+    int no_lights = 5;
+    for (int light = 0 ; light < no_lights ; light++){
+    glEnable(GL_LIGHT0+light);
+    float rad = 15.0;
+    float x = ((light==1)?rad:0.0+(light==2)?-rad:0.0);
+    float y = ((light==3)?rad:0.0+(light==4)?-rad:0.0);
+    GLfloat lightPosition[4] = { x , y , 10.0, 1.0 };
+    float ampd = 1.0/(no_lights-1);
+    GLfloat lightDiffuse [4] = { ampd, ampd, ampd, 1.0 };
+    float ampa = 0.2/no_lights;
+    GLfloat lightAmbient [4] = { ampa, ampa, ampa, 1.0 };
 
+    glLightfv(GL_LIGHT0+light, GL_POSITION, lightPosition);
+    glLightfv(GL_LIGHT0+light, GL_DIFFUSE, lightDiffuse);
+    glLightfv(GL_LIGHT0+light, GL_AMBIENT, lightAmbient);
+    }
 
 }
 //! [6]
@@ -318,9 +330,9 @@ void GLWidget::paintGL()
 
     double s =zoom;
     if(bUseOrtho)
-        glOrtho(-0.5*s*ratio,0.5*s*ratio,-0.5*s,0.5*s, 4.0, 15.0);
+        glOrtho  (-0.5*s*ratio,0.5*s*ratio,-0.5*s,0.5*s,1.0, 25.0);
     else
-        glFrustum(-0.5*s*ratio,0.5*s*ratio,-0.5*s,0.5*s,4.0,15.0);
+        glFrustum(-0.5*s*ratio,0.5*s*ratio,-0.5*s,0.5*s,4.0,25.0);
 
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
@@ -432,7 +444,7 @@ void GLWidget::paintGL()
             value = (value-displayAllSettings.min_cutoff)/(displayAllSettings.max_cutoff-displayAllSettings.min_cutoff);
 
 
-            QVector3D color = HSL2RGB(value,1.0,0.8);
+            QVector3D color = HSL2RGB(value*0.5,1.0,0.5);
             glPushMatrix();
             GLfloat df[4] = {color.x(),color.y(),color.z(),1.0};
             glMaterialfv(GL_FRONT,GL_DIFFUSE,df);
@@ -442,9 +454,10 @@ void GLWidget::paintGL()
         }
 
 
-    }
+    }// end of data set
     // draw not active atoms
     glMaterialfv(GL_FRONT,GL_DIFFUSE,d7);
+
     for(unsigned int i = 0 ; i < atoms->size() ; i++){
 
         Atom &atom = (*atoms)[i];
@@ -452,17 +465,7 @@ void GLWidget::paintGL()
         glLoadName(i);
 
         glPushMatrix();
-        if(bUseSettingsPerFlag){
 
-            int id = flag2id[atom.flag];
-            if(displayPerFlag[id].bHide) continue;
-            radius     = displayPerFlag[id].atom_size * DataReader::atoms_stats.scale * 0.3;
-            no_subdivs = displayPerFlag[id].atom_quality;
-            GLfloat df[4] = { displayPerFlag[id].color.redF(),
-                              displayPerFlag[id].color.greenF(),
-                              displayPerFlag[id].color.blueF(), 1.0 };
-            glMaterialfv(GL_FRONT,GL_DIFFUSE,df);
-        }
         glTranslated(atom.pos.x(),atom.pos.y(),atom.pos.z());
         gluSphere( quadric , radius , no_subdivs , no_subdivs );
         glPopMatrix();
@@ -495,7 +498,7 @@ void GLWidget::paintGL()
     for(unsigned int l = 0 ; l < leads->size() ; l++){
         Lead& lead = (*leads)[l];
         if(!lead.bShowLeadAtoms) continue;
-        if(!lead.shape.type = SHAPE_NONE) continue;
+
 
         glMaterialfv(GL_FRONT,GL_DIFFUSE,d1);
         for(unsigned int i = 0 ; i < lead.atoms.size() ; i++){
@@ -541,6 +544,8 @@ void GLWidget::paintGL()
             renderCylinder(atomA.pos.x(),atomA.pos.y(),atomA.pos.z(),atomB.pos.x(),atomB.pos.y(),atomB.pos.z(),0.25*cradius,5 + cno_subdivs,quadric);
         }
         if(!lead.bShowArea) continue;
+
+        if(lead.shape.type == SHAPE_NONE) continue;
         // this is stupid :/
         lead.shape.indices[0][0] = 0;lead.shape.indices[0][1] = 1;
         lead.shape.indices[1][0] = 1;lead.shape.indices[1][1] = 2;
@@ -654,8 +659,25 @@ void GLWidget::mouseReleaseEvent(QMouseEvent *event)
         hits = glRenderMode (GL_RENDER);
 //        qDebug() << "No hits:" << hits;
         bPickAtom = false;
+        GLuint *ptr;
+        ptr = (GLuint *) selectBuf;
+        int minid = 0 , id = 0;
+        float zmin = 1;
+        // finding nearst one
+        for (int i = 0; i < hits; i++) { /*  for each hit  */
+           ptr++;
+           float z1 = ((float) *ptr/0x7fffffff);
+           ptr++;ptr++;
+           id = *ptr;
+           ptr++;
+           if(z1 < zmin){
+               minid = id;
+               zmin  = z1;
+           }
+        }
+        selectBuf[3] = minid;
 
-        if(hits == 1){
+        if(hits > 0){
             if(selectedAtomA == -1) selectedAtomA = selectBuf[3];
             else if(selectedAtomA  > -1) selectedAtomB = selectBuf[3];
         }else{

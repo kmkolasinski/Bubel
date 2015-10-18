@@ -267,6 +267,7 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
                     this%next_l2g(b,1) = i
                     this%next_l2g(b,2) = this%l2g(b,2)
 !                    print*,b,this%next_l2g(b,1),this%next_l2g(b,2)
+!                    print*,"atom a=",i," z b=",j," ",this%l2g(j,1)
                 enddo
 
             endif
@@ -299,7 +300,7 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
                 do j = 1 , no_sites
                     cellA_pos = all_atoms(this%l2g(j,1))%atom_pos + cellBA_vec
                     cellB_pos = all_atoms(bond_atom_id)%atom_pos
-                    if( sqrt(sum( cellB_pos - cellA_pos )**2) < minimum_distance*1.0D-5 ) then
+                    if( sqrt(sum( (cellB_pos - cellA_pos )**2)) < minimum_distance*1.0D-5 ) then
                         exit
                     endif
                 enddo
