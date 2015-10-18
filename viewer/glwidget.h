@@ -60,10 +60,19 @@ enum MainPlain{
 
 struct DisplaySettings{
     double atom_size;
-    int atom_quality;
-    QColor color;
+    double max_cutoff;
+    double min_cutoff;
+    int     atom_quality;
+    bool    bHide,bShowDataValues;
+    QColor  color;
 
-
+    DisplaySettings():
+        atom_size(1.0),
+        atom_quality(5),
+        bHide(false),
+        bShowDataValues(true),
+        max_cutoff(1.0),
+        min_cutoff(0.0){}
 };
 
 //! [0]
@@ -90,6 +99,7 @@ public slots:
 signals:
     void xRotationChanged(int angle);
     void yRotationChanged(int angle);
+    void selectedAtoms(int a,int b);
 //    void zRotationChanged(int angle);
 //! [1]
 
@@ -99,6 +109,7 @@ protected:
     void paintGL();
     void resizeGL(int width, int height);
     void mousePressEvent(QMouseEvent *event);
+    void mouseReleaseEvent(QMouseEvent *event);
     void mouseMoveEvent(QMouseEvent *event);
     void wheelEvent(QWheelEvent *event);
 
@@ -106,6 +117,8 @@ protected:
 
 //! [3]
 private:
+    bool bMousePressed,bPickAtom;
+    bool bSwapAtomsPressed;
 
     double xRot;
     double yRot;
@@ -119,13 +132,18 @@ private:
     double ratio;
 
 public:
-    vector<Atom> *atoms;
-    vector<AtomConnection> *cnts;
-    vector<Lead> *leads;
+    int selectedAtomA,selectedAtomB;
+    vector<Atom>            *atoms;
+    vector<AtomConnection>  *cnts;
+    vector<Lead>            *leads;
+    AtomData                *data;
     MainPlain mainPlain;
     bool bUseSettingsPerFlag;
     bool bUseOrtho;
     bool bCompileDisplayList;
+    bool bSelectedAtomsConnected;
+    int  selectedDataColumn,selectedDataSpin;
+
 
     vector<DisplaySettings> displayPerFlag;
     DisplaySettings          displayAllSettings;

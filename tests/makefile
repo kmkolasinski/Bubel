@@ -1,64 +1,88 @@
-all: simple_sqlat
+all: build_simple_sqlat \
+	 build_simple_graphene \
+	 build_simple_graphene2 \
+	 build_rashba_2deg \
+	 build_carbon_nanotube \
+	 build_strange_graphene \
+	 build_superconductor
 
-build:
-	make C=ifort
+run:
+		 ./simple_sqlat ; \
+		 ./simple_graphene ; \
+		 ./simple_graphene2 ; \
+		 ./rashba_2deg ; \
+		 ./carbon_nanotube ; \
+		 ./strange_graphene ;\
+		 ./superconductor;
 
-debug:
-	make C=ifortDEBUG
-
+COMPILATION_TYPE=ifort
 # To build simple example of effective band mass on quare lattice
 build_simple_sqlat:
-	make simple_sqlat C=ifort P=simple_sqlat
+	make simple_sqlat C=$(COMPILATION_TYPE) P=simple_sqlat
 
 build_simple_graphene:
-	make simple_graphene C=ifort P=simple_graphene
+	make simple_graphene C=$(COMPILATION_TYPE) P=simple_graphene
 
 build_simple_graphene2:
-	make simple_graphene2 C=ifort P=simple_graphene2
+	make simple_graphene2 C=$(COMPILATION_TYPE) P=simple_graphene2
 
 build_rashba_2deg:
-	make rashba_2deg C=ifort P=rashba_2deg
+	make rashba_2deg C=$(COMPILATION_TYPE) P=rashba_2deg
 
 build_carbon_nanotube:
-	make carbon_nanotube C=ifort P=carbon_nanotube
+	make carbon_nanotube C=$(COMPILATION_TYPE) P=carbon_nanotube
+
+build_strange_graphene:
+	make strange_graphene C=$(COMPILATION_TYPE) P=strange_graphene
+
+build_superconductor:
+	make superconductor C=$(COMPILATION_TYPE) P=superconductor
+
 
 EXEC_FILE=$(P)
 # -----------------------------------
-# Uzyj polecenia
+# Use command:
 # UMFPACK_MACRO=-DUSE_UMF_PACK
-# aby skompilowac z UMFPACKIEM
-UMFPACK_MACRO=-DUSE_PARDISO
+# to compile with UMFPACKIEM other macros
+# leave it empty to compile it with SuperLU
 #-DUSE_UMF_PACK
 #-DUSE_PARDISO
+UMFPACK_MACRO=-DUSE_PARDISO
+UMFPACK_MACRO=
 
-#UMFPACK_MACRO=
+
+
 ifeq ($(C),ifort)
 FC=ifort
 
 BASEDIR=/home/mkk/libs
-FBFLAGS=  -O3  -132 -I$(BASEDIR)/XC -I..
-
+FBFLAGS=  -O3  -132 -I..
+#-I$(BASEDIR)/XC -I..
 
 ifeq ($(UMFPACK_MACRO),-DUSE_UMF_PACK)
 LIBS= $(BASEDIR)/libumfpack.a $(BASEDIR)/libamd.a
-FCFLAGS= -c -O3  -132  $(UMFPACK_MACRO) -I$(BASEDIR)/XC
+FCFLAGS= -c -O3  -132  $(UMFPACK_MACRO)
+#-I$(BASEDIR)/XC
 FCCFLAGS= -c -O3
 SUPERLU_FILES=
 UMFPACK_FILES=umfpack.o
 else ifeq ($(UMFPACK_MACRO),-DUSE_PARDISO)
 LIBS=
-FCFLAGS= -c -O3  -132  $(UMFPACK_MACRO) -I$(BASEDIR)/XC
+FCFLAGS= -c -O3  -132  $(UMFPACK_MACRO)
+#-I$(BASEDIR)/XC
 FCCFLAGS= -c -O3
 SUPERLU_FILES=
 UMFPACK_FILES=
 else
 LIBS= $(BASEDIR)/libsuperlu_4.3.a
-FCFLAGS= -c -O3  -132  -I$(BASEDIR)/SuperLU_4.3/SRC $(UMFPACK_MACRO) -I$(BASEDIR)/XC
+FCFLAGS= -c -O3  -132  -I$(BASEDIR)/SuperLU_4.3/SRC $(UMFPACK_MACRO)
+#-I$(BASEDIR)/XC
 FCCFLAGS= -c -O3 -I$(BASEDIR)/SuperLU_4.3/SRC
 SUPERLU_FILES=zgssv.o
 UMFPACK_FILES=
 endif
-FLIBS=   $(LIBS)  -mkl -static-intel $(BASEDIR)/libxc.a
+FLIBS=   $(LIBS)  -mkl
+#-static-intel $(BASEDIR)/libxc.a
 
 else ifeq ($(C),ifortDEBUG)
 FC=ifort
@@ -84,7 +108,8 @@ FCCFLAGS= -c -O0 -Wall -g -I$(BASEDIR)/SuperLU_4.3/SRC
 SUPERLU_FILES=zgssv.o
 UMFPACK_FILES=
 endif
-FLIBS=   $(LIBS)  -mkl -static-intel  $(BASEDIR)/libxc.a
+FLIBS=   $(LIBS)  -mkl
+# -static-intel  $(BASEDIR)/libxc.a
 
 endif
 
@@ -96,4 +121,10 @@ $(EXEC_FILE): $(EXEC_FILE).f90  $(UMFPACK_FILES)
 
 clean:
 	rm -f */*.dat */*.pdf */*.png */*.xml */*.txt  2> /dev/null
-	rm -f simple_sqlat simple_graphene simple_graphene2 carbon_nanotube rashba_2deg  2> /dev/null
+	rm -f simple_sqlat \
+		  simple_graphene \
+		  simple_graphene2 \
+		  carbon_nanotube \
+		  rashba_2deg \
+		  strange_graphene \
+		  superconductor 2> /dev/null

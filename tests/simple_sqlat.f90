@@ -77,7 +77,6 @@ program transporter
  call qsystem%make_lattice(qsystem%qnnbparam,c_default=connect)
 
  ! Save lattice to file to see if constructed system is OK!
- ! Use plot_lattice.py to see the results.
  call qsystem%save_lattice(output_folder//"lattice.xml")
 
  ! ----------------------------------------------------------

@@ -38,6 +38,7 @@ enum LeadShapeType{
 struct LeadShape{
     LeadShapeType type;
     QVector3D data[8];
+    QVector3D otherData[2];
     unsigned int indices[12][2];
 
     LeadShape(){
@@ -62,16 +63,35 @@ struct LeadShape{
 };
 
 
-
-
 struct Lead{
-    bool visible;
+    bool bShowLeadAtoms;
+    bool bShowArea;
     LeadShape shape;
     vector<unsigned int> atoms;
     vector<unsigned int> nex_atoms;
     vector<AtomConnection> cnts;
     vector<AtomConnection> inner_cnts;
+    Lead():bShowLeadAtoms(true),bShowArea(true){
+    }
+};
 
+struct AtomData{
+    QString dataname;
+    vector< vector<double> > values;
+    vector<double>          max_values;
+    vector<double>          min_values;
+    vector<int>             spinIds;
+    vector<int>             atomIds;
+    AtomData():dataname("null"){
+    }
+    void clear(){
+        values .clear();
+        spinIds.clear();
+        atomIds.clear();
+        max_values.clear();
+        min_values.clear();
+        dataname = "null";
+    }
 };
 
 struct AtomsStats{
@@ -97,10 +117,13 @@ public:
 
     void read_data(QString filename);
     void precalculate_data();
+    void clear_data();
 private:
-    void read_atoms(QDomElement &root);
+    void read_atoms      (QDomElement &root);
+    void read_lattice    (QDomElement &root);
     void read_connections(QDomElement &root);
-    void read_lead(QDomElement &root);
+    void read_lead       (QDomElement &root);
+    void read_atoms_data (QDomElement &root);
 public:
     vector<Atom> atoms;
     vector<AtomConnection> connections;
@@ -108,6 +131,7 @@ public:
     vector<AtomConnection> p_connections;
     vector<Lead> leads;
     vector<Lead> p_leads;
+    AtomData    data;
     static AtomsStats   atoms_stats;
 };
 

@@ -15,9 +15,11 @@ module modlead
 use modshape
 use modsys
 use modatom
+use modutils
 implicit none
 private
 complex*16,parameter :: II = cmplx(0.0D0,1.0D0)
+integer ,parameter :: M_IN = 1 , M_OUT = 2
 type qlead
     type(qshape) :: lead_shape                         ! contains the area/volume in which are
                                                        ! located atoms which belong to the lead.
@@ -29,6 +31,25 @@ type qlead
     integer :: no_sites                                ! number of unknowns (number of sites in the lead,
                                                        ! including spin states)
 
+    integer :: no_in_modes                             ! when modes are calculated this number contains no. of incoming modes
+    integer :: no_out_modes                            ! same but for outgoing modes
+    integer :: no_in_em                                ! number of "incoming" evanescent modes
+    integer :: no_out_em
+    ! ----------------------------------------------------------------------
+    ! Modes parameters:
+    ! According to this paper:http://www.psi-k.org/newsletters/News_80/Highlight_80.pdf
+    ! see equation: (53) Arrays below are filled after calling calculate_modes function
+    ! ----------------------------------------------------------------------
+    complex*16,allocatable :: lambdas(:,:)             ! lambda(M_IN,:) => \lambda_+ and lambda(M_OUT,:) => \lambda_-
+    complex*16,allocatable :: modes (:,:,:)            ! modes({M_IN,M_OUT},M,:) N-th mode vector
+    complex*16,allocatable :: SigmaMat(:,:)            ! See Eq. (68) here we added H0 to this matrix
+    complex*16,allocatable :: LambdaMat(:,:)           ! See Eq. (67) is the definition of the Qm matrix.
+    doubleprecision,allocatable :: Tnm(:,:)
+    doubleprecision,allocatable :: currents(:,:)       ! Fluxes carried by mode M currents({M_IN,M_OUT},M) - note modes are sorted
+                                                       ! from largest current to smallest
+    complex*16,allocatable      :: UTildeDagger(:,:)   ! Dual Vectors matrix see Eq. (55)
+
+
     integer,dimension(:,:),allocatable        ::      l2g ! mapping from local id in lead to global id (:,1)  = atom_ID , (:,2) = spin_ID
     integer,dimension(:,:),allocatable        :: next_l2g ! the same as above but mapping to the atoms in the next unit cell
     logical :: LEAD_BAD_NEARST = .false.
@@ -36,11 +57,13 @@ type qlead
     procedure,pass(this) :: init_lead!()
     procedure,pass(this) :: bands!(this,filename,kmin,kmax,dk,Emin,Emax)
     procedure,pass(this) :: destroy!()
-    procedure,pass(this) :: print_lead!(this,filename,all_atoms)
+    procedure,pass(this) :: save_lead!(this,filename,funit)
+    procedure,pass(this) :: calculate_modes!(this,Ef)
+    procedure,pass(this) :: calculate_Tnm!(this,all_atoms,n,phi)
 
 endtype qlead
 
-public :: qlead
+public :: qlead , M_IN , M_OUT
 contains
 
 
@@ -158,6 +181,7 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
                 endif
 
                 next_cell_atoms(no_atoms) = i
+!                print*,"next cell i=",i
             endif
 
 
@@ -169,6 +193,7 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
                     no_sites = no_sites + 1
                     this%l2g(no_sites,1) = i ! } mapping
                     this%l2g(no_sites,2) = j ! }
+!                    print*,no_sites,i,j
                 enddo
 
                 ! Find atom with the lowest coordinates in that lead:
@@ -208,9 +233,7 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
         endif
         enddo
     enddo
-    print*,"minum distance=",minimum_distance
-
-
+!    print*,"minum distance=",minimum_distance
 
     no_atoms = 0
     do i = 1 , size(all_atoms) ! Search in all active atoms
@@ -220,12 +243,15 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
             if( lshape%is_inside(tmp_pos) == .true. ) then
                 ! search for atom with the same position
                 do j = 1 , no_sites
-                    cellA_pos = all_atoms(this%l2g(j,1))%atom_pos
 
-                    if( sqrt(sum( tmp_pos - cellA_pos )**2) < minimum_distance*1.0D-5 ) then
+                    cellA_pos = all_atoms(this%l2g(j,1))%atom_pos
+!                    print"(2i4,5f8.4)",i,j,sqrt(sum( tmp_pos - cellA_pos )**2),tmp_pos
+                    if( sqrt(sum( (tmp_pos - cellA_pos)**2 )) < minimum_distance*1.0D-5 ) then
                         exit
                     endif
+
                 enddo
+!                print*,"i=",i,"j=",j
                 if( j > no_sites ) then
                     print"(A)",              " SYS::LEAD::ERROR::The translation"
                     print"(A,i9,A,3e12.4,A)","                   at atom:",i," with position r=(",all_atoms(i)%atom_pos,")"
@@ -236,9 +262,11 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
                 endif
                 ! j keeps local ID of the same atom in unit
                 do k = 1 , all_atoms(this%l2g(j,1))%no_in_states
+!                    print*,"j=",j,"spin k=",k
                     b = tmp_g2l(all_atoms(this%l2g(j,1))%globalIDs(k))
                     this%next_l2g(b,1) = i
                     this%next_l2g(b,2) = this%l2g(b,2)
+!                    print*,b,this%next_l2g(b,1),this%next_l2g(b,2)
                 enddo
 
             endif
@@ -250,11 +278,9 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
     cellBA_vec = lvec
     print"(A,3f12.4,A)"," SYS::LEAD::Lead translation vector XYZ=(",cellBA_vec,")"
 
-
     ! -----------------------------------------------------------
     ! Creating the Hamiltonian of the Lead and Coupling matrix
     ! -----------------------------------------------------------
-
     do i = 1 , no_sites
         atom_id = this%l2g(i,1) ! get atom index , this%l2g(i,2) tells what is the spinID of that atom
         ! iterate over all bonds in that atom (A)
@@ -299,6 +325,7 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
 
                 ! fill coupling matrix
                 this%valsTau(irow,icol) = cval
+!                print*,i,lid,cval
 
 
             else ! in case of coupling occures within lead
@@ -311,6 +338,7 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
                 icol = lid
                 cval = all_atoms(atom_id)%bonds(b)%bondValue
                 this%valsH0(irow,icol) = cval
+!                print*,
 !                print*,irow,icol,atom_id,aid,sqrt(sum((all_atoms(atom_id)%atom_pos-all_atoms(aid)%atom_pos)**2 ))
             endif ! end of else if "atom is in the lead or outside"
             endif ! end of if bond comes from the atom with the same spin what site has
@@ -328,11 +356,25 @@ end subroutine init_lead
 ! ------------------------------------------------------------------------
 subroutine destroy(this)
     class(qlead) :: this
+    print*,"SYS::LEAD::freeing memory"
     if(allocated(this%valsH0))  deallocate(this%valsH0)
     if(allocated(this%valsTau)) deallocate(this%valsTau)
     if(allocated(this%l2g))     deallocate(this%l2g)
     if(allocated(this%next_l2g))deallocate(this%next_l2g)
-    this%no_sites = 0
+
+    if(allocated(this%modes))        deallocate(this%modes)
+    if(allocated(this%lambdas))      deallocate(this%lambdas)
+    if(allocated(this%SigmaMat))     deallocate(this%SigmaMat)
+    if(allocated(this%LambdaMat))    deallocate(this%LambdaMat)
+    if(allocated(this%UTildeDagger)) deallocate(this%UTildeDagger)
+    if(allocated(this%Tnm))          deallocate(this%Tnm)
+    if(allocated(this%currents))     deallocate(this%currents)
+
+    this%no_sites    = 0
+    this%no_in_modes = 0
+    this%no_out_em   = 0
+    this%no_out_modes= 0
+    this%no_in_em    = 0
 end subroutine destroy
 
 ! ------------------------------------------------------------------------
@@ -459,21 +501,459 @@ subroutine bands(this,filename,kmin,kmax,dk,Emin,Emax)
 
 end subroutine bands
 
-subroutine print_lead(this,filename,all_atoms)
+
+! ------------------------------------------------------------------------
+! Calculate the modes for a given Fermi energy. Those modes can be used
+! to build scattering boundary condidionts in Quantum transport methods.
+! Ef - value of Fermi level energy
+! ------------------------------------------------------------------------
+subroutine calculate_modes(this,Ef)
+    class(qlead)    :: this
+    doubleprecision :: Ef
+    integer :: N
+    complex*16  , allocatable , dimension(:,:)    :: MA,MB,Z
+    complex*16, allocatable , dimension(:,:)      :: Mdiag,d,c
+    complex*16, allocatable , dimension(:,:,:)    :: blochF
+
+    integer :: k,i,j,no_in,no_out,no_e_in,no_e_out
+
+    INTEGER                                      :: LDVL, LDVR , LWMAX , LWORK , INFO
+    COMPLEX*16 , dimension(:) ,     allocatable  :: ALPHA , BETA , WORK
+    double precision, dimension(:), allocatable  :: RWORK
+
+    doubleprecision :: tmpc,current,time,dval1,dval2
+    COMPLEX*16 :: DUMMY(1,1),lambda
+
+
+    time = get_clock()
+    N = this%no_sites
+
+    print*,"SYS::LEAD::Finding lead modes for N=",N
+    ! ---------------------------------------
+    ! Memoru allocations
+    ! ---------------------------------------
+    allocate(MA (2*N,2*N))
+    allocate(MB (2*N,2*N))
+    allocate(Z  (2*N,2*N))
+    allocate(Mdiag(N,N))
+    allocate(blochF(2,N,N))
+    allocate(d(2*N,N))
+    allocate(c(2*N,N))
+
+
+    if(allocated(this%modes))     deallocate(this%modes)
+    if(allocated(this%lambdas))  deallocate(this%lambdas)
+    if(allocated(this%SigmaMat)) deallocate(this%SigmaMat)
+    if(allocated(this%LambdaMat)) deallocate(this%LambdaMat)
+    if(allocated(this%Tnm))      deallocate(this%Tnm)
+    if(allocated(this%currents))      deallocate(this%currents)
+    if(allocated(this%UTildeDagger)) deallocate(this%UTildeDagger)
+
+    allocate(this%modes(2,N,N))
+    allocate(this%lambdas(2,N))
+    allocate(this%SigmaMat(N,N))
+    allocate(this%LambdaMat(N,N))
+    allocate(this%currents(2,N))
+    allocate(this%UTildeDagger(N,N))
+    this%currents = 0
+    this%UTildeDagger = 0
+    this%modes     = 0
+    this%lambdas  = 0
+    this%SigmaMat = 0
+    this%LambdaMat = 0
+
+    ! -------------------------------------------------------
+    ! Creation of the Generalize eigenvalue problem Eq. (52)
+    ! -------------------------------------------------------
+    do i = 1 , N
+    do j = 1 , N
+        Mdiag(i,j) =  conjg(this%valsTau(j,i)) ! Dag of Tau
+    enddo
+    enddo
+    ! Filling matrices
+    MA  = 0
+    MB  = 0
+    !   (
+    !   (   0       1   )
+    !   (  -t^*   E-H   )
+    !   (
+    MA(N+1:2*N,1:N) = -Mdiag ! diag contains hermitian cojugate of Tau
+
+    ! filling diag with diagonal matrix
+    Mdiag = 0
+    do i = 1 , N
+        Mdiag(i,i) =  1
+    enddo
+    MA(1:N,N+1:2*N)     =  Mdiag
+    MA(N+1:2*N,N+1:2*N) =  Mdiag*Ef - this%valsH0
+
+
+    MB(1:N,1:N)         = Mdiag
+    MB(N+1:2*N,N+1:2*N) = this%valsTau
+
+    ! Ustalenie parametrow LAPACKA
+    LWMAX = 20 * N
+    LDVL  = 2  * N
+    LDVR  = 2  * N
+    ! Alokacja macierzy LAPACKA
+    allocate(ALPHA(2*N))
+    allocate(BETA(2*N))
+    allocate(RWORK(8*N))
+    allocate(WORK(LWMAX))
+
+
+    LWORK = -1
+    ! Initalization
+    CALL ZGGEV("N","N", 2*N, MA, 2*N, MB,2*N, ALPHA,BETA, &
+                DUMMY, 1, Z, LDVR, WORK, LWORK, RWORK, INFO )
+    LWORK = MIN(LWMAX, INT( WORK(1)))
+    ! Solving GGEV problem
+    CALL ZGGEV("N","V", 2*N, MA, 2*N, MB , 2*N, ALPHA,BETA, &
+                DUMMY, 1, Z, LDVR, WORK, LWORK, RWORK, INFO )
+    ! Checking solution
+    if( INFO /= 0 ) then
+        print*,"SYS::LEAD::Cannot solve generalized eigenvalue problem for eigenmodes: ZGGEV info:",INFO
+        stop
+    endif
+
+    ! -------------------------------------------------------
+    ! Calculating the number of modes
+    ! -------------------------------------------------------
+    this%no_in_modes  = 0
+    this%no_out_modes = 0
+    this%no_in_em     = 0
+    this%no_out_em    = 0
+
+    do i = 1 , 2*N
+        if(abs(Beta(i))>1e-16) then !
+            lambda= (ALPHA(i)/BETA(i))
+!            print"(i,2f10.5,A,f10.6)",i,lambda,"abs=",abs(lambda)
+            c(i,:) =  Z(1:N,i)
+            d(i,:) =  Z(N+1:2*N,i)
+            ! Normalize vectors
+            c(i,:) = c(i,:)/sqrt(sum(abs(c(i,:))**2))
+            d(i,:) = d(i,:)/sqrt(sum(abs(d(i,:))**2))
+
+            if(  abs(abs(lambda) - 1.0) < 1.0E-6 ) then ! check if propagating mode
+                current = (mode_current(N,c(i,:),d(i,:),this%valsTau))
+                tmpc    = current
+                ! Normalize to current = 1
+                c(i,:)  = c(i,:)/sqrt(abs(current))
+                d(i,:)  = d(i,:)/sqrt(abs(current))
+                ! Sort between incoming and outgoing
+                if(current > 0) then
+                    this%no_in_modes  = this%no_in_modes + 1
+                    this%currents(M_IN,this%no_in_modes) = tmpc
+                else
+                    this%no_out_modes = this%no_out_modes + 1
+                    this%currents(M_OUT,this%no_out_modes) = tmpc
+                endif
+            ! Evanescent modes filtering
+            else if( abs(lambda) > 1.0 ) then
+                this%no_out_em = this%no_out_em + 1
+
+            else if( abs(lambda) < 1.0 .and. abs(lambda)> 1.D-16 ) then
+                this%no_in_em  = this%no_in_em + 1
+            else ! Strange case when lambda = 0 "standing mode" we assume that means
+                 ! this case belongs to both evanescent modes
+                this%no_in_em  = this%no_in_em  + 1
+                this%no_out_em = this%no_out_em + 1
+            endif ! end of filtering
+        endif ! end of beta > 0
+    enddo
+
+    print*,"SYS::LEAD::Lead stats:"
+    print*,"           No. incoming modes:",this%no_in_modes
+    print*,"           No. outgoing modes:",this%no_out_modes
+    print*,"           No. in. evan.modes:",this%no_in_em
+    print*,"           No. out.evan.modes:",this%no_out_em
+
+
+    ! Allocate T-Matrix
+    allocate(this%Tnm(this%no_out_modes,this%no_out_modes))
+    this%Tnm      = 0
+
+    ! -------------------------------------------------------
+    ! Filling arrays
+    ! -------------------------------------------------------
+    no_in    = 0
+    no_e_in  = 0
+    no_out   = 0
+    no_e_out = 0
+    do i = 1 , 2*N
+        if(abs(Beta(i))>1e-16) then
+            lambda= (ALPHA(i)/BETA(i))
+            if(  abs(abs(lambda) - 1.0) < 1.0E-6 ) then
+                current = mode_current(N,c(i,:),d(i,:),this%valsTau)
+                if(current > 0) then
+                    no_in  = no_in + 1
+                    this%modes   (M_IN,no_in,:)  = c(i,:)
+                    this%lambdas (M_IN,no_in)    = lambda
+                else
+                    no_out = no_out + 1
+                    this%modes   (M_OUT,no_out,:) = c(i,:)
+                    this%lambdas (M_OUT,no_out)   = lambda
+                endif
+            else if( abs(lambda) > 1.0 ) then
+                    no_e_out = no_e_out + 1
+                    this%modes  (M_OUT,this%no_out_modes+no_e_out,:) = c(i,:)
+                    this%lambdas(M_OUT,this%no_out_modes+no_e_out)   = lambda
+            else if( abs(lambda) < 1.0 .and. abs(lambda)> 1.D-16 ) then
+                    no_e_in = no_e_in + 1
+                    this%modes  (M_IN,this%no_in_modes+no_e_in,:) = c(i,:)
+                    this%lambdas(M_IN,this%no_in_modes+no_e_in)   = lambda
+            else
+                    no_e_out = no_e_out + 1
+                    this%modes  (M_OUT,this%no_out_modes+no_e_out,:) = c(i,:)
+                    this%lambdas(M_OUT,this%no_out_modes+no_e_out)   = 1.0D20
+                    no_e_in = no_e_in + 1
+                    this%modes  (M_IN,this%no_in_modes+no_e_in,:)    = c(i,:)
+                    this%lambdas(M_IN,this%no_in_modes+no_e_in)      = 1.0D20
+                    !print*,"Problematic case! Lambda == 0 "
+            endif
+        endif
+    enddo
+
+    deallocate(ALPHA)
+    deallocate(BETA)
+    deallocate(RWORK)
+    deallocate(WORK)
+    deallocate(MA)
+    deallocate(MB)
+    deallocate(Z)
+    deallocate(d)
+    deallocate(c)
+
+
+    ! Sorting propagating modes by the current amplitde
+    call sort_modes(this%no_in_modes ,this%modes(M_IN,:,:) ,this%lambdas(M_IN,:),this%currents(M_IN,:))
+    call sort_modes(this%no_out_modes,this%modes(M_OUT,:,:),this%lambdas(M_OUT,:),this%currents(M_OUT,:))
+    print*,"-------------------------------------------------------"
+    print*," K vec.  :    In     |       Out  |          Fluxes   "
+    print*,"-------------------------------------------------------"
+    do i = 1 , this%no_in_modes
+        dval1 = log(this%lambdas(M_IN ,i))/II
+        dval2 = log(this%lambdas(M_OUT,i))/II
+        print"(A,i4,A,f10.4,A,1f10.4,A,2f10.4)","   K[",i,"]:",dval1," | ",dval2 ," | " , this%currents(:,i)
+    enddo
+    print*,"-------------------------------------------------------"
+
+
+    ! Construction of the F^-1+ matrix Eq. (57)
+    blochF = 0
+    Mdiag(:,:) = this%modes(M_IN,:,:)
+    call inverse_matrix(N,Mdiag)
+    do k = 1, N
+        do i = 1, N
+        do j = 1, N
+        blochF(M_IN,i,j) = blochF(M_IN,i,j) + this%lambdas(M_IN,k)**(-1)  * this%modes(M_IN,k,i) * Mdiag(j,k)
+        enddo
+        enddo
+    enddo
+    ! Construction of the F^-1+ matrix Eq. (57)
+    Mdiag(:,:) = this%modes(M_OUT,:,:)
+    call inverse_matrix(N,Mdiag)
+    this%UTildeDagger = Mdiag
+    do k = 1, N
+        do i = 1, N
+        do j = 1, N
+        blochF(M_OUT,i,j) = blochF(M_OUT,i,j) + this%lambdas(M_OUT,k)**(-1)  * this%modes(M_OUT,k,i) * Mdiag(j,k)
+        enddo
+        enddo
+    enddo
+    ! Calculating of SigmaMatrix
+    do i = 1 , N
+    do j = 1 , N
+        Mdiag(i,j) =  conjg(this%valsTau(j,i)) ! Dag of Tau
+    enddo
+    enddo
+    do i = 1 , N
+    do j = 1 , N
+        do k = 1 , N
+            this%SigmaMat(i,j) = this%SigmaMat(i,j) + Mdiag(i,k)*blochF(M_OUT,k,j)
+        enddo
+    enddo
+
+    enddo
+    ! add to sigma H0 internal hamiltonian
+    this%SigmaMat = this%SigmaMat + this%valsH0
+
+    ! Lambda matrix calculation:
+    do i = 1 , N
+    do j = 1 , N
+        do k = 1 , N
+            this%LambdaMat(i,j) = this%LambdaMat(i,j) + Mdiag(i,k)*(blochF(M_IN,k,j)-blochF(M_OUT,k,j))
+        enddo
+    enddo
+    enddo
+
+    print*,"SYS::LEAD::Modes calculated in time:", get_clock() - time , "[s]"
+    deallocate(Mdiag)
+    deallocate(blochF)
+
+
+end subroutine calculate_modes
+
+! ------------------------------------------------------------------------
+! Calculate tranimission amplitude in the output lead
+! all_atoms - reference to all atoms in the system
+! phi       - calculated scattering wave function
+! The result is holded: this%Tnm(1,1) element. For each incoming mode
+! this number should be <= 1
+! ------------------------------------------------------------------------
+subroutine calculate_Tnm(this,all_atoms,phi)
+    class(qlead)              :: this
+    type(qatom),dimension(:)  :: all_atoms
+    complex*16 ,dimension(:)  :: phi
+    ! local variables
+    complex*16 ,allocatable , dimension(:) :: leadPhi
+    complex :: tmpT
+    integer :: i,la,ls,lg
+
+    allocate(leadPhi(this%no_sites))
+    do i = 1 , this%no_sites
+        la = this%l2g(i,1)
+        ls = this%l2g(i,2)
+        lg = all_atoms(la)%globalIDs(ls)
+        leadPhi(i) = phi(lg)
+    enddo
+    this%Tnm = 0
+    do i = 1 , this%no_out_modes
+        tmpT = sum(this%UTildeDagger(:,i) * leadPhi(:))
+        this%Tnm(i,1) =  abs(tmpT)**2
+    enddo
+    tmpT = sum(this%Tnm(:,1))
+    this%Tnm(1,1) = tmpT
+    deallocate(leadPhi)
+endsubroutine calculate_Tnm
+
+doubleprecision function mode_current(N,c,d,tau)
+    integer :: N
+    complex*16 , dimension(:)   :: c,d
+    complex*16 , dimension(:,:) :: tau
+    integer :: i,j
+    complex*16 :: current,tmp
+
+    current=0
+    do i = 1 , N
+        tmp = 0
+    do j = 1 , N
+        tmp = tmp + conjg(tau(j,i)) * c(j)
+    enddo
+        current = current +  conjg(d(i)) * tmp
+    enddo
+    mode_current = 2 * Imag(current)
+end function mode_current
+
+doubleprecision function mode_current_lambda(N,c,lambda,tau)
+    integer :: N
+    complex*16 , dimension(:)   :: c
+    complex*16 :: lambda
+    complex*16 , dimension(:,:) :: tau
+    integer :: i,j
+    complex*16 :: current,tmp
+
+    current=0
+    do i = 1 , N
+        tmp = 0
+    do j = 1 , N
+        tmp = tmp + (tau(i,j)) * c(j)
+    enddo
+        current = current +  lambda*conjg(c(i)) * tmp
+    enddo
+    mode_current_lambda = -2 * IMAG(current)
+
+end function mode_current_lambda
+
+subroutine inverse_matrix(N,A)
+  integer :: N
+  complex*16,dimension(:,:):: A
+  complex*16,allocatable,dimension(:)  :: WORK
+  integer,allocatable,dimension (:)    :: IPIV
+  integer info,error
+
+  allocate(WORK(N),IPIV(N),stat=error)
+  if (error.ne.0)then
+    print *,"SYS::LEAD::ZGETRF::error:not enough memory"
+    stop
+  end if
+  call ZGETRF(N,N,A,N,IPIV,info)
+  if(info .eq. 0) then
+!    write(*,*)"succeded"
+  else
+    write(*,*)"SYS::LEAD::ZGETRF::failed with info:",info
+  end if
+  call ZGETRI(N,A,N,IPIV,WORK,N,info)
+  if(info .eq. 0) then
+!    write(*,*)"succeded"
+  else
+   write(*,*)"SYS::LEAD::ZGETRI::failed with info:",info
+  end if
+  deallocate(IPIV,WORK,stat=error)
+  if (error.ne.0)then
+    print *,"SYS::LEAD::ZGETRF::error:fail to release"
+    stop
+  end if
+end subroutine inverse_matrix
+
+
+subroutine sort_modes(N,vectors,lambdas,currents)
+    complex*16,dimension(:,:) :: vectors
+    complex*16,dimension(:)   :: lambdas
+    doubleprecision,dimension(:)   :: currents
+    integer :: N
+    complex*16,dimension(:),allocatable  :: tmpvec
+    complex*16 :: tmpval
+    doubleprecision :: dval , mindval , tmpcurr
+    integer :: i , j  , nvec , imin
+
+    nvec = size(vectors(1,:))
+    allocate(tmpvec(nvec))
+    do i = 1 , n
+        imin   = i
+        do j = i+1 , n
+           dval     = abs(currents(j))
+           mindval  = abs(currents(imin))
+           if( dval > mindval ) imin = j
+        enddo
+
+        tmpcurr        = currents(i)
+        currents(i)    = currents(imin)
+        currents(imin) = tmpcurr
+
+        tmpval        = lambdas(i)
+        lambdas(i)    = lambdas(imin)
+        lambdas(imin) = tmpval
+
+        tmpvec          = vectors(i,:)
+        vectors(i,:)    = vectors(imin,:)
+        vectors(imin,:) = tmpvec
+    enddo
+
+    deallocate(tmpvec)
+end subroutine sort_modes
+
+subroutine save_lead(this,filename,ofunit)
     class(qlead) :: this
     character(*) :: filename
-    type(qatom),dimension(:) :: all_atoms
 
-    integer,parameter :: funit = 5437629
+
+    integer,optional :: ofunit
+    integer         :: funit = 5437629
     integer         :: i,j,id_atom_a,id_spin_a,id_atom_b,id_spin_b
     doubleprecision :: max_abs_matrix_element,normalized_value
-    doubleprecision :: CUTOFF_LEVEL,weight
-    doubleprecision :: tmp_pos(3)
+    doubleprecision :: CUTOFF_LEVEL
+
 
     CUTOFF_LEVEL = 1.0D-10
     print*,"SYS::LEAD::Writing lead data to file:",filename
-    open(unit=funit,file=filename)
 
+
+    if(present(ofunit)) then
+        funit = ofunit
+    else
+        open(unit=funit,file=filename)
+    endif
 
 
     write(funit,"(A)"),"<lead>"
@@ -494,6 +974,7 @@ subroutine print_lead(this,filename,all_atoms)
     write(funit,"(A)"),"<next_atoms>"
     do i = 1 , this%no_sites
         id_atom_b = this%next_l2g(i,1)
+!        print*,i,id_atom_b,this%next_l2g(i,2)
         if(this%next_l2g(i,2) == 1) then
             write(funit,*),"<d>",id_atom_b,"</d>"
         endif
@@ -551,139 +1032,9 @@ subroutine print_lead(this,filename,all_atoms)
 
 
     write(funit,"(A)"),"</lead>"
+    if(.not. present(ofunit)) close(funit)
 
 
-
-
-
-
-
-
-!
-!
-!
-!
-!
-!    write(funit,"(A)"),"<lead>"
-!    call this%lead_shape%flush_shape_data_to_file(funit)
-!    write(funit,"(A)"),"<lead_vector>"
-!    write(funit,"(3e20.6)"),this%lead_vector
-!    write(funit,"(A)"),"</lead_vector>"
-!
-!    ! ----------------------------------------------------------------------------
-!    ! LEAD DATA
-!    ! ----------------------------------------------------------------------------
-!    write(funit,"(A)"),"<lead_data>"
-!    max_abs_matrix_element = 0
-!    do i = 1 , this%no_sites
-!        do j = i , this%no_sites
-!            if( abs(this%valsH0(i,j)) > max_abs_matrix_element ) max_abs_matrix_element = abs(this%valsH0(i,j))
-!        enddo
-!    enddo
-!    do i = 1 , this%no_sites
-!        id_atom_a = this%l2g(i,1)
-!
-!        if( all_atoms(id_atom_a)%bActive) then
-!
-!        id_spin_a = this%l2g(i,2)
-!        do j = i , this%no_sites
-!        id_atom_b = this%l2g(j,1)
-!        id_spin_b = this%l2g(j,2)
-!        normalized_value = abs(this%valsH0(i,j))/max_abs_matrix_element
-!        if( normalized_value > CUTOFF_LEVEL ) then
-!            write(funit,"(A,7e20.6,2i5,A)"),"   <data>",all_atoms(id_atom_a)%atom_pos,all_atoms(id_atom_b)%atom_pos,normalized_value,id_spin_a,id_spin_b,"</data>"
-!        endif
-!        enddo
-!        endif
-!    enddo
-!    write(funit,"(A)"),"</lead_data>"
-!    ! ----------------------------------------------------------------------------
-!    ! NEXT UNIT CELL DATA
-!    ! ----------------------------------------------------------------------------
-!    if(this%LEAD_BAD_NEARST == .false.) then
-!    write(funit,"(A)"),"<next_cell_lead_data>"
-!    do i = 1 , this%no_sites
-!        id_atom_a = this%next_l2g(i,1)
-!
-!        if(this%next_l2g(i,1) == 0) then
-!            exit
-!        endif
-!        if(all_atoms(id_atom_a)%bActive) then
-!        id_spin_a = this%next_l2g(i,2)
-!        do j = i , this%no_sites
-!        if(this%next_l2g(j,1) == 0) then
-!            exit
-!        endif
-!        id_atom_b = this%next_l2g(j,1)
-!        id_spin_b = this%next_l2g(j,2)
-!
-!        normalized_value = abs(this%valsH0(i,j))/max_abs_matrix_element
-!        if( normalized_value > CUTOFF_LEVEL ) then
-!            write(funit,"(A,7e20.6,2i5,A)"),"   <data>",all_atoms(id_atom_a)%atom_pos,all_atoms(id_atom_b)%atom_pos,normalized_value,id_spin_a,id_spin_b,"</data>"
-!        endif
-!        enddo
-!        endif
-!    enddo
-!    write(funit,"(A)"),"</next_cell_lead_data>"
-!
-!
-!    ! ----------------------------------------------------------------------------
-!    ! COUPLING TO THE NEXT CELL DATA
-!    ! ----------------------------------------------------------------------------
-!    write(funit,"(A)"),"<lead_coupling>"
-!    max_abs_matrix_element = 0
-!    do i = 1 , this%no_sites
-!        do j = 1 , this%no_sites
-!            if( abs(this%valsTau(i,j)) > max_abs_matrix_element ) max_abs_matrix_element = abs(this%valsTau(i,j))
-!        enddo
-!    enddo
-!    do i = 1 , this%no_sites
-!        id_atom_a = this%l2g(i,1)
-!        if( all_atoms(id_atom_a)%bActive) then
-!        id_spin_a = this%l2g(i,2)
-!        do j = 1 , this%no_sites
-!        if(this%next_l2g(j,1) == 0) then
-!            exit
-!        endif
-!        id_atom_b = this%next_l2g(j,1)
-!        id_spin_b = this%next_l2g(j,2)
-!        normalized_value = abs(this%valsTau(i,j))/max_abs_matrix_element
-!        if( normalized_value > CUTOFF_LEVEL ) then
-!            write(funit,"(A,7e20.6,2i5,A)"),"   <data>",all_atoms(id_atom_a)%atom_pos,all_atoms(id_atom_b)%atom_pos,normalized_value,id_spin_a,id_spin_b,"</data>"
-!        endif
-!        enddo
-!        endif
-!    enddo
-!    write(funit,"(A)"),"</lead_coupling>"
-!
-!    endif ! end of if BAD_NEARST
-!    ! ----------------------------------------------------------------------------
-!    ! SET OF ATOMS NEAR TO LEAD
-!    ! ----------------------------------------------------------------------------
-!    write(funit,"(A)"),"<nearest_atoms>"
-!
-!    do i = 1 , size(all_atoms)
-!        if(all_atoms(i)%bActive) then
-!
-!        do j = -5 , 5 ! check five nearest unit cells
-!            tmp_pos = all_atoms(i)%atom_pos - (j-1)*this%lead_vector
-!            if(this%lead_shape%is_inside(tmp_pos)) then
-!                weight = 1-(abs(j)-1)/(5.0-1.0)
-!                if(weight >= 0.5) weight = 1
-!                write(funit,"(A,4e20.6,A)"),"   <data>",all_atoms(i)%atom_pos,weight,"</data>"
-!                exit
-!            endif
-!        enddo
-!
-!        endif
-!
-!    enddo
-!    write(funit,"(A)"),"</nearest_atoms>"
-!
-!
-!    write(funit,"(A)"),"</lead>"
-    close(funit)
-
-endsubroutine print_lead
+endsubroutine save_lead
 
 endmodule modlead

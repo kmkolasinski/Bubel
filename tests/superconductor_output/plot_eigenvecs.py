@@ -34,7 +34,7 @@ for i in range(9):
     ax = plt.subplot(331+i)
     ax.contourf(xi, yi, zi, 100 )
     ax.set_aspect('equal')
-    ax.set_xticks([0,20,40,60])
+    #ax.set_xticks([0,20,40,60])
     plt.title("State n="+str(i+1))
 
 plt.tight_layout()

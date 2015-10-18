@@ -4,6 +4,7 @@
 #include <QMainWindow>
 #include <QMimeData>
 #include <glwidget.h>
+#include <datareader.h>
 #include <formleadparams.h>
 namespace Ui {
 class MainWindow;
@@ -24,7 +25,14 @@ public slots:
 
     void updateWidgets();
     void toggleLead(unsigned int id,bool toggle);
+    void toggleLeadArea(unsigned int id,bool toggle);
+
     void open();
+    void close();
+    void reopen();
+    void resetRotations();
+    void selectedAtomsInfo(int atomA,int atomB);
+
     void chooseColor();
     void chooseConnectionColor();
     void togglePerFlagDisplaySettings(bool);

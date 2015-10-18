@@ -76,7 +76,7 @@ posA = (/0.0,0.0,-0.5/)
 posB = lead_translation_vec ! direction and range
 call lead_shape%init_range_3d(posA,posB)
 call lead%init_lead(lead_shape,lead_translation_vec,qsystem%atoms)
-call lead%print_lead(output_folder//"lead.xml",qsystem%atoms)
+call lead%save_lead(output_folder//"lead.xml")
 
 !  ----------------------------------------------------------
 !  4. Calculate band structure

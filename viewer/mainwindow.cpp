@@ -14,6 +14,8 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(ui->spinBoxSpinA,SIGNAL(valueChanged(int)),this,SLOT(receiveSpinBoxes(int)));
     connect(ui->spinBoxSpinB,SIGNAL(valueChanged(int)),this,SLOT(receiveSpinBoxes(int)));
     connect(ui->pushButtonOpen,SIGNAL(released()),this,SLOT(open()));
+    connect(ui->pushButtonCloseFile,SIGNAL(released()),this,SLOT(close()));
+    connect(ui->pushButtonReopenFile,SIGNAL(released()),this,SLOT(reopen()));
 
     QButtonGroup* group = new QButtonGroup(this);
     group->addButton(ui->radioButtonMainXY);
@@ -32,25 +34,43 @@ MainWindow::MainWindow(QWidget *parent) :
 
 
     connect(ui->checkBoxPerFlagSettings,SIGNAL(toggled(bool)),this,SLOT(togglePerFlagDisplaySettings(bool)));
+    connect(ui->pushButtonHideAtom,SIGNAL(released()),this,SLOT(updateWidgets()));
 
     connect(ui->comboBoxFlags,SIGNAL(currentIndexChanged(int)),this,SLOT(updatePerFlagSettings(int)));
 
 
     connect(glWidget,SIGNAL(xRotationChanged(int)),ui->spinBoxRotX,SLOT(setValue(int)));
     connect(glWidget,SIGNAL(yRotationChanged(int)),ui->spinBoxRotY,SLOT(setValue(int)));
+    connect(glWidget,SIGNAL(selectedAtoms(int,int)),this,SLOT(selectedAtomsInfo(int,int)));
+
 
 
     connect(ui->spinBoxRotX,SIGNAL(valueChanged(int)),glWidget,SLOT(setXRotation(int)));
     connect(ui->spinBoxRotY,SIGNAL(valueChanged(int)),glWidget,SLOT(setYRotation(int)));
+    connect(ui->pushButtonResetRotations,SIGNAL(released()),this,SLOT(resetRotations()));
 
-    xmlData.read_data("../lattice.xml");
-    xmlData.read_data("../lead.xml");
+    // data vals
+    connect(ui->comboBoxDatasetSpinFilter,SIGNAL(currentIndexChanged(int)),this,SLOT(receiveSpinBoxes(int)));
+    connect(ui->listWidgetDatasetCols,SIGNAL(currentRowChanged(int)),this,SLOT(receiveSpinBoxes(int)));
+    connect(ui->checkBoxDatasetUse,SIGNAL(stateChanged(int)),this,SLOT(receiveSpinBoxes(int)));
+    connect(ui->horizontalSliderDataMinValue,SIGNAL(sliderReleased()),this,SLOT(updateWidgets()));
+    connect(ui->horizontalSliderDataMaxValue,SIGNAL(sliderReleased()),this,SLOT(updateWidgets()));
+
+    QHeaderView* header = ui->tableWidgetAtomInfo->horizontalHeader();
+                 header->setSectionResizeMode(QHeaderView::Stretch);
+
+
+    xmlData.read_data("../system.xml");
     xmlData.precalculate_data();
+    lastDir = "../system.xml";
+
+
     glWidget->atoms = &xmlData.p_atoms;
     glWidget->cnts  = &xmlData.p_connections;
     glWidget->leads = &xmlData.p_leads;
+    glWidget->data  = &(xmlData.data);
     bSkipSignals = false;
-    lastDir = "";
+
     update_gui();
 
     glWidget->setAcceptDrops(true);
@@ -67,7 +87,7 @@ MainWindow::~MainWindow()
 QSize MainWindow::sizeHint() const
 //! [3] //! [4]
 {
-    return QSize(1000, 600);
+    return QSize(1000, 650);
 }
 
 
@@ -81,10 +101,11 @@ void MainWindow::update_gui(){
     ui->doubleSpinBoxAtomSize->setSingleStep(xmlData.atoms_stats.atom_radius/10.0);
     ui->doubleSpinBoxConnectionSize->setSingleStep(xmlData.atoms_stats.atom_radius/10.0);
 
-    for(unsigned i=0; ui->listWidgetLeads->count(); i++){
-             QListWidgetItem *item = ui->listWidgetLeads->item(i);
-             delete ui->listWidgetLeads->itemWidget(item);
-             delete item;
+
+    while(ui->listWidgetLeads->count()){
+        QListWidgetItem *item = ui->listWidgetLeads->item(0);
+        delete ui->listWidgetLeads->itemWidget(item);
+        delete item;
     }
 
     for(unsigned i=0; i < xmlData.leads.size() ; i++){
@@ -94,11 +115,20 @@ void MainWindow::update_gui(){
             ui->listWidgetLeads->addItem(item);
             ui->listWidgetLeads->setItemWidget(item,lead);
             connect(lead,SIGNAL(emitToggleShowHide(uint,bool)),this,SLOT(toggleLead(uint,bool)));
+            connect(lead,SIGNAL(emittoggleShowLeadArea(uint,bool)),this,SLOT(toggleLeadArea(uint,bool)));
     }
-
 
     AtomsStats& stats = xmlData.atoms_stats;
     info = QString("<b>Number of atoms:</b> ")+QString::number(stats.no_atoms);
+
+    ui->tableWidgetDataStats->setRowCount(1);
+    ui->tableWidgetDataStats->setColumnCount(2);
+    ui->tableWidgetDataStats->setItem(0,0,new QTableWidgetItem("No. atoms"));
+    ui->tableWidgetDataStats->setItem(0,1,new QTableWidgetItem(QString::number(stats.no_atoms)));
+
+    QHeaderView* header = ui->tableWidgetDataStats->horizontalHeader();
+                 header->setSectionResizeMode(QHeaderView::Stretch);
+
     info += QString("<br><b>Flags:</b> ");
     glWidget->displayPerFlag.clear();
     glWidget->flag2id.clear();
@@ -133,12 +163,36 @@ void MainWindow::update_gui(){
     ui->spinBoxSpinB->setMinimum(1);
     ui->spinBoxSpinB->setMaximum(stats.max_spin);
 
+
+    // Data values
+    ui->lineEditDatasetName->setText(xmlData.data.dataname);
+    ui->comboBoxDatasetSpinFilter->clear();
+    for(unsigned int i = 0 ; i < stats.max_spin ; i++){
+        ui->comboBoxDatasetSpinFilter->addItem("Spin="+QString::number(i+1));
+    }
+    ui->listWidgetDatasetCols->clear();
+
+    for(unsigned int i = 0 ; i < xmlData.data.max_values.size() ; i++){
+        double min = xmlData.data.min_values[i];
+        double max = xmlData.data.max_values[i];
+        ui->listWidgetDatasetCols->addItem("column#"+QString::number(i+1));//+" min/max={"+QString::number(min)+","+QString::number(max)+"}");
+    }
+    ui->listWidgetDatasetCols->setCurrentRow(0);
     bSkipSignals = false;
+
+    glWidget->selectedAtomA = -1;
+    glWidget->selectedAtomB = -1;
+    glWidget->bSelectedAtomsConnected = false;
     updateWidgets();
 }
 
 void MainWindow::toggleLead(unsigned int id,bool toggle){
-    xmlData.leads[id].visible = toggle;
+    xmlData.leads[id].bShowLeadAtoms = toggle;
+    updateWidgets();
+}
+
+void MainWindow::toggleLeadArea(unsigned int id,bool toggle){
+    xmlData.leads[id].bShowArea = toggle;
     updateWidgets();
 }
 
@@ -170,9 +224,8 @@ void MainWindow::updateWidgets(){
     glWidget->displayConnections.atom_quality = ui->spinBoxConnectionQ->value();
     glWidget->displayConnections.atom_size    = ui->doubleSpinBoxConnectionSize->value();
     QPalette palette = ui->pushButtonConnectionColour->palette();
-    QColor color = palette.color(QPalette::Button);
+    QColor color     = palette.color(QPalette::Button);
     glWidget->displayConnections.color = color;
-
 
     if(!ui->checkBoxPerFlagSettings->isChecked()){
         glWidget->displayAllSettings.atom_quality = ui->spinBoxAtomQ->value();
@@ -184,10 +237,21 @@ void MainWindow::updateWidgets(){
         int index = ui->comboBoxFlags->currentIndex();
         glWidget->displayPerFlag[index].atom_quality = ui->spinBoxAtomQ->value();
         glWidget->displayPerFlag[index].atom_size    = ui->doubleSpinBoxAtomSize->value();
+        glWidget->displayPerFlag[index].bHide        = ui->pushButtonHideAtom->isChecked();
         QPalette palette = ui->pushButtonAtomColor->palette();
         QColor color = palette.color(QPalette::Button);
         glWidget->displayPerFlag[index].color = color;
     }
+
+    // Data values
+    glWidget->selectedDataColumn = ui->listWidgetDatasetCols->currentRow();
+    glWidget->selectedDataSpin   = ui->comboBoxDatasetSpinFilter->currentIndex();
+
+    glWidget->displayAllSettings.min_cutoff=ui->horizontalSliderDataMinValue->value()/300.0;
+    glWidget->displayAllSettings.max_cutoff=ui->horizontalSliderDataMaxValue->value()/300.0;
+    glWidget->displayAllSettings.bShowDataValues = ui->checkBoxDatasetUse->isChecked();
+
+
     glWidget->updateGL();
 }
 
@@ -200,6 +264,23 @@ void MainWindow::open(){
         xmlData.precalculate_data();
         update_gui();
     }
+}
+
+void MainWindow::close(){
+    xmlData.clear_data();
+    xmlData.precalculate_data();
+    update_gui();
+}
+
+void MainWindow::reopen(){
+    xmlData.read_data(lastDir);
+    xmlData.precalculate_data();
+    update_gui();
+}
+
+void MainWindow::resetRotations(){
+    ui->spinBoxRotX->setValue(0);
+    ui->spinBoxRotY->setValue(0);
 }
 
 void MainWindow::dragEnterEvent(QDragEnterEvent *event)
@@ -276,12 +357,76 @@ void MainWindow::updatePerFlagSettings(int row){
         return;
     }
     bSkipSignals = true;
-    ui->doubleSpinBoxAtomSize->setValue(glWidget->displayPerFlag[row].atom_size);
-    ui->spinBoxAtomQ->setValue(glWidget->displayPerFlag[row].atom_quality);
+    ui->doubleSpinBoxAtomSize   ->setValue  (glWidget->displayPerFlag[row].atom_size);
+    ui->spinBoxAtomQ            ->setValue  (glWidget->displayPerFlag[row].atom_quality);
+    ui->pushButtonHideAtom      ->setChecked(glWidget->displayPerFlag[row].bHide);
+
     QPalette palette;
     palette.setColor(QPalette::Button, glWidget->displayPerFlag[row].color);
     ui->pushButtonAtomColor->setPalette(palette);
 
     bSkipSignals = false;
     updateWidgets();
+}
+
+
+void MainWindow::selectedAtomsInfo(int atomA,int atomB){
+
+//    qDebug() << atomA << atomB;
+
+    if(atomA > -1){
+        ui->tableWidgetAtomInfo->setItem(0,0,new QTableWidgetItem(QString::number(atomA)));
+        Atom &atom = xmlData.atoms[atomA];
+
+        ui->tableWidgetAtomInfo->setItem(1,0,new QTableWidgetItem(QString::number(atom.no_states)));
+        ui->tableWidgetAtomInfo->setItem(2,0,new QTableWidgetItem(QString::number(atom.no_bounds)));
+        ui->tableWidgetAtomInfo->setItem(3,0,new QTableWidgetItem(QString::number(atom.active)));
+        ui->tableWidgetAtomInfo->setItem(4,0,new QTableWidgetItem(QString::number(atom.flag)));
+        QString pos = "("+QString::number(atom.pos.x(),'f',2)+","+QString::number(atom.pos.y(),'f',2)+","+QString::number(atom.pos.z(),'f',2)+")";
+        ui->tableWidgetAtomInfo->setItem(5,0,new QTableWidgetItem(pos));
+    }else{
+        for(int i = 0 ; i < 6 ; i++)
+                ui->tableWidgetAtomInfo->setItem(i,0,new QTableWidgetItem(""));
+    }
+
+    if(atomB > -1){
+        Atom &atom = xmlData.atoms[atomB];
+
+        ui->tableWidgetAtomInfo->setItem(0,1,new QTableWidgetItem(QString::number(atomB)));
+        ui->tableWidgetAtomInfo->setItem(1,1,new QTableWidgetItem(QString::number(atom.no_states)));
+        ui->tableWidgetAtomInfo->setItem(2,1,new QTableWidgetItem(QString::number(atom.no_bounds)));
+        ui->tableWidgetAtomInfo->setItem(3,1,new QTableWidgetItem(QString::number(atom.active)));
+        ui->tableWidgetAtomInfo->setItem(4,1,new QTableWidgetItem(QString::number(atom.flag)));
+        QString pos = "("+QString::number(atom.pos.x(),'f',2)+","+QString::number(atom.pos.y(),'f',2)+","+QString::number(atom.pos.z(),'f',2)+")";
+        ui->tableWidgetAtomInfo->setItem(5,1,new QTableWidgetItem(pos));
+    }else{
+        for(int i = 0 ; i < 6 ; i++)
+                ui->tableWidgetAtomInfo->setItem(i,1,new QTableWidgetItem(""));
+    }
+
+    ui->tableWidgetCouplings->clear();
+    if(atomA > -1 && atomB > -1){
+        Atom &atA = xmlData.atoms[atomA];
+        Atom &atB = xmlData.atoms[atomB];
+        ui->tableWidgetCouplings->setRowCount(atA.no_states);
+        ui->tableWidgetCouplings->setColumnCount(atB.no_states);
+        vector<AtomConnection> atomAcnts;
+        QFont fnt;
+        fnt.setPointSize(8);
+        fnt.setFamily("Arial");
+        for(int i = 0 ; i < xmlData.connections.size() ; i++){
+            if(xmlData.connections[i].atomA == atomA && xmlData.connections[i].atomB == atomB){
+                atomAcnts.push_back(xmlData.connections[i]);
+                int s1 = xmlData.connections[i].spinA-1;
+                int s2 = xmlData.connections[i].spinB-1;
+                QString cpl = "("+QString::number(xmlData.connections[i].realC)+","+QString::number(xmlData.connections[i].imagC)+")";
+                ui->tableWidgetCouplings->setItem(s1,s2,new QTableWidgetItem(cpl));
+                ui->tableWidgetCouplings->item(s1,s2)->setFont(fnt);
+
+            }
+        } // end of for connections
+    }// end of if coupling matrix
+
+
+
 }

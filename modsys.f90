@@ -25,7 +25,7 @@ type qatom
     doubleprecision :: atom_pos(3)  ! position (x,y,z) in some units
     integer         :: no_in_states ! number of internal states (e.g. spin degree of freedom)
     logical         :: bActive      ! if the site is taken into calculations
-    integer         :: flag         ! arbitrary number, can be used by user e.g. to distinguish two different atoms
+    integer         :: flag , flag_aux0         ! arbitrary number, can be used by user e.g. to distinguish two different atoms
     integer,allocatable,dimension(:)    :: globalIDs ! in case of no_bonds > 1 this array contains global ID of atom in spin state
     type(qbond),allocatable,dimension(:) :: bonds     ! contains information about hoping between different atoms
                                                      ! Atom A may have connection with itself
@@ -53,10 +53,10 @@ contains
 !                not be taken during the hamiltonian construction.
 ! flag         - [optional] can be used by user to perform some specific action
 ! ------------------------------------------------------------------------
-subroutine init(site,atom_pos,no_in_states,bActive,flag)
+subroutine init(site,atom_pos,no_in_states,bActive,flag,flag_aux0)
     class(qatom)     :: site
     doubleprecision :: atom_pos(3)
-    integer, optional :: no_in_states , flag
+    integer, optional :: no_in_states , flag ,flag_aux0
     logical, optional :: bActive
 
     site%no_in_states = 1
@@ -64,9 +64,11 @@ subroutine init(site,atom_pos,no_in_states,bActive,flag)
     site%atom_pos     = atom_pos
     site%no_bonds     = 0
     site%flag         = 0
+    site%flag_aux0    = 0
     if(present(no_in_states)) site%no_in_states  = no_in_states
     if(present(bActive))      site%bActive       = bActive
     if(present(flag))         site%flag          = flag
+    if(present(flag_aux0))    site%flag_aux0     = flag_aux0
 
 end subroutine init
 
@@ -177,15 +179,17 @@ type qsys
     procedure, public, pass(sys) :: add_atom!(sys,site)
     procedure, public, pass(sys) :: make_lattice!(sys,connect_procedure)
     procedure, public, pass(sys) :: save_lattice!(filename,innerA,innerB)
+    procedure, public, pass(sys) :: save_data!(filename,array2d,array1d,ofunit)
     procedure, public, pass(sys) :: calc_eigenproblem!(sys,pEmin,pEmax,NoStates,no_feast_contours,print_info,pmaks_iter)
+
 
 endtype qsys
 public :: qsys,nnb_params
-public :: QSYS_DISABLE_HERMICITY_CHECK
+public :: QSYS_DISABLE_HERMICITY_CHECK, QSYS_COUPLING_CUTOFF
 public :: QSYS_NNB_FILTER_CHECK_ALL
 public :: QSYS_NNB_FILTER_DISTANCE
 public :: QSYS_NNB_FILTER_BOX
-
+public :: convert_to_HB , sort_col_vals , solve_SSOLEQ
 contains
 
 ! ------------------------------------------------------------------------
@@ -362,6 +366,9 @@ subroutine make_lattice(sys,nnbparams,c_default,c_simple,c_matrix)
                     if(c_default(sys%atoms(i),sys%atoms(j),k,l,cpl_value)) then
                          call sys%atoms(i)%add_bond(k,j,l,cpl_value)
 !                         print"(4i4,2e12.2)",i,k,j,l,cpl_value
+                    else if(i==j .and. k == l) then ! Force diagonal term for transport
+                         cpl_value = cmplx(0.0D0,0.0D0)
+                         call sys%atoms(i)%add_bond(k,j,l,cpl_value)
                     endif
                 enddo
             endif
@@ -377,7 +384,10 @@ subroutine make_lattice(sys,nnbparams,c_default,c_simple,c_matrix)
             if(sys%atoms(j)%bActive == .true.) then
                 ! if they are nnb one may create a bond between them
                 if(c_simple(sys%atoms(i),sys%atoms(j),cpl_value)) then
-                     call sys%atoms(i)%add_bond(1,j,1,cpl_value)
+                    call sys%atoms(i)%add_bond(1,j,1,cpl_value)
+                else if(i==j) then ! Force diagonal term for transport
+                    cpl_value = cmplx(0.0D0,0.0D0)
+                    call sys%atoms(i)%add_bond(1,j,1,cpl_value)
                 endif
             endif
         enddo
@@ -400,10 +410,13 @@ subroutine make_lattice(sys,nnbparams,c_default,c_simple,c_matrix)
             if(c_matrix(sys%atoms(i),sys%atoms(j),cpl_matrix)) then
             ! both sites have to be active
                 do l = 1 , sys%atoms(j)%no_in_states
-!                    if( abs(cpl_matrix(k,l)) > QSYS_COUPLING_CUTOFF) & ! skip zero values
-                     call sys%atoms(i)%add_bond(k,j,l,cpl_matrix(k,l))
+!                     if( abs(cpl_matrix(k,l)) > QSYS_COUPLING_CUTOFF) & ! skip zero values
+                        call sys%atoms(i)%add_bond(k,j,l,cpl_matrix(k,l))
 !                     print"(4i4,2e12.2)",i,k,j,l,cpl_matrix(k,l)
                 enddo
+            else if(i==j) then ! Force diagonal term for transport
+                cpl_value = cmplx(0.0D0,0.0D0)
+                call sys%atoms(i)%add_bond(k,j,k,cpl_value)
             endif ! end of if nnb
             endif ! end of if j active
         enddo ! end of j
@@ -518,6 +531,9 @@ subroutine make_lattice(sys,nnbparams,c_default,c_simple,c_matrix)
                     ! if they are nnb one may create a qbond between them
                     if(c_default(sys%atoms(i),sys%atoms(j),k,l,cpl_value)) then
                          call sys%atoms(i)%add_bond(k,j,l,cpl_value)
+                    else if(i==j .and. k==l) then ! Force diagonal term for transport
+                         cpl_value = cmplx(0.0D0,0.0D0)
+                         call sys%atoms(i)%add_bond(k,j,l,cpl_value)
                     endif
                 enddo
                 else if(nnbparams%NNB_FILTER == QSYS_NNB_FILTER_DISTANCE) then
@@ -527,6 +543,9 @@ subroutine make_lattice(sys,nnbparams,c_default,c_simple,c_matrix)
                     do l = 1 , sys%atoms(j)%no_in_states
                         ! if they are nnb one may create a qbond between them
                         if(c_default(sys%atoms(i),sys%atoms(j),k,l,cpl_value)) then
+                             call sys%atoms(i)%add_bond(k,j,l,cpl_value)
+                        else if(i==j .and. k==l) then ! Force diagonal term for transport
+                             cpl_value = cmplx(0.0D0,0.0D0)
                              call sys%atoms(i)%add_bond(k,j,l,cpl_value)
                         endif
                     enddo
@@ -562,12 +581,18 @@ subroutine make_lattice(sys,nnbparams,c_default,c_simple,c_matrix)
                     ! if they are nnb one may create a qbond between them
                     if(c_simple(sys%atoms(i),sys%atoms(j),cpl_value)) then
                          call sys%atoms(i)%add_bond(1,j,1,cpl_value)
+                    else if(i==j ) then ! Force diagonal term for transport
+                         cpl_value = cmplx(0.0D0,0.0D0)
+                         call sys%atoms(i)%add_bond(1,j,1,cpl_value)
                     endif
                 else if(nnbparams%NNB_FILTER == QSYS_NNB_FILTER_DISTANCE) then
                     ! check distance before asking
                     if( sqrt(sum((sys%atoms(i)%atom_pos-sys%atoms(j)%atom_pos)**2)) < nnbparams%distance) then
                     ! if they are nnb one may create a qbond between them
                     if(c_simple(sys%atoms(i),sys%atoms(j),cpl_value)) then
+                         call sys%atoms(i)%add_bond(1,j,1,cpl_value)
+                    else if(i==j) then ! Force diagonal term for transport
+                         cpl_value = cmplx(0.0D0,0.0D0)
                          call sys%atoms(i)%add_bond(1,j,1,cpl_value)
                     endif
                     endif ! end of if check distance
@@ -604,21 +629,26 @@ subroutine make_lattice(sys,nnbparams,c_default,c_simple,c_matrix)
                    allocate(cpl_matrix(sys%atoms(i)%no_in_states,sys%atoms(j)%no_in_states))
                 endif
 
-                if(c_matrix(sys%atoms(i),sys%atoms(j),cpl_matrix)) then
+
 
                 if(nnbparams%NNB_FILTER == QSYS_NNB_FILTER_BOX) then
-                do l = 1 , sys%atoms(j)%no_in_states
-                    ! if they are nnb one may create a qbond between them
 
-!                             if( abs(cpl_matrix(k,l)) > QSYS_COUPLING_CUTOFF) & ! skip zero values
-                             call sys%atoms(i)%add_bond(k,j,l,cpl_matrix(k,l))
-!                             print"(4i4,2e12.2)",i,k,j,l,cpl_matrix(k,l)
+                    if(c_matrix(sys%atoms(i),sys%atoms(j),cpl_matrix)) then
+                    do l = 1 , sys%atoms(j)%no_in_states
+                        ! if they are nnb one may create a qbond between them
+    !                             if( abs(cpl_matrix(k,l)) > QSYS_COUPLING_CUTOFF) & ! skip zero values
+                                 call sys%atoms(i)%add_bond(k,j,l,cpl_matrix(k,l))
+    !                             print"(4i4,2e12.2)",i,k,j,l,cpl_matrix(k,l)
+                    enddo
+                    else if( i == j) then
+                        cpl_value = cmplx(0.0D0,0.0D0)
+                        call sys%atoms(i)%add_bond(k,j,k,cpl_value)
+                    endif ! end if is NNB
 
-                enddo
                 else if(nnbparams%NNB_FILTER == QSYS_NNB_FILTER_DISTANCE) then
-
                     ! check distance before asking
                     if( sqrt(sum((sys%atoms(i)%atom_pos-sys%atoms(j)%atom_pos)**2)) < nnbparams%distance) then
+                    if(c_matrix(sys%atoms(i),sys%atoms(j),cpl_matrix)) then
                     do l = 1 , sys%atoms(j)%no_in_states
                         ! if they are nnb one may create a qbond between them
                         !if(c_matrix(sys%atoms(i),sys%atoms(j),cpl_matrix)) then
@@ -627,11 +657,14 @@ subroutine make_lattice(sys,nnbparams,c_default,c_simple,c_matrix)
 !                             print"(4i4,2e12.2)",i,k,j,l,cpl_matrix(k,l)
                         !endif
                     enddo
+                    else if( i == j) then
+                        cpl_value = cmplx(0.0D0,0.0D0)
+                        call sys%atoms(i)%add_bond(k,j,k,cpl_value)
+                    endif ! end if is NNB
                     endif ! end of if check distance
-
                 endif ! end if DISTANCE filter
 
-                endif ! end if is NNB
+
 
 
                 endif! end of if active atom
@@ -711,12 +744,12 @@ end subroutine make_lattice
 ! innerB   - [optional] connected with atoms in state B. This can be used to see the
 !            connections between different spin stated of atoms. Default is 1.
 ! ------------------------------------------------------------------------
-subroutine save_lattice(sys,filename,innerA,innerB)
+subroutine save_lattice(sys,filename,innerA,innerB,ofunit)
     class(qsys)     :: sys
     character(*)    :: filename
-    integer,optional:: innerA , innerB
+    integer,optional:: innerA , innerB , ofunit
 
-    integer :: s1,s2
+    integer :: s1,s2,funit
     integer :: i,b,ida,ids1,ids2,j,itmp
     integer,parameter :: ix = 1 , iy = 2 , iz = 3 , cmin = 1 , cmax =  2
     double precision :: lWidth , bbox(2,3)
@@ -738,38 +771,15 @@ subroutine save_lattice(sys,filename,innerA,innerB)
         endif ! end of if active atom
     enddo
 
-!    open(unit=765819,file=filename)
-!    write(765819,*),"# Bounding box to estimate the scale of the system"
-!    write(765819,*),bbox(cmin,:)
-!    write(765819,*),bbox(cmax,:)
-!    write(765819,*),"# Lines which connect the atoms by bonding."
-!    write(765819,*),"# Connections between spin ",s1," and ",s2
-!    do i = 1 , sys%no_atoms
-!        if(sys%atoms(i)%bActive) then
-!        do b = 1 , sys%atoms(i)%no_bonds
-!        ! write only unique connections
-!        ida  = sys%atoms(i)%bonds(b)%toAtomID
-!        ids1 = sys%atoms(i)%bonds(b)%toInnerID
-!        ids2 = sys%atoms(i)%bonds(b)%fromInnerID
-!        if( sys%atoms(ida)%bActive ) then
-!        if( ida >= i ) then
-!            lWidth = 0.1
-!            if(ida == i) lWidth = 1.0
-!
-!            if(s1 == ids1 .and. s2 == ids2) then
-!                write(765819,"(7e20.6)"),sys%atoms(i)%atom_pos,sys%atoms(ida)%atom_pos,lWidth
-!            endif
-!        endif
-!        endif ! end of if active
-!        enddo
-!        endif ! end of if active atom
-!
-!    enddo
-!    close(765819)
+    funit = 765819
+    if(present(ofunit)) then
+        funit = ofunit
+    else
+        open(unit=funit,file=filename)
+    endif
 
-    open(unit=765819,file=filename)
-    write(765819,*),"<lattice>"
-    write(765819,*),"<atoms>"
+    write(funit,*),"<lattice>"
+    write(funit,*),"<atoms>"
     do i = 1 , sys%no_atoms
 
         if(sys%atoms(i)%bActive) then
@@ -778,54 +788,82 @@ subroutine save_lattice(sys,filename,innerA,innerB)
             itmp = 0;
         endif
 
-        write(765819,"(A,3e16.6,4i10,A)"),"<d>",sys%atoms(i)%atom_pos,sys%atoms(i)%flag,itmp,sys%atoms(i)%no_in_states,sys%atoms(i)%no_bonds,"</d>"
-!        write(765819,*),"<data>"
-!        write(765819,"(A,e20.6,A)"),"<x>",sys%atoms(i)%atom_pos(1),"</x>"
-!        write(765819,"(A,e20.6,A)"),"<y>",sys%atoms(i)%atom_pos(2),"</y>"
-!        write(765819,"(A,e20.6,A)"),"<z>",sys%atoms(i)%atom_pos(3),"</z>"
-!        write(765819,"(A,i10,A)"),"<flag>",sys%atoms(i)%flag       ,"</flag>"
-!        if(sys%atoms(i)%bActive) then
-!            write(765819,"(A,i10,A)"),"<active>"   ,1,"</active>"
-!        else
-!            write(765819,"(A,i10,A)"),"<active>"   ,0,"</active>"
-!        endif
-!
-!        write(765819,"(A,i10,A)"),"<no_states>",sys%atoms(i)%no_in_states,"</no_states>"
-!        write(765819,"(A,i10,A)"),"<no_bounds>",sys%atoms(i)%no_bonds,"</no_bounds>"
-!        write(765819,*),"</data>"
-
+        write(funit,"(A,3e16.6,4i10,A)"),"<d>",sys%atoms(i)%atom_pos,sys%atoms(i)%flag,itmp,sys%atoms(i)%no_in_states,sys%atoms(i)%no_bonds,"</d>"
 
     enddo
-    write(765819,*),"</atoms>"
+    write(funit,*),"</atoms>"
 
-    write(765819,*),"<connections>"
+    write(funit,*),"<connections>"
     do i = 1 , sys%no_atoms
         if(.not. sys%atoms(i)%bActive) cycle
         do j = 1 , sys%atoms(i)%no_bonds
-            if( sys%atoms(i)%bonds(j)%toAtomID >= i )then
+!            if( sys%atoms(i)%bonds(j)%toAtomID >= i )then
 
-                write(765819,"(A,4i10,2e16.6,A)"),"<d>",i,sys%atoms(i)%bonds(j)%toAtomID,sys%atoms(i)%bonds(j)%fromInnerID,&
+                write(funit,"(A,4i10,2e16.6,A)"),"<d>",i,sys%atoms(i)%bonds(j)%toAtomID,sys%atoms(i)%bonds(j)%fromInnerID,&
                             sys%atoms(i)%bonds(j)%toInnerID,DBLE(sys%atoms(i)%bonds(j)%bondValue),IMAG(sys%atoms(i)%bonds(j)%bondValue),"</d>"
 
-!                write(765819,*),"<data>"
-!                write(765819,*),"<A>" ,i,"</A>"
-!                write(765819,*),"<B>" ,sys%atoms(i)%bonds(j)%toAtomID       ,"</B>"
-!                write(765819,*),"<sA>",sys%atoms(i)%bonds(j)%fromInnerID    ,"</sA>"
-!                write(765819,*),"<sB>",sys%atoms(i)%bonds(j)%toInnerID      ,"</sB>"
-!                write(765819,*),"<vr>",DBLE(sys%atoms(i)%bonds(j)%bondValue),"</vr>"
-!                write(765819,*),"<vi>",IMAG(sys%atoms(i)%bonds(j)%bondValue),"</vi>"
-!                write(765819,*),"</data>"
-            endif
+!            endif
         enddo
 
     enddo
-    write(765819,*),"</connections>"
-    write(765819,*),"</lattice>"
+    write(funit,*),"</connections>"
+    write(funit,*),"</lattice>"
 
-    close(765819)
-
+    if(.not. present(ofunit)) close(funit)
 
 end subroutine save_lattice
+
+subroutine save_data(sys,filename,array2d,array1d,ofunit)
+    class(qsys)     :: sys
+    character(*)    :: filename
+    integer,optional:: ofunit
+    doubleprecision,optional :: array2d(:,:) , array1d(:)
+    integer         :: funit,no_cols,i,j,gi,iter
+    doubleprecision,allocatable, dimension(:) :: values
+    character(128) :: sformat , stmp
+
+    no_cols = 0
+    if(present(array1d)) no_cols =  1
+    if(present(array2d)) no_cols =  no_cols + size(array2d(:,1))
+    if(no_cols == 0) then
+        print*,"SYS::No data to save:",filename
+        return
+    endif
+    allocate(values(no_cols))
+
+    funit = 765819
+    if(present(ofunit)) then
+        funit = ofunit
+    else
+        open(unit=funit,file=filename)
+    endif
+    write(funit,*),"<sysdata>"
+    write(funit,*),"<info>",no_cols,"</info>"
+    write(funit,*),"<name>",filename,"</name>"
+    write(stmp,"(i)"),no_cols
+    sformat = "(A,2i,"//trim(stmp)//"e20.6,A)"
+
+    do i = 1, sys%no_atoms
+        if(.not. sys%atoms(i)%bActive) cycle
+        do j = 1 , sys%atoms(i)%no_in_states
+        gi = sys%atoms(i)%globalIDs(j)
+        iter = 0
+        if(present(array1d)) then
+            iter = iter + 1
+            values(iter) = array1d(gi)
+        endif
+        if(present(array2d)) then
+            iter = iter + 1
+            values(iter:no_cols) = array2d(:,gi)
+        endif
+
+        write(funit,sformat),"<d>",i,j,values,"</d>"
+        enddo
+    enddo
+    write(funit,*),"</sysdata>"
+    if(.not. present(ofunit)) close(funit)
+    deallocate(values)
+end subroutine save_data
 
 ! ------------------------------------------------------------------------
 ! Solve eigen problem for generated lattice. Eigen values and eigen vectors
@@ -899,7 +937,10 @@ subroutine calc_eigenproblem(sys,pEmin,pEmax,NoStates,no_feast_contours,print_in
     itmp = 0
     do i = 1, sys%no_atoms
         if(sys%atoms(i)%bActive) then
-            itmp = itmp + sys%atoms(i)%no_bonds
+            do j = 1, sys%atoms(i)%no_bonds
+!            if( abs(sys%atoms(i)%bonds(j)%bondValue) > QSYS_COUPLING_CUTOFF ) &
+            itmp = itmp + 1
+            enddo
         endif
     enddo
     NO_NON_ZERO_VALUES = itmp
@@ -925,6 +966,9 @@ subroutine calc_eigenproblem(sys,pEmin,pEmax,NoStates,no_feast_contours,print_in
         ta = sys%atoms(i)%bonds(j)%toAtomID
         ts = sys%atoms(i)%bonds(j)%toInnerID
         ROWCOLID(itmp,2) = sys%atoms(ta)%globalIDs(ts)
+
+        ! remove zero ellements
+!        if( abs(MATHVALS(itmp)) < QSYS_COUPLING_CUTOFF )  itmp = itmp - 1
 !        print"(3i4,2f10.4)",itmp,ROWCOLID(itmp,:),MATHVALS(itmp)
         enddo
         endif ! end of if active atom
@@ -1156,4 +1200,211 @@ subroutine sort_col_vals(cols,vals)
           enddo
         enddo
 end subroutine sort_col_vals
+
+
+  subroutine solve_SSOLEQ(no_rows,no_vals,colptr,rowind,values,b,iopt)
+        use modutils
+        implicit none
+        integer,intent(in)                 :: no_rows
+        integer,intent(in)                 :: no_vals
+        integer,intent(in),dimension(:)    :: colptr,rowind
+        complex*16,intent(in),dimension(:) :: values
+        complex*16,intent(inout),dimension(:) :: b
+        integer :: iopt
+        integer n, nnz, nrhs, ldb
+
+        integer, save    ::  info = 0
+        integer*8 , save :: factors = 0
+
+        doubleprecision,save :: total_time
+!DEC$ IF DEFINED  (USE_UMF_PACK)
+        ! UMFPACK constants
+        type(c_ptr),save :: symbolic,numeric
+        ! zero-based arrays
+        real(8),save :: control(0:UMFPACK_CONTROL-1),umf_info(0:UMFPACK_INFO-1)
+        complex*16,allocatable,dimension(:),save :: b_sol
+
+!DEC$ ENDIF
+
+!DEC$ IF DEFINED  (USE_PARDISO)
+
+        INTEGER*8,save  :: pt(64)
+        INTEGER,save    :: phase
+        INTEGER,save    :: maxfct, mnum, mtype, error, msglvl
+        INTEGER,save    :: iparm(64)
+        complex*16,allocatable,dimension(:),save :: b_sol
+
+        INTEGER    ,save::  idum(1)
+        COMPLEX*16 ,save::  ddum(1)
+
+!DEC$ ENDIF
+
+        n    = no_rows
+        nnz  = no_vals
+        ldb  = n
+        nrhs = 1
+
+
+!DEC$ IF DEFINED  (USE_UMF_PACK)
+      selectcase (iopt)
+      case (1)
+            total_time = get_clock();
+            allocate(b_sol(size(b)))
+
+            call umf4cdef (control)
+            call umf4csym (n,n, rowind, colptr, values, symbolic, control, umf_info)
+            call umf4cnum (rowind, colptr, values, symbolic, numeric, control, umf_info)
+            call umf4cfsym (symbolic)
+            !total_time =  umf_info(UMFPACK_NUMERIC_TIME)+umf_info(UMFPACK_SYMBOLIC_TIME)
+            if (umf_info(UMFPACK_STATUS) .eq. 0) then
+                if(TRANS_DEBUG) then
+                     write (*,*) 'Factorization succeeded. Mem needed:', umf_info(UMFPACK_PEAK_MEMORY)/8.0/1024/1024 , "[MB]"
+                endif
+            else
+                 write(*,*) 'SYS::UMF ERROR:: INFO from factorization step:', umf_info(UMFPACK_STATUS)
+            endif
+
+      case(2)
+            b_sol = 0
+            call umf4csolr (UMFPACK_Aat, rowind, colptr, values, b_sol, b, numeric, control, umf_info)
+            b  = b_sol;
+
+            if (umf_info(UMFPACK_STATUS) .eq. 0) then
+                if(TRANS_DEBUG) then
+                    write (*,*) 'Solve succeeded. Time needed:',umf_info(UMFPACK_SOLVE_WALLTIME)
+                endif
+            else
+                 write(*,*) 'SYS::UMF ERROR: INFO from solve:', umf_info(UMFPACK_STATUS)
+            endif
+
+      case(3)
+            print*,"UMFPACK Solved:"
+            print*,"Solve time needed:",get_clock()-total_time,"[s]"
+            call umf4cfnum (numeric)
+            deallocate(b_sol)
+      endselect
+
+!DEC$ ELSE IF DEFINED  (USE_PARDISO)
+
+
+ selectcase (iopt)
+      case (1)
+      allocate(b_sol(size(b)))
+          total_time = get_clock();
+          maxfct = 1 ! in many application this is 1
+          mnum   = 1 ! same here
+          iparm = 0
+          iparm(1) = 1 ! no solver default
+          iparm(2) = 2 ! fill-in reordering from METIS
+          iparm(3) = 1 ! numbers of processors, value of OMP_NUM_THREADS
+          iparm(4) = 0 ! 0 - no iterative-direct algorithm, if 1 multirecursive iterative algorithm 61, 31 para me
+          iparm(5) = 0 ! no user fill-in reducing permutation
+          iparm(6) = 0 ! =0 solution on the first n compoments of x
+          iparm(7) = 0 ! not in use
+          iparm(8) = 2 ! numbers of iterative refinement steps
+          iparm(9) = 0 ! not in use
+          iparm(10) = 13 ! perturbe the pivot elements with 1E-13
+          iparm(11) = 1 ! use nonsymmetric permutation and scaling MPS
+          iparm(12) = 0 ! not in use
+          iparm(13) = 1 ! maximum weighted matching algorithm is switched-on (default for non-symmetric).
+          iparm(14) = 0 ! Output: number of perturbed pivots
+          iparm(15) = 0 ! not in use
+          iparm(16) = 0 ! not in use
+          iparm(17) = 0 ! not in use
+          iparm(18) = -1 ! Output: number of nonzeros in the factor LU
+          iparm(19) = -1 ! Output: Mflops for LU factorization
+          iparm(20) = 0 ! Output: Numbers of CG Iterations
+          iparm(32) = 0 ! if 1 use multirecursive iterative algorithm
+           error = 0 ! initialize error flag
+          msglvl = 0 ! print statistical information
+          mtype     = 13      ! complex unsymmetric matrix
+
+          phase     = 11      ! only reordering and symbolic factorization
+          CALL pardiso (pt, maxfct, mnum, mtype, phase, n, values, rowind, colptr,&
+                       idum, nrhs, iparm, msglvl, ddum, ddum, error)
+
+!          WRITE(*,*) 'Reordering completed ... '
+
+          IF (error .NE. 0) THEN
+            WRITE(*,*) 'SYS::PARDISO::The following ERROR was detected during the reordeing step:', error
+            STOP 1
+          END IF
+
+
+!          WRITE(*,*) 'Number of factorization MFLOPS  = ',iparm(19)
+
+    !C.. Factorization.
+          phase     = 22  ! only factorization
+          CALL pardiso (pt, maxfct, mnum, mtype, phase, n, values, rowind, colptr,&
+                       idum, nrhs, iparm, msglvl, ddum, ddum, error)
+
+!          WRITE(*,*) 'Factorization completed ...  '
+          IF (error .NE. 0) THEN
+             WRITE(*,*) 'SYS::PARDISO::The following ERROR was detected during the factorization step:', error
+            STOP 1
+          ENDIF
+
+          WRITE(*,*) 'Peak memory usage   = ',max (IPARM(15), IPARM(16)+IPARM(17))/1024.0,"[MB]"
+
+      case(2)
+          b_sol = 0
+    !C.. Back substitution and iterative refinement
+          phase     = 33  ! only factorization
+          iparm(8)  = 3   ! max numbers of iterative refinement steps
+          CALL pardiso (pt, maxfct, mnum, mtype, phase, n, values, rowind, colptr,&
+                       idum, nrhs, iparm, msglvl, b, b_sol, error)
+
+          b  = b_sol;
+          !WRITE(*,*) 'Solve completed ... '
+          IF (error .NE. 0) THEN
+             WRITE(*,*) 'SYS::PARDISO::The following ERROR was detected: ', error
+
+          ENDIF
+
+      case(3)
+    !C.. Termination and release of memory
+            phase     = -1           ! release internal memory
+            CALL pardiso (pt, maxfct, mnum, mtype, phase, n, ddum, idum, idum,&
+                       idum, nrhs, iparm, msglvl, ddum, ddum, error)
+
+            print*,"SYS::PARDISO::Solve time needed:",get_clock()-total_time,"[s]"
+            deallocate(b_sol)
+      endselect
+
+
+!DEC$ ELSE
+      selectcase (iopt)
+      case (1)
+      total_time = get_clock();
+! First, factorize the matrix. The factors are stored in *factors* handle.
+      !iopt = 1
+      call c_fortran_zgssv( iopt, n, nnz, nrhs, values, colptr , rowind , b, ldb,factors, info )
+!
+      if (info .eq. 0) then
+!         write (*,*) 'Factorization succeeded'
+      else
+         write(*,*) 'SYS::c_fortran_zgssv::SuperLU INFO from factorization step:', info
+      endif
+      case(2)
+! Second, solve the system using the existing factors.
+!      iopt = 2
+      call c_fortran_zgssv( iopt, n, nnz, nrhs, values, colptr,rowind ,  b, ldb,factors, info )
+!
+      if (info .eq. 0) then
+!         write (*,*) 'Solve succeeded'
+!         write (*,*) (b(i), i=1, n)
+      else
+         write(*,*) 'SYS::c_fortran_zgssv::SuperLU ERROR from triangular solver:', info
+      endif
+      case(3)
+! Last, free the storage allocated inside SuperLU
+!      iopt = 3
+      call c_fortran_zgssv( iopt, n, nnz, nrhs, values, colptr,rowind, b, ldb,factors, info )
+
+      print*,"SYS::SuperLU::Computations time:",get_clock()-total_time,"[s]"
+      endselect
+!DEC$ ENDIF
+
+      endsubroutine solve_SSOLEQ
+
 end module modsys

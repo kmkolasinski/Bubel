@@ -66,7 +66,17 @@ GLWidget::GLWidget(QWidget *parent)
     bUseSettingsPerFlag = false;
     zoom = 1.0;
     bUseOrtho = false;
+    bPickAtom = false;
     bCompileDisplayList = true;
+    selectedDataColumn = 0;
+    selectedDataSpin   = 0;
+
+    selectedAtomA = -1;
+    selectedAtomB = -1;
+    bSelectedAtomsConnected = false;
+    bSwapAtomsPressed = false;
+
+
 
 }
 //! [0]
@@ -164,7 +174,7 @@ void GLWidget::initializeGL()
 
 }
 //! [6]
-void renderCylinder(double x1, double y1, double z1, double x2,double y2, double z2, double radius,int subdivisions,GLUquadricObj *quadric)
+void renderCylinder(double x1, double y1, double z1, double x2,double y2, double z2, double radius,int subdivisions,GLUquadricObj *quadric,double radius2=0.0)
 {
 
 // This is the default direction for the cylinders to face in OpenGL
@@ -187,7 +197,10 @@ glTranslated(x2,y2,z2);
 glRotated(angle,t.x(),t.y(),t.z());
 
 gluQuadricOrientation(quadric,GLU_OUTSIDE);
-gluCylinder(quadric, radius, radius, p.length(), subdivisions, 1);
+
+if(radius2 == 0) radius2 = radius;
+
+gluCylinder(quadric, radius2, radius, p.length(), subdivisions, 1);
 glPopMatrix();
 
 
@@ -212,18 +225,87 @@ glPopMatrix();
 
 //glPopMatrix();
 }
-void renderCylinder_convenient(double x1, double y1, double z1, double x2,double y2, double z2, double radius,int subdivisions)
+
+QVector3D HSL2RGB(float h, float sl, float l)
 {
-//the same quadric can be re-used for drawing many cylinders
-GLUquadricObj *quadric=gluNewQuadric();
-gluQuadricNormals(quadric, GLU_SMOOTH);
-renderCylinder(x1,y1,z1,x2,y2,z2,radius,subdivisions,quadric);
-gluDeleteQuadric(quadric);
+      float v;
+      float r,g,b;
+
+      r = l;   // default to gray
+      g = l;
+      b = l;
+      v = (l <= 0.5) ? (l * (1.0 + sl)) : (l + sl - l * sl);
+      if (v > 0){
+            float m;
+            float sv;
+            int sextant;
+            float fract, vsf, mid1, mid2;
+
+            m = l + l - v;
+            sv = (v - m ) / v;
+            h *= 6.0;
+            sextant = int(h);
+            fract = h - sextant;
+            vsf = v * sv * fract;
+            mid1 = m + vsf;
+            mid2 = v - vsf;
+            if(sextant == 0){
+                        r = v;
+                        g = mid1;
+                        b = m;
+             }else if(sextant == 1){
+                        r = mid2;
+                        g = v;
+                        b = m;
+             }else if(sextant == 2){
+                        r = m;
+                        g = v;
+                        b = mid1;
+             }else if(sextant == 3){
+                        r = m;
+                        g = mid2;
+                        b = v;
+             }else if(sextant == 4){
+                        r = mid1;
+                        g = m;
+                        b = v;
+             }else{
+                        r = v;
+                        g = m;
+                        b = mid2;
+            }
+      }
+      return QVector3D(r,g,b);
+ }
+
+void processHits (GLint hits, GLuint buffer[])
+{
+   unsigned int i, j;
+   GLuint names, *ptr;
+
+//   printf ("hits = %d\n", hits);
+   ptr = (GLuint *) buffer;
+   if(hits < 0) return;
+   for (i = 0; i < hits; i++) { /*  for each hit  */
+      names = *ptr;
+      printf (" number of names for hit = %d\n", names); ptr++;
+      printf("  z1 is %g;", (float) *ptr/0x7fffffff); ptr++;
+      printf(" z2 is %g\n", (float) *ptr/0x7fffffff); ptr++;
+      printf ("   the name is ");
+      for (j = 0; j < names; j++) {     /*  for each name */
+         printf ("%d ", *ptr); ptr++;
+      }
+      printf ("\n");
+   }
 }
+
+#define BUFSIZE 512
+
 //! [7]
 void GLWidget::paintGL()
 {
-    static GLuint displayIndex = -1;
+    static GLuint displayIndex  = glGenLists(1);
+    static GLuint displayIndexNonPickable = glGenLists(1);
     makeCurrent();
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glEnable(GL_DEPTH_TEST);
@@ -231,6 +313,9 @@ void GLWidget::paintGL()
 
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
+    int viewport[4] = {0,0,width(),height()};
+    if(bPickAtom)gluPickMatrix(lastPos.x(), height()-lastPos.y(), 1, 1, &viewport[0]);
+
     double s =zoom;
     if(bUseOrtho)
         glOrtho(-0.5*s*ratio,0.5*s*ratio,-0.5*s,0.5*s, 4.0, 15.0);
@@ -249,6 +334,9 @@ void GLWidget::paintGL()
                       displayConnections.color.greenF(),
                       displayConnections.color.blueF(), 1.0 };
     GLfloat d6[4] = { 0.8, 0.7, 3.0, 1.0 };
+    GLfloat d7[4] = { 0.4, 0.4, 0.4, 1.0 };
+    GLfloat red[4] = { 1.0, 0.0, 0.0, 1.0 };
+    GLfloat grn[4] = { 0.0, 1.0, 0.0, 1.0 };
     glMaterialfv(GL_FRONT,GL_DIFFUSE,d4);
 
     glTranslatef(0.0,0.0,-5.0);
@@ -256,16 +344,19 @@ void GLWidget::paintGL()
     glRotatef(yRot , 0.0, 1.0, 0.0);
     glRotatef(zRot , 0.0, 0.0, 1.0);
 
-
+    glTranslatef(XY_offset.x(),XY_offset.y(), 0.0);
     switch(mainPlain){
         case(MAIN_PLAIN_XY):
-        glTranslatef(XY_offset.x(),XY_offset.y(), 0.0);
+
+        //glRotatef(90.0 , 0.0, 1.0, 0.0);
         break;
         case(MAIN_PLAIN_XZ):
-        glTranslatef(XY_offset.y(),0.0,-XY_offset.x());
+//        glTranslatef(XY_offset.y(),0.0,-XY_offset.x());
+        glRotatef(90.0 , 0.0, 1.0, 0.0);
         break;
         case(MAIN_PLAIN_YZ):
-        glTranslatef(0.0,XY_offset.y(),-XY_offset.x());
+//        glTranslatef(0.0,XY_offset.y(),-XY_offset.x());
+        glRotatef(90.0 , 1.0, 0.0, 0.0);
         break;
 
     }
@@ -275,19 +366,96 @@ void GLWidget::paintGL()
 
 
     if(bCompileDisplayList){
+
     glNewList(displayIndex, GL_COMPILE);
 
-
+    glInitNames();
+    glPushName(0);
     GLUquadricObj *quadric = gluNewQuadric();
 
     double radius  = displayAllSettings.atom_size * DataReader::atoms_stats.scale * 0.3;
     int no_subdivs = displayAllSettings.atom_quality;
+    glMaterialfv(GL_FRONT,GL_DIFFUSE,d4);
+
+    //
+    // draw active atoms
+    if(data->dataname == "null" || !displayAllSettings.bShowDataValues){
 
     for(unsigned int i = 0 ; i < atoms->size() ; i++){
-        glPushMatrix();
+
+
         Atom &atom = (*atoms)[i];
+        if(!atom.active) continue;
+        glPushMatrix();
+        glLoadName(i);
         if(bUseSettingsPerFlag){
             int id = flag2id[atom.flag];
+            if(displayPerFlag[id].bHide) continue;
+            radius     = displayPerFlag[id].atom_size * DataReader::atoms_stats.scale * 0.3;
+            no_subdivs = displayPerFlag[id].atom_quality;
+
+            GLfloat df[4] = { displayPerFlag[id].color.redF(),
+                              displayPerFlag[id].color.greenF(),
+                              displayPerFlag[id].color.blueF(), 1.0 };
+            glMaterialfv(GL_FRONT,GL_DIFFUSE,df);
+        }
+        glTranslated(atom.pos.x(),atom.pos.y(),atom.pos.z());
+        gluSphere( quadric , radius , no_subdivs , no_subdivs );
+        glPopMatrix();
+    }
+
+    }else{ // draw data values
+        double min_value = data->min_values[selectedDataColumn];
+        double max_value = data->max_values[selectedDataColumn];
+        if(atoms->size() == 0){
+            QMessageBox::critical(NULL,"Atoms data is empty!",
+                 "Load file with atoms positions to see data values.",
+            QMessageBox::Ok);
+            bCompileDisplayList  = false;
+            glEndList();
+            return;
+        }
+        for(unsigned int i = 0 ; i < data->atomIds.size() ; i++){
+
+            if( data->spinIds[i] != selectedDataSpin ) continue;
+            Atom &atom = (*atoms)[data->atomIds[i]];
+
+            if(bUseSettingsPerFlag){
+                int id = flag2id[atom.flag];
+                if(displayPerFlag[id].bHide) continue;
+            }
+
+            glLoadName(data->atomIds[i]);
+            double value = data->values[i][selectedDataColumn];
+            value = (value-min_value)/(max_value-min_value);
+
+            value = (value-displayAllSettings.min_cutoff)/(displayAllSettings.max_cutoff-displayAllSettings.min_cutoff);
+
+
+            QVector3D color = HSL2RGB(value,1.0,0.8);
+            glPushMatrix();
+            GLfloat df[4] = {color.x(),color.y(),color.z(),1.0};
+            glMaterialfv(GL_FRONT,GL_DIFFUSE,df);
+            glTranslated(atom.pos.x(),atom.pos.y(),atom.pos.z());
+            gluSphere( quadric , radius , no_subdivs , no_subdivs );
+            glPopMatrix();
+        }
+
+
+    }
+    // draw not active atoms
+    glMaterialfv(GL_FRONT,GL_DIFFUSE,d7);
+    for(unsigned int i = 0 ; i < atoms->size() ; i++){
+
+        Atom &atom = (*atoms)[i];
+        if(atom.active) continue;
+        glLoadName(i);
+
+        glPushMatrix();
+        if(bUseSettingsPerFlag){
+
+            int id = flag2id[atom.flag];
+            if(displayPerFlag[id].bHide) continue;
             radius     = displayPerFlag[id].atom_size * DataReader::atoms_stats.scale * 0.3;
             no_subdivs = displayPerFlag[id].atom_quality;
             GLfloat df[4] = { displayPerFlag[id].color.redF(),
@@ -300,6 +468,10 @@ void GLWidget::paintGL()
         glPopMatrix();
     }
 
+    glEndList();
+    glNewList(displayIndexNonPickable, GL_COMPILE);
+
+
     radius     = displayConnections.atom_size * DataReader::atoms_stats.scale * 0.3;
     no_subdivs = displayConnections.atom_quality;
 
@@ -308,6 +480,8 @@ void GLWidget::paintGL()
         AtomConnection &cnt = (*cnts)[i];
         Atom& atomA = (*atoms)[cnt.atomA];
         Atom& atomB = (*atoms)[cnt.atomB];
+        if(cnt.atomA <= cnt.atomB) continue;
+
         renderCylinder(atomA.pos.x(),atomA.pos.y(),atomA.pos.z(),atomB.pos.x(),atomB.pos.y(),atomB.pos.z(),0.2*radius,no_subdivs,quadric);
 
     }
@@ -320,7 +494,9 @@ void GLWidget::paintGL()
 
     for(unsigned int l = 0 ; l < leads->size() ; l++){
         Lead& lead = (*leads)[l];
-        if(!lead.visible) continue;
+        if(!lead.bShowLeadAtoms) continue;
+        if(!lead.shape.type = SHAPE_NONE) continue;
+
         glMaterialfv(GL_FRONT,GL_DIFFUSE,d1);
         for(unsigned int i = 0 ; i < lead.atoms.size() ; i++){
             glPushMatrix();
@@ -332,7 +508,7 @@ void GLWidget::paintGL()
             }
 
             glTranslated(atom.pos.x(),atom.pos.y(),atom.pos.z());
-            gluSphere( quadric , radius*1.1 , 10 , 10 );
+            gluSphere( quadric , radius*1.1 ,  5 + no_subdivs , 5 + no_subdivs);
             glPopMatrix();
         }
         glMaterialfv(GL_FRONT,GL_DIFFUSE,d2);
@@ -345,25 +521,26 @@ void GLWidget::paintGL()
                 no_subdivs = displayPerFlag[id].atom_quality;
             }
             glTranslated(atom.pos.x(),atom.pos.y(),atom.pos.z());
-            gluSphere( quadric , radius*1.1 , 10 , 10 );
+            gluSphere( quadric , radius*1.1 , 5 + no_subdivs , 5 + no_subdivs );
             glPopMatrix();
         }
         glMaterialfv(GL_FRONT,GL_DIFFUSE,d3);
-        radius     = displayConnections.atom_size * DataReader::atoms_stats.scale * 0.3;
-        no_subdivs = displayConnections.atom_quality;
+        double cradius     = displayConnections.atom_size * DataReader::atoms_stats.scale * 0.3;
+        int cno_subdivs = displayConnections.atom_quality;
         for(unsigned int i = 0 ; i < lead.cnts.size() ; i++){
             AtomConnection &cnt = lead.cnts[i];
             Atom& atomA = (*atoms)[cnt.atomA];
             Atom& atomB = (*atoms)[cnt.atomB];
-            renderCylinder(atomA.pos.x(),atomA.pos.y(),atomA.pos.z(),atomB.pos.x(),atomB.pos.y(),atomB.pos.z(),0.25*radius,10,quadric);
+            renderCylinder(atomA.pos.x(),atomA.pos.y(),atomA.pos.z(),atomB.pos.x(),atomB.pos.y(),atomB.pos.z(),0.25*cradius, 5 + cno_subdivs,quadric);
         }
         glMaterialfv(GL_FRONT,GL_DIFFUSE,d6);
         for(unsigned int i = 0 ; i < lead.inner_cnts.size() ; i++){
             AtomConnection &cnt = lead.inner_cnts[i];
             Atom& atomA = (*atoms)[cnt.atomA];
             Atom& atomB = (*atoms)[cnt.atomB];
-            renderCylinder(atomA.pos.x(),atomA.pos.y(),atomA.pos.z(),atomB.pos.x(),atomB.pos.y(),atomB.pos.z(),0.25*radius,10,quadric);
+            renderCylinder(atomA.pos.x(),atomA.pos.y(),atomA.pos.z(),atomB.pos.x(),atomB.pos.y(),atomB.pos.z(),0.25*cradius,5 + cno_subdivs,quadric);
         }
+        if(!lead.bShowArea) continue;
         // this is stupid :/
         lead.shape.indices[0][0] = 0;lead.shape.indices[0][1] = 1;
         lead.shape.indices[1][0] = 1;lead.shape.indices[1][1] = 2;
@@ -384,21 +561,62 @@ void GLWidget::paintGL()
 
             int idA = lead.shape.indices[c][0];
             int idB = lead.shape.indices[c][1];
-
+            double scale = DataReader::atoms_stats.scale*0.02;
+            scale = qMax(scale,0.0005);
             renderCylinder(lead.shape.data[idA].x(),lead.shape.data[idA].y(),lead.shape.data[idA].z(),
                            lead.shape.data[idB].x(),lead.shape.data[idB].y(),lead.shape.data[idB].z(),
-                           0.0015,10,quadric);
+                           scale,10,quadric);
 
         }
 
     }
+
+
     gluDeleteQuadric(quadric);
     bCompileDisplayList  = false;
     glEndList();
     } // end of compile display list;
 
-
+    // ---------------------------------------------------------------
+    // ---------------------------------------------------------------
     glCallList(displayIndex);
+
+    if(!bPickAtom){
+        if(atoms->size() == 0) return;
+        glCallList(displayIndexNonPickable);
+        GLUquadricObj *quadric = gluNewQuadric();
+        double radius      = displayAllSettings.atom_size * DataReader::atoms_stats.scale * 0.3;
+
+        if(selectedAtomA > -1){
+            glMaterialfv(GL_FRONT,GL_DIFFUSE,red);
+            Atom &atom = (*atoms)[selectedAtomA];
+            glPushMatrix();
+
+            glTranslated(atom.pos.x(),atom.pos.y(),atom.pos.z());
+            gluSphere( quadric , radius*1.15 ,  25 , 25);
+            glPopMatrix();
+        }
+        if(selectedAtomB > -1){
+            glMaterialfv(GL_FRONT,GL_DIFFUSE,grn);
+            Atom &atom = (*atoms)[selectedAtomB];
+            glPushMatrix();
+
+            glTranslated(atom.pos.x(),atom.pos.y(),atom.pos.z());
+            gluSphere( quadric , radius*1.155 ,  25 , 25);
+            glPopMatrix();
+        }
+        radius      = displayConnections.atom_size * DataReader::atoms_stats.scale * 0.3;
+        if(bSelectedAtomsConnected){
+            glMaterialfv(GL_FRONT,GL_DIFFUSE,red);
+            Atom& atomA = (*atoms)[selectedAtomA];
+            Atom& atomB = (*atoms)[selectedAtomB];
+
+            renderCylinder(atomB.pos.x(),atomB.pos.y(),atomB.pos.z(),atomA.pos.x(),atomA.pos.y(),atomA.pos.z(),0.15*radius,15,quadric,0.5*radius);
+        }
+
+        gluDeleteQuadric(quadric);
+
+    } // end of if picking
 
 }
 //! [7]
@@ -414,21 +632,82 @@ void GLWidget::resizeGL(int width, int height)
 //! [9]
 void GLWidget::mousePressEvent(QMouseEvent *event)
 {
+    if(event->button() == Qt::LeftButton){
+        bMousePressed = true;
+    }else if(event->button() == Qt::RightButton){
+        bSwapAtomsPressed = true;
+
+    }
     lastPos = event->pos();
 }
 //! [9]
+void GLWidget::mouseReleaseEvent(QMouseEvent *event)
+{
+    if(event->button() == Qt::LeftButton && bMousePressed){
+        bMousePressed = false;
+        bPickAtom     = true;
+        GLuint selectBuf[BUFSIZE];
+        GLint hits;
+        glSelectBuffer (BUFSIZE, selectBuf);
+        glRenderMode (GL_SELECT);
+        updateGL();
+        hits = glRenderMode (GL_RENDER);
+//        qDebug() << "No hits:" << hits;
+        bPickAtom = false;
 
+        if(hits == 1){
+            if(selectedAtomA == -1) selectedAtomA = selectBuf[3];
+            else if(selectedAtomA  > -1) selectedAtomB = selectBuf[3];
+        }else{
+            selectedAtomA = -1;
+            selectedAtomB = -1;
+        }
+        emit selectedAtoms(selectedAtomA,selectedAtomB);
+        bSelectedAtomsConnected = false;
+        for (unsigned int i = 0 ; i < cnts->size(); i++){
+            AtomConnection &cnt = (*cnts)[i];
+            if(cnt.atomA == selectedAtomA && cnt.atomB == selectedAtomB){
+                bSelectedAtomsConnected = true;
+                break;
+            }
+            if(cnt.atomA == selectedAtomB && cnt.atomB == selectedAtomA){
+                bSelectedAtomsConnected = true;
+                break;
+            }
+        }
+
+//        qDebug() <<bSelectedAtomsConnected;
+
+    }else if(event->button() == Qt::RightButton && bSwapAtomsPressed){
+
+        int itmp = selectedAtomA;
+        selectedAtomA = selectedAtomB;
+        selectedAtomB = itmp;
+        emit selectedAtoms(selectedAtomA,selectedAtomB);
+
+    }
+    updateGL();
+
+}
 //! [10]
 void GLWidget::mouseMoveEvent(QMouseEvent *event)
 {
     int dx = event->x() - lastPos.x();
     int dy = event->y() - lastPos.y();
-
+    if(qAbs(dx) + qAbs(dy) > 1){
+        bMousePressed = false;
+        bSwapAtomsPressed = false;
+    }
     if (event->buttons() & Qt::LeftButton) {
         setXRotation(xRot + 0.2 * dy);
         setYRotation(yRot + 0.2 * dx);
     } else if (event->buttons() & Qt::RightButton) {
         XY_offset += 0.002* QVector3D(dx,-dy,0.0)*zoom;
+        updateGL();
+    }else if (event->buttons() & Qt::MiddleButton) {
+        zoom += (dx+dy)/200.0*zoom;
+        zoom = min(max(0.001,zoom),2.0);
+        resizeGL(width(),height());
         updateGL();
     }
 
@@ -440,7 +719,7 @@ void GLWidget::wheelEvent(QWheelEvent *event)
 {
     float numDegrees = event->delta() / 100.0;
 
-    zoom += numDegrees/20.0;
+    zoom += numDegrees/10.0*zoom;
     zoom = min(max(0.001,zoom),2.0);
     resizeGL(width(),height());
     updateGL();

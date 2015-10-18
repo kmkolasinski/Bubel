@@ -17,8 +17,10 @@ public:
 
 public slots:
     void toggleShowHide(bool toggle);
+    void toggleShowLeadArea(bool toggle);
 signals:
-    void emitToggleShowHide(unsigned int id,bool toggle);
+    void emitToggleShowHide    (unsigned int id,bool toggle);
+    void emittoggleShowLeadArea(unsigned int id,bool toggle);
 
 private:
     unsigned int id;

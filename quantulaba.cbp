@@ -70,6 +70,8 @@
 		<Unit filename="tests/simple_graphene.f90" />
 		<Unit filename="tests/simple_graphene2.f90" />
 		<Unit filename="tests/simple_sqlat.f90" />
+		<Unit filename="tests/strange_graphene.f90" />
+		<Unit filename="tests/superconductor.f90" />
 		<Extensions>
 			<code_completion />
 			<envvars />

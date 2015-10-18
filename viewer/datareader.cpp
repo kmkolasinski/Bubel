@@ -23,7 +23,7 @@ void DataReader::read_data(QString filename){
     QFile* xmlFile = new QFile(filename);
             if (!xmlFile->open(QIODevice::ReadOnly | QIODevice::Text)) {
                     QMessageBox::critical(NULL,"Load XML File Problem",
-                         "Couldn't open xml to load settings for download",
+                         "Couldn't open xml "+filename+" to load settings.",
                     QMessageBox::Ok);
                     return;
             }
@@ -31,44 +31,69 @@ void DataReader::read_data(QString filename){
     xmlBOM.setContent(xmlFile);
 
     QDomElement root=xmlBOM.documentElement();
-    if(root.tagName() == "lattice") {
-        qDebug() << "#Reading lattice:";
-        QDomElement Component=root.firstChild().toElement();
-        while(!Component.isNull())
-        {
-            // Check if the child tag name is COMPONENT
-            if (Component.tagName()=="atoms")
-            {
-                read_atoms(Component);
-            }
-            // Check if the child tag name is COMPONENT
-            if (Component.tagName()=="connections")
-            {
-                read_connections(Component);
-            }
 
-            Component = Component.nextSibling().toElement();
+    if(root.tagName() == "system"){
+        qDebug() << "#Reading system data:";
+        QDomElement Component=root.firstChild().toElement();
+        leads.clear();
+        while(!Component.isNull()){
+             if(Component.tagName() == "lattice")       read_lattice(Component);
+             else if(Component.tagName() == "lead")     read_lead(Component);
+
+             Component = Component.nextSibling().toElement();
         }
-    }else if(root.tagName() == "atoms") read_atoms(root);
-    else if(root.tagName() == "lead"){
+        qDebug() << "#Reading system data: done!";
+
+
+    }else if(root.tagName() == "lattice") {
+        qDebug() << "#Reading lattice data:";
+        read_lattice(root);
+        qDebug() << "#Reading lattice data: done!";
+    }else if(root.tagName() == "atoms"){
+        qDebug() << "#Reading atoms data:";
+        read_atoms(root);
+        qDebug() << "#Reading atoms data: done!";
+    }else if(root.tagName() == "lead"){
+        qDebug() << "#Reading single lead data:";
         leads.clear();
         read_lead(root);
+        qDebug() << "#Reading single lead data: done!";
+    }else if(root.tagName() == "sysdata"){
+        qDebug() << "#Reading single atoms data:";
+        read_atoms_data(root);
+        qDebug() << "#Reading single atoms data: done!";
     }
     xmlFile->close();
 
 }
 
+void DataReader::read_lattice(QDomElement& root){
 
+    qDebug() << "Reading lattice:";
+    QDomElement Component=root.firstChild().toElement();
+    while(!Component.isNull())
+    {
+        // Check if the child tag name is COMPONENT
+        if (Component.tagName()=="atoms")
+        {
+            read_atoms(Component);
+        }
+        // Check if the child tag name is COMPONENT
+        if (Component.tagName()=="connections")
+        {
+            read_connections(Component);
+        }
+
+        Component = Component.nextSibling().toElement();
+    }
+}
 void DataReader::read_atoms(QDomElement& root){
     atoms.clear();
     atoms_stats.flag_list.clear();
     atoms_stats.max_spin = 0;
 
+    qDebug() << "   Reading atoms:" << root.tagName();
 
-
-
-    qDebug() << "Reading atoms:";
-    qDebug() << root.tagName();
     QDomElement Component=root.firstChild().toElement();
 
     // Loop while there is a child
@@ -128,11 +153,72 @@ void DataReader::read_atoms(QDomElement& root){
     atoms_stats.no_atoms      = atoms.size();
 }
 
+void DataReader::read_atoms_data(QDomElement& root){
+    data.clear();
+
+    qDebug() << "   Reading atoms data:" << root.tagName();
+
+    QDomElement Component=root.firstChild().toElement();
+    int no_cols = 0;
+    vector<double> max_values;
+    vector<double> min_values;
+    // Loop while there is a child
+    while(!Component.isNull())
+    {
+        // Check if the child tag name is COMPONENT
+        if (Component.tagName()=="info"){
+            no_cols = Component.firstChild().toText().data().toInt();
+            qDebug() << "Reading no cols:" << no_cols;
+        }else if (Component.tagName()=="name"){
+            data.dataname = Component.firstChild().toText().data();
+            qDebug() << "Reading data name:" << data.dataname;
+        }else if (Component.tagName()=="d")
+        {
+            // Read each child of the component node
+            QString line;
+            line=Component.firstChild().toText().data();
+            std::stringstream stream(line.toStdString());
+            int atom,spin;
+            stream >> atom;
+            stream >> spin;
+            data.atomIds.push_back(atom-1);
+            data.spinIds.push_back(spin-1);
+            vector<double> data_vec;
+            for(int i = 0 ; i < no_cols ; i++){
+                double tdata;
+                stream >> tdata;
+                data_vec.push_back(tdata);
+            }
+            max_values = data_vec;
+            min_values = data_vec;
+            data.values.push_back(data_vec);
+        }
+        // Next component
+        Component = Component.nextSibling().toElement();
+    }
+    // finding max and min values
+    for(unsigned int i = 0 ; i < data.values.size() ; i++){
+        for(unsigned int c = 0 ; c < no_cols ; c++){
+            double value = data.values[i][c];
+            if( value < min_values[c] ) min_values[c] = value;
+            if( value > max_values[c] ) max_values[c] = value;
+        }
+    }
+
+    for(unsigned int c = 0 ; c < no_cols ; c++){
+        qDebug() << c << "min=" << min_values[c] << " max=" << max_values[c];
+    }
+
+    data.max_values = max_values;
+    data.min_values = min_values;
+}
+
+
 void DataReader::read_connections(QDomElement& root){
     connections.clear();
 
-    qDebug() << "Reading connections:";
-    qDebug() << root.tagName();
+    qDebug() << "   Reading connections:" << root.tagName();
+
     QDomElement Component=root.firstChild().toElement();
     QVector3D dist;
     int iter = 0;
@@ -160,21 +246,8 @@ void DataReader::read_connections(QDomElement& root){
             stream >> connection.imagC;
 
             connection.atomA--;
-            connection.atomB--;
+            connection.atomB--; // C++ notation
 
-//            // Read each child of the component node
-//            while (!Child.isNull())
-//            {
-//                // Read Name and value
-//                if (Child.tagName()=="A")   connection.atomA=Child.firstChild().toText().data().toInt()-1;
-//                if (Child.tagName()=="B")   connection.atomB=Child.firstChild().toText().data().toInt()-1;
-//                if (Child.tagName()=="sA")  connection.spinA=Child.firstChild().toText().data().toInt();
-//                if (Child.tagName()=="sB")  connection.spinB=Child.firstChild().toText().data().toInt();
-//                if (Child.tagName()=="vr")  connection.realC=Child.firstChild().toText().data().toDouble();
-//                if (Child.tagName()=="vi")  connection.imagC=Child.firstChild().toText().data().toDouble();
-//                // Next child
-//                Child = Child.nextSibling().toElement();
-//            }
 
             connections.push_back(connection);
             if(connection.atomA != connection.atomB){
@@ -192,42 +265,34 @@ void DataReader::read_connections(QDomElement& root){
 
 void DataReader::read_lead(QDomElement &root){
 
-    qDebug() << "Reading lead:";
-    qDebug() << root.tagName();
+    qDebug() << "Reading lead:" << root.tagName();
+
     QDomElement Component=root.firstChild().toElement();
 
     Lead lead;
     bool shapeTypeInitialized = false;
 
-
     // Loop while there is a child
     while(!Component.isNull())
     {
-
         // Check if the child tag name is COMPONENT
         if (Component.tagName()=="shape_type")
         {
-
-
-            qDebug() << "Lead area:" << Component.firstChild().toText().data();
+            qDebug() << "   Lead area:" << Component.firstChild().toText().data();
             if(Component.firstChild().toText().data()      == "SHAPE_RECTANGLE_XY")     lead.shape.type = SHAPE_RECTANGLE_XY;
             else if(Component.firstChild().toText().data() == "SHAPE_CONVEX_QUAD_XY")   lead.shape.type = SHAPE_CONVEX_QUAD_XY;
             else if(Component.firstChild().toText().data() == "SHAPE_RANGE_3D")         lead.shape.type = SHAPE_RANGE_3D;
             else{
                 lead.shape.type = SHAPE_NONE;
-                qDebug() << "Warning: Shape:" << Component.firstChild().toText().data() << " is not defined." ;
+                qDebug() << "   Warning: Shape:" << Component.firstChild().toText().data() << " is not defined or not regular." ;
             }
-
             shapeTypeInitialized = true;
-
         }
-
-
         // Check if the child tag name is COMPONENT
         if (Component.tagName()=="shape_data")
         {
 
-            qDebug() << "Reading shape data";
+            qDebug() << "   Reading shape data";
             if(!shapeTypeInitialized){
                 qDebug() << "Warning::The shape_type keyword must be before shape_data in XML file.";
                 return;
@@ -239,6 +304,8 @@ void DataReader::read_lead(QDomElement &root){
             double corners[8][3] = {0};
 
             switch(lead.shape.type){
+                case(SHAPE_NONE):
+                    break;
                 case(SHAPE_RECTANGLE_XY):
                     stream >> corners[0][0];
                     stream >> corners[0][1];
@@ -270,52 +337,12 @@ void DataReader::read_lead(QDomElement &root){
                     stream >> y;
                     stream >> z;
                     QVector3D dir  = QVector3D(x,y,z);
-//                    qDebug() << base << dir;
-                    // find max component of dir
-                    int cpnt = 1 ;
-                    if( dir.x() > dir.y() ){
-                        if( dir.x() > dir.z() ) cpnt = 1;//x
-                        else cpnt = 3; //z
-                    }else if ( dir.y() > dir.z() ) cpnt = 2;
-                    else cpnt = 3;
-                    QVector3D someVec  = QVector3D( cpnt==3?1.0:0.0, cpnt==1?1.0:0.0 , cpnt==2?1.0:0.0 );
-                    QVector3D tangent  = QVector3D::crossProduct(someVec,dir.normalized()).normalized();
-                    QVector3D btangent = QVector3D::crossProduct(tangent,dir.normalized()).normalized();
-//                    qDebug() << "someVec"  << someVec;
-//                    qDebug() << "tangent"  << tangent;
-//                    qDebug() << "btangent" << btangent;
-                    double scale = (atoms_stats.max_corner -  atoms_stats.min_corner).length();
-                    lead.shape.data[0] =  tangent*scale;
-                    lead.shape.data[1] =  btangent*scale;
-                    lead.shape.data[2] =  - tangent*scale;
-                    lead.shape.data[3] =  - btangent*scale;
-
-                    lead.shape.data[4] =   tangent*scale ;
-                    lead.shape.data[5] =   btangent*scale;
-                    lead.shape.data[6] =  - tangent*scale;
-                    lead.shape.data[7] =  - btangent*scale;
-//                    for(int  k = 0 ; k < 8 ; k++){
-//                        if(lead.shape.data[k].x() < atoms_stats.min_corner.x()) lead.shape.data[k].setX(atoms_stats.min_corner.x());
-//                        if(lead.shape.data[k].y() < atoms_stats.min_corner.y()) lead.shape.data[k].setY(atoms_stats.min_corner.y());
-//                        if(lead.shape.data[k].z() < atoms_stats.min_corner.z()) lead.shape.data[k].setZ(atoms_stats.min_corner.z());
-
-//                        if(lead.shape.data[k].x() > atoms_stats.max_corner.x()) lead.shape.data[k].setX(atoms_stats.max_corner.x());
-//                        if(lead.shape.data[k].y() > atoms_stats.max_corner.y()) lead.shape.data[k].setY(atoms_stats.max_corner.y());
-//                        if(lead.shape.data[k].z() > atoms_stats.max_corner.z()) lead.shape.data[k].setZ(atoms_stats.max_corner.z());
-//                    }
-
-                    lead.shape.data[0] += base;
-                    lead.shape.data[1] += base;
-                    lead.shape.data[2] += base;
-                    lead.shape.data[3] += base;
-
-                    lead.shape.data[4] += base + dir;
-                    lead.shape.data[5] += base + dir;
-                    lead.shape.data[6] += base + dir;
-                    lead.shape.data[7] += base + dir;
+                    //qDebug() << base << dir;
+                    lead.shape.otherData[0] = (base);
+                    lead.shape.otherData[1] = (dir);
 
                     break;
-            }
+            } // end of case
 
 
         }
@@ -419,11 +446,101 @@ void DataReader::read_lead(QDomElement &root){
         Component = Component.nextSibling().toElement();
     }
 
-    lead.visible = true;
+
+    // -----------------------------------------
+    // Additionall processing
+    // -----------------------------------------
+    QVector3D leadMC; // center of mass of lead
+    for(unsigned i = 0; i < lead.atoms.size(); i++){
+        int ida = lead.atoms[i];
+        leadMC += atoms[ida].pos;
+    }
+    leadMC /= lead.atoms.size();
+    double max_dist_in_lead = 0;
+
+    for(unsigned i = 0; i < lead.atoms.size(); i++){
+        int ida = lead.atoms[i];
+        double dist =  (atoms[ida].pos - leadMC).length();
+        if(dist > max_dist_in_lead) max_dist_in_lead = dist;
+    }
+//    qDebug() <<"Max dist:" << max_dist_in_lead;
+
+    switch(lead.shape.type){
+        case(SHAPE_NONE):
+            default:
+            break;
+        case(SHAPE_RECTANGLE_XY):
+            break;
+        case(SHAPE_CONVEX_QUAD_XY):
+            break;
+        case(SHAPE_RANGE_3D):
+
+            QVector3D base = lead.shape.otherData[0];
+            QVector3D dir  = lead.shape.otherData[1];
+
+            // find max component of dir
+            int cpnt = 1 ;
+            if( qAbs(dir.x()) > qAbs(dir.y()) ){
+                if( qAbs(dir.x()) > qAbs(dir.z()) ) cpnt = 1;//x
+                else cpnt = 3; //z
+            }else if ( qAbs(dir.y()) > qAbs(dir.z()) ) cpnt = 2;
+            else cpnt = 3;
+            QVector3D someVec  = QVector3D( cpnt==3?1.0:0.0, cpnt==1?1.0:0.0 , cpnt==2?1.0:0.0 );
+            QVector3D tangent  = QVector3D::crossProduct(someVec,dir.normalized()).normalized();
+            QVector3D btangent = QVector3D::crossProduct(tangent,dir.normalized()).normalized();
+            qDebug() << "someVec"  << someVec;
+            qDebug() << "tangent"  << tangent;
+            qDebug() << "btangent" << btangent;
+
+            double scale = max_dist_in_lead * 1.41;
+
+            if( scale < 1.0e-5 ) {
+                leadMC = QVector3D(0,0,0);
+                scale = atoms_stats.ave_dist*10;
+            }
+//            qDebug() << scale;
+
+            lead.shape.data[0] =    tangent*scale;
+            lead.shape.data[1] =    btangent*scale;
+            lead.shape.data[2] =  - tangent*scale;
+            lead.shape.data[3] =  - btangent*scale;
+
+            lead.shape.data[4] =    tangent*scale ;
+            lead.shape.data[5] =    btangent*scale;
+            lead.shape.data[6] =  - tangent*scale;
+            lead.shape.data[7] =  - btangent*scale;
+
+            QVector3D mc_offset = leadMC - dir.normalized() * ( QVector3D::dotProduct(dir.normalized(),leadMC)  );
+//            qDebug() << leadMC << mc_offset;
+            base += mc_offset;
+            lead.shape.data[0] += base;
+            lead.shape.data[1] += base;
+            lead.shape.data[2] += base;
+            lead.shape.data[3] += base;
+
+            lead.shape.data[4] += base + dir;
+            lead.shape.data[5] += base + dir;
+            lead.shape.data[6] += base + dir;
+            lead.shape.data[7] += base + dir;
+
+            break;
+    } // end of case
+
+
+    lead.bShowLeadAtoms = true;
     leads.push_back(lead);
 
 
 }
+
+void DataReader::clear_data(){
+    qDebug() << "Clearing data.";
+    atoms.clear();
+    connections.clear();
+    leads.clear();
+    data.clear();
+}
+
 
 void DataReader::precalculate_data(){
     QVector3D dims = atoms_stats.max_corner - atoms_stats.min_corner;
@@ -441,7 +558,7 @@ void DataReader::precalculate_data(){
     }else if(dims.y() > dims.z()) scale = inv_dims.y();
     else scale = inv_dims.z();
 
-    atoms_stats.scale = scale;
+    atoms_stats.scale       = scale;
     atoms_stats.atom_radius = atoms_stats.ave_dist;
 
 
@@ -453,11 +570,20 @@ void DataReader::precalculate_data(){
         p_atoms.push_back(atom);
     }
     p_connections.clear();
+    int fromAtom = -1;
+    int toAtom   = -1;
     for(unsigned int i = 0 ; i < connections.size() ; i++){
         AtomConnection& cnt = connections[i];
-        if((cnt.spinA == atoms_stats.filter_spin_A && cnt.spinB == atoms_stats.filter_spin_B) ){
+//        qDebug() << "Not:" << cnt.atomA << cnt.atomB;
+        if(cnt.atomA != fromAtom || cnt.atomB != toAtom){
+            fromAtom = cnt.atomA ;
+            toAtom   = cnt.atomB ;
             p_connections.push_back(cnt);
+//            qDebug() << "Filtered:" << fromAtom << toAtom;
         }
+//        if((cnt.spinA == atoms_stats.filter_spin_A && cnt.spinB == atoms_stats.filter_spin_B) ){
+
+//        }
     }
     p_leads.clear();
     for(unsigned int l = 0 ; l < leads.size() ; l++){
@@ -470,21 +596,38 @@ void DataReader::precalculate_data(){
 
         for(int i = 0;i<12;i++){
             p_lead.shape.data[i] = (lead.shape.data[i] - atoms_stats.mass_center)*scale;
+
         }
 
-
+        int fromAtom = -1;
+        int toAtom   = -1;
         for(unsigned int i = 0 ; i < lead.cnts.size() ; i++){
             AtomConnection& cnt = lead.cnts[i];
-            if((cnt.spinA == atoms_stats.filter_spin_A && cnt.spinB == atoms_stats.filter_spin_B) ){
+//            if((cnt.spinA == atoms_stats.filter_spin_A && cnt.spinB == atoms_stats.filter_spin_B) ){
+//                p_lead.cnts.push_back(cnt);
+//            }
+            if(cnt.atomA != fromAtom || cnt.atomB != toAtom){
+                fromAtom = cnt.atomA ;
+                toAtom   = cnt.atomB ;
                 p_lead.cnts.push_back(cnt);
+    //            qDebug() << "Filtered:" << fromAtom << toAtom;
             }
-        }
 
+        }
+        fromAtom = -1;
+        toAtom   = -1;
         for(unsigned int i = 0 ; i < lead.inner_cnts.size() ; i++){
             AtomConnection& cnt = lead.inner_cnts[i];
-            if((cnt.spinA == atoms_stats.filter_spin_A && cnt.spinB == atoms_stats.filter_spin_B) ){
+//            if((cnt.spinA == atoms_stats.filter_spin_A && cnt.spinB == atoms_stats.filter_spin_B) ){
+//                p_lead.inner_cnts.push_back(cnt);
+//            }
+            if(cnt.atomA != fromAtom || cnt.atomB != toAtom){
+                fromAtom = cnt.atomA ;
+                toAtom   = cnt.atomB ;
                 p_lead.inner_cnts.push_back(cnt);
+    //            qDebug() << "Filtered:" << fromAtom << toAtom;
             }
+
         }
         p_leads.push_back(p_lead);
     }
