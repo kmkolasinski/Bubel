@@ -66,7 +66,7 @@ range_dir  =  0.8*(/cos(alpha30),-sin(alpha30),0.0D0/) ! direction of the range 
 call lead_area%init_range_3d(range_base,range_dir)
 print*,range_dir
 call qt%add_lead(lead_area,(/1.0D0,0.0D0,0.0D0/))
-call qt%leads(1)%print_lead(output_folder//"lead.xml",qt%qsystem%atoms)
+call qt%leads(1)%save_lead(output_folder//"lead.xml")
 call qt%leads(1)%bands(output_folder//"bands.dat",-3.14D0,3.14D0,0.1D0,-15.0D0,15.0D0)
 
 print*,"Generating plots..."
@@ -78,7 +78,7 @@ call qt%destroy_system()
 contains
 
 logical function connect(atomA,atomB,coupling_val)
-    use modatom
+    use modcommons
     implicit none
     type(qatom) :: atomA,atomB
     complex*16 :: coupling_val

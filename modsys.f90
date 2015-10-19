@@ -3,155 +3,42 @@
 !
 !
 ! ---------------------------------------------------------------------------------------
-module modatom
-private
-! -----------------------------------------------
-! Stucture which holds connection between
-! Atom A and B.
-! -----------------------------------------------
-type qbond
-    integer     :: fromInnerID ! hoping from source atom with spin at ID fromInnerID
-    integer     :: toAtomID    ! ID of atom B
-    integer     :: toInnerID   ! ID of spin of atom B
-    complex*16  :: bondValue   ! hoping parameter
-endtype qbond
-
-! -----------------------------------------------
-! Stucture which holds the information about
-! atom
-! -----------------------------------------------
-type qatom
-
-    doubleprecision :: atom_pos(3)  ! position (x,y,z) in some units
-    integer         :: no_in_states ! number of internal states (e.g. spin degree of freedom)
-    logical         :: bActive      ! if the site is taken into calculations
-    integer         :: flag , flag_aux0         ! arbitrary number, can be used by user e.g. to distinguish two different atoms
-    integer,allocatable,dimension(:)    :: globalIDs ! in case of no_bonds > 1 this array contains global ID of atom in spin state
-    type(qbond),allocatable,dimension(:) :: bonds     ! contains information about hoping between different atoms
-                                                     ! Atom A may have connection with itself
-    integer         :: no_bonds                      ! nuber of conetions with different atoms
-
-    contains
-    procedure, public, pass(site) :: init
-    procedure, public, pass(site) :: destroy
-    procedure, public, pass(site) :: add_bond!(site,atomID,innerID,bondValue)
-
-end type qatom
-public :: qatom
-
-contains
-
-! ------------------------------------------------------------------------
-! Initialize qatom structure. This function does not
-! have to be called. Each parameter of atom structure
-! can be accessed separetely.
-! atom_pos     - position of atom in space. Units are uniportant.
-! no_in_states - [optional] number of spin states. Default value is 1.
-!                In case of {-1/2,+1/2} electron spin set it to 2.
-! bActive      - [optional] each atom can be disactivated before final construction
-!                of the lattice. If bActive == false then dis atom will
-!                not be taken during the hamiltonian construction.
-! flag         - [optional] can be used by user to perform some specific action
-! ------------------------------------------------------------------------
-subroutine init(site,atom_pos,no_in_states,bActive,flag,flag_aux0)
-    class(qatom)     :: site
-    doubleprecision :: atom_pos(3)
-    integer, optional :: no_in_states , flag ,flag_aux0
-    logical, optional :: bActive
-
-    site%no_in_states = 1
-    site%bActive      = .true.
-    site%atom_pos     = atom_pos
-    site%no_bonds     = 0
-    site%flag         = 0
-    site%flag_aux0    = 0
-    if(present(no_in_states)) site%no_in_states  = no_in_states
-    if(present(bActive))      site%bActive       = bActive
-    if(present(flag))         site%flag          = flag
-    if(present(flag_aux0))    site%flag_aux0     = flag_aux0
-
-end subroutine init
-
-! ------------------------------------------------------------------------
-! Free allocated memory
-! ------------------------------------------------------------------------
-subroutine destroy(site)
-    class(qatom)     :: site
-    if(allocated(site%globalIDs)) deallocate(site%globalIDs)
-    if(allocated(site%bonds))     deallocate(site%bonds)
-    site%bActive      = .false.
-    site%no_bonds     = 0
-    site%flag         = 0
-end subroutine destroy
-
-! ------------------------------------------------------------------------
-! Add new qbonding between two atoms (hoping between A and B).
-! fromInnerID - id of spin state of current atom
-! toAtomID    - id of atom B
-! toInnerID   - id of spin state of atom B
-! bondValue   - hoping paremeter
-! ------------------------------------------------------------------------
-subroutine add_bond(site,fromInnerID,toAtomID,toInnerID,bondValue)
-    class(qatom)     :: site
-    integer         :: toAtomID,fromInnerID,toInnerID
-    complex*16      :: bondValue
-
-    ! temporal array
-    type(qbond),allocatable,dimension(:) :: tmp_bonds
-    ! adding new bond requires resizing of the bonds array
-    if(site%no_bonds > 0) then
-        ! allocated tmp array and copy current array to it
-        allocate(tmp_bonds(site%no_bonds))
-        tmp_bonds = site%bonds
-        ! deallocate bonds and allocate with new size , restore the values
-        if(allocated(site%bonds)) deallocate(site%bonds)
-        allocate(site%bonds(site%no_bonds+1))
-        site%bonds(1:site%no_bonds) = tmp_bonds
-        deallocate(tmp_bonds)
-    else
-        if(allocated(site%bonds)) deallocate(site%bonds)
-        allocate(site%bonds(site%no_bonds+1))
-    endif
-    ! increase number of bond in atoms
-    site%no_bonds = site%no_bonds+1
-    ! set new bond
-    site%bonds(site%no_bonds)%bondValue     = bondValue
-    site%bonds(site%no_bonds)%fromInnerID   = fromInnerID
-    site%bonds(site%no_bonds)%toAtomID      = toAtomID
-    site%bonds(site%no_bonds)%toInnerID     = toInnerID
-endsubroutine add_bond
-
-
-end module modatom
 
 
 ! ---------------------------------------------------------------------------------------
 ! Main module responsible for system construction and eigenvalue problem for that system.
 ! ---------------------------------------------------------------------------------------
 module modsys
-use modatom
+use modcommons
 use modutils
 implicit none
+interface
+    logical function func_default(atomA,atomB,s1,s2,coupling_val)
+        use modcommons
+        implicit none
+        type(qatom) :: atomA,atomB
+        integer    :: s1,s2
+        complex*16 :: coupling_val
+    end function func_default
+    logical function func_simple(atomA,atomB,coupling_val)
+        use modcommons
+        implicit none
+        type(qatom) :: atomA,atomB
+        complex*16 :: coupling_val
+    end function func_simple
+    logical function func_matrix(atomA,atomB,coupling_val)
+        use modcommons
+        implicit none
+        type(qatom) :: atomA,atomB
+        complex*16  :: coupling_val(:,:)
+    end function func_matrix
+endinterface
 private
 integer,parameter :: QSYS_NO_ATOMS_INC_VALUE      = 10000
 logical           :: QSYS_DISABLE_HERMICITY_CHECK = .false.
 doubleprecision   :: QSYS_COUPLING_CUTOFF = 1.0D-20 ! coupling smaller than this number will not be included in the matrix
                                                     ! used by c_matrix connection method
-ENUM , BIND(C)
-  ENUMERATOR :: QSYS_NNB_FILTER_BOX       = 1
-  ENUMERATOR :: QSYS_NNB_FILTER_CHECK_ALL = 2
-  ENUMERATOR :: QSYS_NNB_FILTER_DISTANCE  = 3
-END ENUM
 
-! ----------------------------------------------------------------
-! Structure responsible for  Nearest neigthbour search parameter
-! ----------------------------------------------------------------
-type nnb_params
-    doubleprecision :: box(3) ! estimated search distance in XYZ directions
-    doubleprecision :: distance        ! if NNB_FILTER = QSYS_NNB_FILTER_DISTANCE compare distance
-                                       ! between atoms, not coordinates
-    integer         :: NNB_FILTER = QSYS_NNB_FILTER_BOX
-endtype nnb_params
 
 
 ! ----------------------------------------------------------------
@@ -168,6 +55,7 @@ type qsys
     doubleprecision,allocatable,dimension(:  ) :: eigenvals ! array containg eivenvalues. eigenvals(state)
     integer :: no_eigenvalues                               ! number of stated which has been found by FEAST library
                                                             ! if 0 - no state was found
+    logical :: bOverlapMatrixEnabled
 
     ! other variables
     type(qatom)       :: qatom      ! auxiliary variable, can be used by user
@@ -178,17 +66,17 @@ type qsys
     procedure, public, pass(sys) :: destroy
     procedure, public, pass(sys) :: add_atom!(sys,site)
     procedure, public, pass(sys) :: make_lattice!(sys,connect_procedure)
+    procedure, public, pass(sys) :: update_lattice!(sys,c_default,c_simple,c_matrix)
+    procedure, public, pass(sys) :: update_overlaps!(sys,o_default,o_simple,o_matrix)
     procedure, public, pass(sys) :: save_lattice!(filename,innerA,innerB)
     procedure, public, pass(sys) :: save_data!(filename,array2d,array1d,ofunit)
     procedure, public, pass(sys) :: calc_eigenproblem!(sys,pEmin,pEmax,NoStates,no_feast_contours,print_info,pmaks_iter)
 
 
 endtype qsys
-public :: qsys,nnb_params
+public :: qsys
 public :: QSYS_DISABLE_HERMICITY_CHECK, QSYS_COUPLING_CUTOFF
-public :: QSYS_NNB_FILTER_CHECK_ALL
-public :: QSYS_NNB_FILTER_DISTANCE
-public :: QSYS_NNB_FILTER_BOX
+
 public :: convert_to_HB , sort_col_vals , solve_SSOLEQ
 contains
 
@@ -203,7 +91,7 @@ subroutine init(sys)
     sys%qnnbparam%box     = 0.0D0
     sys%qnnbparam%distance= 0.0D0
     sys%qnnbparam%NNB_FILTER = QSYS_NNB_FILTER_BOX
-
+    sys%bOverlapMatrixEnabled = .false.
     allocate(sys%atoms(QSYS_NO_ATOMS_INC_VALUE))
 end subroutine init
 
@@ -275,30 +163,16 @@ end subroutine add_atom
 ! nnbparams         - nnbparams structure which contains some information
 !                     how to search for the nearest neightbours atoms.
 ! ------------------------------------------------------------------------
-subroutine make_lattice(sys,nnbparams,c_default,c_simple,c_matrix)
+subroutine make_lattice(sys,nnbparams,c_default,c_simple,c_matrix,o_default,o_simple,o_matrix)
     class(qsys) :: sys
-    interface
-        logical function c_default(atomA,atomB,s1,s2,coupling_val)
-            use modatom
-            implicit none
-            type(qatom) :: atomA,atomB
-            integer    :: s1,s2
-            complex*16 :: coupling_val
-        end function c_default
-        logical function c_simple(atomA,atomB,coupling_val)
-            use modatom
-            implicit none
-            type(qatom) :: atomA,atomB
-            complex*16 :: coupling_val
-        end function c_simple
-        logical function c_matrix(atomA,atomB,coupling_val)
-            use modatom
-            implicit none
-            type(qatom) :: atomA,atomB
-            complex*16  :: coupling_val(:,:)
-        end function c_matrix
-    endinterface
-    optional :: c_default,c_simple,c_matrix
+    procedure(func_default) ,optional :: c_default  ! }
+    procedure(func_simple)  ,optional :: c_simple   ! }
+    procedure(func_matrix)  ,optional :: c_matrix   ! } coupling functions
+
+    procedure(func_default) ,optional :: o_default  ! }
+    procedure(func_simple)  ,optional :: o_simple   ! } overlap  functions
+    procedure(func_matrix)  ,optional :: o_matrix   ! }
+
     type(nnb_params) :: nnbparams
 
     ! local variables
@@ -321,7 +195,11 @@ subroutine make_lattice(sys,nnbparams,c_default,c_simple,c_matrix)
         print*,"            Cannont creat logical connection between atoms."
         stop -1
     endif
-
+    if(nnbparams%NNB_FILTER == 0)then
+        print*,"SYS::ERROR:: nnbparams%NNB_FILTER == 0 no filter specified!"
+        stop -1
+    endif
+    sys%bOverlapMatrixEnabled = .false.
     time_start = get_clock()
 
     ! Calulation of the real number of active atoms.
@@ -366,7 +244,7 @@ subroutine make_lattice(sys,nnbparams,c_default,c_simple,c_matrix)
                     if(c_default(sys%atoms(i),sys%atoms(j),k,l,cpl_value)) then
                          call sys%atoms(i)%add_bond(k,j,l,cpl_value)
 !                         print"(4i4,2e12.2)",i,k,j,l,cpl_value
-                    else if(i==j .and. k == l) then ! Force diagonal term for transport
+                    else if(i==j) then ! Force diagonal term for transport
                          cpl_value = cmplx(0.0D0,0.0D0)
                          call sys%atoms(i)%add_bond(k,j,l,cpl_value)
                     endif
@@ -411,12 +289,14 @@ subroutine make_lattice(sys,nnbparams,c_default,c_simple,c_matrix)
             ! both sites have to be active
                 do l = 1 , sys%atoms(j)%no_in_states
 !                     if( abs(cpl_matrix(k,l)) > QSYS_COUPLING_CUTOFF) & ! skip zero values
-                        call sys%atoms(i)%add_bond(k,j,l,cpl_matrix(k,l))
+                    call sys%atoms(i)%add_bond(k,j,l,cpl_matrix(k,l))
 !                     print"(4i4,2e12.2)",i,k,j,l,cpl_matrix(k,l)
                 enddo
             else if(i==j) then ! Force diagonal term for transport
-                cpl_value = cmplx(0.0D0,0.0D0)
-                call sys%atoms(i)%add_bond(k,j,k,cpl_value)
+                do l = 1 , sys%atoms(j)%no_in_states
+                    cpl_value = cmplx(0.0D0,0.0D0)
+                    call sys%atoms(i)%add_bond(k,j,l,cpl_value)
+                enddo
             endif ! end of if nnb
             endif ! end of if j active
         enddo ! end of j
@@ -531,7 +411,7 @@ subroutine make_lattice(sys,nnbparams,c_default,c_simple,c_matrix)
                     ! if they are nnb one may create a qbond between them
                     if(c_default(sys%atoms(i),sys%atoms(j),k,l,cpl_value)) then
                          call sys%atoms(i)%add_bond(k,j,l,cpl_value)
-                    else if(i==j .and. k==l) then ! Force diagonal term for transport
+                    else if(i==j ) then ! Force diagonal term for transport
                          cpl_value = cmplx(0.0D0,0.0D0)
                          call sys%atoms(i)%add_bond(k,j,l,cpl_value)
                     endif
@@ -544,7 +424,7 @@ subroutine make_lattice(sys,nnbparams,c_default,c_simple,c_matrix)
                         ! if they are nnb one may create a qbond between them
                         if(c_default(sys%atoms(i),sys%atoms(j),k,l,cpl_value)) then
                              call sys%atoms(i)%add_bond(k,j,l,cpl_value)
-                        else if(i==j .and. k==l) then ! Force diagonal term for transport
+                        else if(i==j ) then ! Force diagonal term for transport
                              cpl_value = cmplx(0.0D0,0.0D0)
                              call sys%atoms(i)%add_bond(k,j,l,cpl_value)
                         endif
@@ -639,10 +519,13 @@ subroutine make_lattice(sys,nnbparams,c_default,c_simple,c_matrix)
     !                             if( abs(cpl_matrix(k,l)) > QSYS_COUPLING_CUTOFF) & ! skip zero values
                                  call sys%atoms(i)%add_bond(k,j,l,cpl_matrix(k,l))
     !                             print"(4i4,2e12.2)",i,k,j,l,cpl_matrix(k,l)
+
                     enddo
                     else if( i == j) then
-                        cpl_value = cmplx(0.0D0,0.0D0)
-                        call sys%atoms(i)%add_bond(k,j,k,cpl_value)
+                        do l = 1 , sys%atoms(j)%no_in_states
+                            cpl_value = cmplx(0.0D0,0.0D0)
+                            call sys%atoms(i)%add_bond(k,j,l,cpl_value)
+                        enddo
                     endif ! end if is NNB
 
                 else if(nnbparams%NNB_FILTER == QSYS_NNB_FILTER_DISTANCE) then
@@ -658,8 +541,10 @@ subroutine make_lattice(sys,nnbparams,c_default,c_simple,c_matrix)
                         !endif
                     enddo
                     else if( i == j) then
-                        cpl_value = cmplx(0.0D0,0.0D0)
-                        call sys%atoms(i)%add_bond(k,j,k,cpl_value)
+                        do l = 1 , sys%atoms(j)%no_in_states
+                            cpl_value = cmplx(0.0D0,0.0D0)
+                            call sys%atoms(i)%add_bond(k,j,l,cpl_value)
+                        enddo
                     endif ! end if is NNB
                     endif ! end of if check distance
                 endif ! end if DISTANCE filter
@@ -709,7 +594,7 @@ subroutine make_lattice(sys,nnbparams,c_default,c_simple,c_matrix)
                      exit
                     endif
                 enddo
-                if( abs(cpl_value - conjg(cpl_value_inverse)) > 10.0D-10 ) then
+                if( abs(cpl_value - conjg(cpl_value_inverse)) > 10.0D-6 ) then
                     print*,"==============================================================================="
                     print*,"SYS::ERROR::Created matrix will be not Hermitian. Check the provided ", &
                            "            connection function. The qbonding param between atom A->B", &
@@ -718,8 +603,8 @@ subroutine make_lattice(sys,nnbparams,c_default,c_simple,c_matrix)
                     print"(A,3e16.4)","             and atom B at position                  :",sys%atoms(vp)%atom_pos
                     print*,"            Atom A id=",i ," spin=",sys%atoms(i)%bonds(j)%fromInnerID
                     print*,"            Atom B id=",vp," spin=",sys%atoms(vp)%bonds(k)%fromInnerID
-                    print"(A,3e16.4)","             Hoping parameter for A->B:",cpl_value
-                    print"(A,3e16.4)","             Hoping parameter for B->A:",cpl_value_inverse
+                    print"(A,3e16.6)","             Hoping parameter for A->B:",cpl_value
+                    print"(A,3e16.6)","             Hoping parameter for B->A:",cpl_value_inverse
                     print*,"==============================================================================="
                     stop -1
                 endif
@@ -730,10 +615,219 @@ subroutine make_lattice(sys,nnbparams,c_default,c_simple,c_matrix)
     endif ! end of if disable hermiticity check
 
     if(present(c_matrix))deallocate(cpl_matrix)
+    call sys%update_overlaps(o_default,o_simple,o_matrix)
     print*,"SYS::Connections has been found in ", get_clock()-time_start , " sec."
 
 end subroutine make_lattice
 
+
+subroutine update_lattice(sys,c_default,c_simple,c_matrix,o_default,o_simple,o_matrix)
+    class(qsys) :: sys
+    procedure(func_default) ,optional :: c_default
+    procedure(func_simple)  ,optional :: c_simple
+    procedure(func_matrix)  ,optional :: c_matrix
+
+
+    procedure(func_default) ,optional :: o_default
+    procedure(func_simple)  ,optional :: o_simple
+    procedure(func_matrix)  ,optional :: o_matrix
+
+    ! locals
+    doubleprecision :: time_start
+    integer :: i,j,k,vp,b,ta,ts,fa,fs
+    logical :: bondTest
+    complex*16      :: cpl_value,cpl_value_inverse
+    complex*16,allocatable :: cpl_matrix(:,:)
+
+    time_start = get_clock()
+
+    if(.not. present(c_default) .and. &
+       .not. present(c_simple)  .and. &
+       .not. present(c_matrix)) then
+        print*,"SYS::ERROR::No connection function has been provided to make_lattice()."
+        print*,"            Cannont creat logical connection between atoms."
+        stop -1
+    endif
+
+    do i = 1 , sys%no_atoms
+        if(sys%atoms(i)%bActive == .true.)then
+
+        do b = 1 , sys%atoms(i)%no_bonds
+            ta = sys%atoms(i)%bonds(b)%toAtomID
+            ts = sys%atoms(i)%bonds(b)%toInnerID
+            fa = i
+            fs = sys%atoms(i)%bonds(b)%fromInnerID
+
+            if(present(c_simple)) then
+                bondTest = c_simple(sys%atoms(fa),sys%atoms(ta),cpl_value)
+                sys%atoms(fa)%bonds(b)%bondValue = cpl_value
+            else if(present(c_default)) then
+                bondTest = c_default(sys%atoms(fa),sys%atoms(ta),fs,ts,cpl_value)
+                sys%atoms(fa)%bonds(b)%bondValue = cpl_value
+            else if(present(c_matrix)) then
+
+                if(.not. allocated(cpl_matrix)) allocate(cpl_matrix(sys%atoms(fa)%no_in_states,sys%atoms(ta)%no_in_states))
+                if(size(cpl_matrix,1) /= sys%atoms(fa)%no_in_states .or. &
+                   size(cpl_matrix,2) /= sys%atoms(ta)%no_in_states) then
+                   deallocate(cpl_matrix)
+                   allocate(cpl_matrix(sys%atoms(fa)%no_in_states,sys%atoms(ta)%no_in_states))
+                endif
+                bondTest = c_matrix(sys%atoms(fa),sys%atoms(ta),cpl_matrix)
+                sys%atoms(fa)%bonds(b)%bondValue = cpl_matrix(fs,ts)
+            endif
+        enddo
+        endif ! end of if active atome i
+    enddo
+
+
+    ! Perform a check to test the hermiticity of the hamiltonian matrix.
+    ! For a given atom A
+    ! Take one bond to atom B and check if the value of the hoping parameter
+    ! is the same as for the atom B connected with atom A.
+    ! If both atoms are in the same spin state.
+    if( .not. QSYS_DISABLE_HERMICITY_CHECK) then
+    print*,"SYS::INFO::Checking update hermiticity of the matrix."
+    do i = 1 , sys%no_atoms ! take the atom A
+        if(sys%atoms(i)%bActive) then
+            do j = 1 , sys%atoms(i)%no_bonds ! take one bond to atom B
+                vp = sys%atoms(i)%bonds(j)%toAtomID
+                cpl_value = sys%atoms(i)%bonds(j)%bondValue ! take hoping value from A to B
+                cpl_value_inverse = 0
+                do k = 1 , sys%atoms(vp)%no_bonds ! search for the same
+                    if( sys%atoms(vp)%bonds(k)%toAtomID == i .and. &
+                     sys%atoms(i)%bonds(j)%toInnerID   == sys%atoms(vp)%bonds(k)%fromInnerID .and. &
+                     sys%atoms(i)%bonds(j)%fromInnerID == sys%atoms(vp)%bonds(k)%toInnerID )  then
+
+                     cpl_value_inverse = sys%atoms(vp)%bonds(k)%bondValue
+                     exit
+                    endif
+                enddo
+                if( abs(cpl_value - conjg(cpl_value_inverse)) > 10.0D-6 ) then
+                    print*,"==============================================================================="
+                    print*,"SYS::ERROR::Created matrix will be not Hermitian. Check the provided ", &
+                           "            connection function. The qbonding param between atom A->B", &
+                           "            has to complex conjugate for connection between B->A."
+                    print"(A,3e16.4)","             An error occured for atom A at position :",sys%atoms(i)%atom_pos
+                    print"(A,3e16.4)","             and atom B at position                  :",sys%atoms(vp)%atom_pos
+                    print*,"            Atom A id=",i ," spin=",sys%atoms(i)%bonds(j)%fromInnerID
+                    print*,"            Atom B id=",vp," spin=",sys%atoms(vp)%bonds(k)%fromInnerID
+                    print"(A,3e16.6)","             Hoping parameter for A->B:",cpl_value
+                    print"(A,3e16.6)","             Hoping parameter for B->A:",cpl_value_inverse
+                    print*,"==============================================================================="
+                    stop -1
+                endif
+
+            enddo
+        endif ! end of active atom
+    enddo
+    endif ! end of if disable hermiticity check
+
+    call sys%update_overlaps(o_default,o_simple,o_matrix)
+    print*,"SYS::Lattice update done in", get_clock()-time_start , " sec."
+
+    if(allocated(cpl_matrix)) deallocate(cpl_matrix)
+endsubroutine update_lattice
+
+
+
+subroutine update_overlaps(sys,o_default,o_simple,o_matrix)
+    class(qsys) :: sys
+    procedure(func_default) ,optional :: o_default
+    procedure(func_simple)  ,optional :: o_simple
+    procedure(func_matrix)  ,optional :: o_matrix
+    ! locals
+    doubleprecision :: time_start
+    integer :: i,j,k,vp,b,ta,ts,fa,fs
+    logical :: bondTest
+    complex*16      :: cpl_value,cpl_value_inverse
+    complex*16,allocatable :: cpl_matrix(:,:)
+
+    time_start = get_clock()
+
+
+    do i = 1 , sys%no_atoms
+        if(sys%atoms(i)%bActive == .true.)then
+
+        do b = 1 , sys%atoms(i)%no_bonds
+            ta = sys%atoms(i)%bonds(b)%toAtomID
+            ts = sys%atoms(i)%bonds(b)%toInnerID
+            fa = i
+            fs = sys%atoms(i)%bonds(b)%fromInnerID
+            sys%atoms(fa)%bonds(b)%overlapValue = 0.0
+            if(present(o_simple)) then
+                if(o_simple(sys%atoms(fa),sys%atoms(ta),cpl_value)) then
+                    sys%atoms(fa)%bonds(b)%overlapValue = cpl_value
+                endif
+            else if(present(o_default)) then
+                if(o_default(sys%atoms(fa),sys%atoms(ta),fs,ts,cpl_value))then
+                    sys%atoms(fa)%bonds(b)%overlapValue = cpl_value
+                endif
+            else if(present(o_matrix)) then
+                if(.not. allocated(cpl_matrix)) allocate(cpl_matrix(sys%atoms(fa)%no_in_states,sys%atoms(ta)%no_in_states))
+                if(size(cpl_matrix,1) /= sys%atoms(fa)%no_in_states .or. &
+                   size(cpl_matrix,2) /= sys%atoms(ta)%no_in_states) then
+                   deallocate(cpl_matrix)
+                   allocate(cpl_matrix(sys%atoms(fa)%no_in_states,sys%atoms(ta)%no_in_states))
+                endif
+                if(o_matrix(sys%atoms(fa),sys%atoms(ta),cpl_matrix)) then
+                    sys%atoms(fa)%bonds(b)%overlapValue = cpl_matrix(fs,ts)
+                endif
+            else if( fa == ta .and. fs == ts) then
+                sys%atoms(fa)%bonds(b)%overlapValue = 1.0
+            endif
+        enddo
+        endif ! end of if active atome i
+    enddo
+
+
+    ! Perform a check to test the hermiticity of the hamiltonian matrix.
+    ! For a given atom A
+    ! Take one bond to atom B and check if the value of the hoping parameter
+    ! is the same as for the atom B connected with atom A.
+    ! If both atoms are in the same spin state.
+    if(present(o_simple) .or. present(o_default) .or. present(o_matrix)) then
+    sys%bOverlapMatrixEnabled = .true.
+    if( .not. QSYS_DISABLE_HERMICITY_CHECK) then
+    print*,"SYS::INFO::Checking hermiticity of the overlap matrix."
+    do i = 1 , sys%no_atoms ! take the atom A
+        if(sys%atoms(i)%bActive) then
+            do j = 1 , sys%atoms(i)%no_bonds ! take one bond to atom B
+                vp = sys%atoms(i)%bonds(j)%toAtomID
+                cpl_value = sys%atoms(i)%bonds(j)%overlapValue ! take hoping value from A to B
+                cpl_value_inverse = 0
+                do k = 1 , sys%atoms(vp)%no_bonds ! search for the same
+                    if( sys%atoms(vp)%bonds(k)%toAtomID == i .and. &
+                     sys%atoms(i)%bonds(j)%toInnerID   == sys%atoms(vp)%bonds(k)%fromInnerID .and. &
+                     sys%atoms(i)%bonds(j)%fromInnerID == sys%atoms(vp)%bonds(k)%toInnerID )  then
+
+                     cpl_value_inverse = sys%atoms(vp)%bonds(k)%overlapValue
+                     exit
+                    endif
+                enddo
+                if( abs(cpl_value - conjg(cpl_value_inverse)) > 10.0D-10 ) then
+                    print*,"==============================================================================="
+                    print*,"SYS::ERROR::Created overlap matrix will be not Hermitian. Check the provided ", &
+                           "            connection function. The qbonding param between atom A->B", &
+                           "            has to complex conjugate for connection between B->A."
+                    print"(A,3e16.4)","             An error occured for atom A at position :",sys%atoms(i)%atom_pos
+                    print"(A,3e16.4)","             and atom B at position                  :",sys%atoms(vp)%atom_pos
+                    print*,"            Atom A id=",i ," spin=",sys%atoms(i)%bonds(j)%fromInnerID
+                    print*,"            Atom B id=",vp," spin=",sys%atoms(vp)%bonds(k)%fromInnerID
+                    print"(A,3e16.6)","             Hoping parameter for A->B:",cpl_value
+                    print"(A,3e16.6)","             Hoping parameter for B->A:",cpl_value_inverse
+                    print*,"==============================================================================="
+                    stop -1
+                endif
+
+            enddo
+        endif ! end of active atom
+    enddo
+    endif ! end of if disable hermiticity check
+    endif ! present overlap check
+    print*,"SYS::Lattice update done in", get_clock()-time_start , " sec."
+
+    if(allocated(cpl_matrix)) deallocate(cpl_matrix)
+endsubroutine update_overlaps
 
 
 ! ------------------------------------------------------------------------
@@ -899,6 +993,13 @@ subroutine calc_eigenproblem(sys,pEmin,pEmax,NoStates,no_feast_contours,print_in
 
     integer :: NO_NON_ZERO_VALUES , NO_VARIABLES
 
+    if(sys%bOverlapMatrixEnabled) then
+        print*,"==============================================================================="
+        print*,"SYS::ERROR::Eigenvalue problem not supported for system with "
+        print*,"            Overlap matrix different than identity matrix."
+        print*,"==============================================================================="
+        stop -1
+    endif
     time_start = get_clock()
     ! Przejscie do jednostek donorowych
     Emin = pEmin
@@ -1317,7 +1418,7 @@ end subroutine sort_col_vals
           iparm(32) = 0 ! if 1 use multirecursive iterative algorithm
            error = 0 ! initialize error flag
           msglvl = 0 ! print statistical information
-          mtype     = 13      ! complex unsymmetric matrix
+          mtype     = 3 !13     ! complex unsymmetric matrix
 
           phase     = 11      ! only reordering and symbolic factorization
           CALL pardiso (pt, maxfct, mnum, mtype, phase, n, values, rowind, colptr,&

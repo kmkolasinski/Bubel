@@ -541,7 +541,7 @@ void GLWidget::paintGL()
             AtomConnection &cnt = lead.inner_cnts[i];
             Atom& atomA = (*atoms)[cnt.atomA];
             Atom& atomB = (*atoms)[cnt.atomB];
-            renderCylinder(atomA.pos.x(),atomA.pos.y(),atomA.pos.z(),atomB.pos.x(),atomB.pos.y(),atomB.pos.z(),0.25*cradius,5 + cno_subdivs,quadric);
+            renderCylinder(atomA.pos.x(),atomA.pos.y(),atomA.pos.z(),atomB.pos.x(),atomB.pos.y(),atomB.pos.z(),0.27*cradius,5 + cno_subdivs,quadric);
         }
         if(!lead.bShowArea) continue;
 

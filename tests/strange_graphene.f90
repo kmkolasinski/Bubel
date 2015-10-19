@@ -129,7 +129,7 @@ contains
 ! Define coupling between atoms
 ! ----------------------------------------------------------
 logical function connect_matrix(atomA,atomB,coupling_mat)
-    use modatom
+    use modcommons
     implicit none
     type(qatom) :: atomA,atomB
     complex*16  :: coupling_mat(:,:) ! you must overwrite this variable

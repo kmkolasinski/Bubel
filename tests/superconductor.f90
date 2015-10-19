@@ -87,7 +87,7 @@ endif ! end of if are there eigenstates?
 lead_translation_vec = (/  dx , 0.0D0 , 0.0D0 /)
 call lead_shape%init_range_3d((/ -0.5*dx , 0.0D0 , 0.0D0 /),lead_translation_vec)
 call lead%init_lead(lead_shape,lead_translation_vec,qsystem%atoms)
-call lead%print_lead(output_folder//"lead.xml",qsystem%atoms)
+call lead%save_lead(output_folder//"lead.xml")
 a_Emin =-10.0
 a_Emax = 10.0
 call lead%bands(output_folder//"bands.dat",-M_PI,+M_PI,M_PI/160.0,a_Emin,a_Emax)
@@ -109,7 +109,7 @@ contains
 ! Taken from Kwant tutorial: http://kwant-project.org/doc/1.0/tutorial/tutorial5
 ! ---------------------------------------------------------------------------
 logical function connect_matrix(atomA,atomB,coupling_mat)
-    use modatom
+    use modcommons
     implicit none
     type(qatom) :: atomA,atomB
     complex*16  :: coupling_mat(:,:) ! you must overwrite this variable

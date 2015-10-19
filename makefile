@@ -9,8 +9,8 @@ debug:
 zeus:
 	make C=ifortZEUS
 
-lib:
-	ar rcs libquantulaba.a *.o
+
+#	ar rcs libquantulaba.a *.o
 # -----------------------------------
 # Uzyj polecenia
 # UMFPACK_MACRO=-DUSE_UMF_PACK
@@ -19,12 +19,29 @@ UMFPACK_MACRO=-DUSE_PARDISO
 #-DUSE_UMF_PACK
 #-DUSE_PARDISO
 
-UMFPACK_MACRO=
+#UMFPACK_MACRO=
+
+
+
+lib:
+	ifort $(UMFPACK_MACRO) -shared -fpic  modcommons.f90 \
+									      modunits.f90 \
+										  modutils.f90 \
+										  modsys.f90 \
+										  modshape.f90 \
+										  modlead.f90 \
+										  modscatter.f90 \
+										  $(SUPERLU_FILES) -o libquantulaba.so
+
+slib:
+	ar rcs libquantulaba.a *.o
+
 ifeq ($(C),ifort)
 FC=ifort
 
 BASEDIR=/home/mkk/libs
-FBFLAGS=  -O3  -132 -I$(BASEDIR)/XC
+FBFLAGS=  -O3  -132
+#-I$(BASEDIR)/XC
 
 
 ifeq ($(UMFPACK_MACRO),-DUSE_UMF_PACK)
@@ -112,8 +129,11 @@ endif
 
 
 
-quantulaba: main.f90 modunits.o modutils.o $(UMFPACK_FILES) modsys.o modshape.o modlead.o modscatter.o $(SUPERLU_FILES)
+quantulaba: main.f90 modcommons.o modunits.o modutils.o $(UMFPACK_FILES) modsys.o modshape.o modlead.o modscatter.o $(SUPERLU_FILES)
 	$(FC) $(FBFLAGS)  main.f90 *.o $(FLIBS)   -o $@
+
+modcommons.o: modcommons.f90
+	$(FC) $(FCFLAGS) modcommons.f90 -o $@
 
 modutils.o: modutils.f90
 	$(FC) $(FCFLAGS) modutils.f90 -o $@

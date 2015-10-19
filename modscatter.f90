@@ -7,11 +7,12 @@
 ! Scattering Matrices by Wave Function Matching: G. Brocks, V. M. Karpan et. al.
 ! ---------------------------------------------------------------------------------------
 module modscatter
+use modutils
+use modcommons
 use modsys
 use modlead
-use modatom
 use modshape
-use modutils
+
 implicit none
 
 private
@@ -179,12 +180,12 @@ subroutine construct_matrix(this,Ef)
                     ta = this%leads(lid)%l2g(lc,1)
                     ts = this%leads(lid)%l2g(lc,2)
                     itmp = itmp + 1
-                    if(lr == lc) then
-                    this%MATHVALS(itmp)   = Ef - this%leads(lid)%SigmaMat(lr,lc)
-!                    print*,"asd"
-                    else
-                    this%MATHVALS(itmp)   = -this%leads(lid)%SigmaMat(lr,lc)
-                    endif
+!                    if(lr == lc) then
+!                    this%MATHVALS(itmp)   = Ef - this%leads(lid)%SigmaMat(lr,lc)
+!!                    print*,"asd"
+!                    else
+                    this%MATHVALS(itmp)   = Ef*this%leads(lid)%valsS0(lr,lc)-this%leads(lid)%SigmaMat(lr,lc)
+!                    endif
 
                     this%ROWCOLID(itmp,1) = this%qsystem%atoms(fa)%globalIDs(fs)
                     this%ROWCOLID(itmp,2) = this%qsystem%atoms(ta)%globalIDs(ts)
@@ -200,7 +201,7 @@ subroutine construct_matrix(this,Ef)
                     ta = this%leads(lid)%next_l2g(lc,1)
                     ts = this%leads(lid)%next_l2g(lc,2)
                     itmp = itmp + 1
-                    this%MATHVALS(itmp)   = -this%leads(lid)%valsTau(lr,lc)
+                    this%MATHVALS(itmp)   = Ef*this%leads(lid)%valsS1(lr,lc) -this%leads(lid)%valsTau(lr,lc)
                     this%ROWCOLID(itmp,1) = this%qsystem%atoms(fa)%globalIDs(fs)
                     this%ROWCOLID(itmp,2) = this%qsystem%atoms(ta)%globalIDs(ts)
 !                    endif
@@ -223,11 +224,13 @@ subroutine construct_matrix(this,Ef)
             ta = this%qsystem%atoms(i)%bonds(j)%toAtomID
             ts = this%qsystem%atoms(i)%bonds(j)%toInnerID
             this%ROWCOLID(itmp,2) = this%qsystem%atoms(ta)%globalIDs(ts)
-            if(this%ROWCOLID(itmp,1) == this%ROWCOLID(itmp,2)) then
-                this%MATHVALS(itmp)   = Ef - this%qsystem%atoms(i)%bonds(j)%bondValue
-            else
-                this%MATHVALS(itmp)   = -this%qsystem%atoms(i)%bonds(j)%bondValue
-            endif
+!            if(this%ROWCOLID(itmp,1) == this%ROWCOLID(itmp,2)) then
+!                this%MATHVALS(itmp)   = Ef - this%qsystem%atoms(i)%bonds(j)%bondValue
+!            else
+!                this%MATHVALS(itmp)   = -this%qsystem%atoms(i)%bonds(j)%bondValue
+!            endif
+            this%MATHVALS(itmp)   = this%qsystem%atoms(i)%bonds(j)%overlapValue*Ef - this%qsystem%atoms(i)%bonds(j)%bondValue
+
 
             if(abs(this%MATHVALS(itmp)) < 1.0D-20) then
             itmp = itmp - 1

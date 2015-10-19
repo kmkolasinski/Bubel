@@ -101,7 +101,7 @@ print*,"Use Viewer program to see the structure and crated lead."
 ! If there is no interaction between them returns false, otherwise true.
 ! ---------------------------------------------------------------------------
 logical function connect_simple(atomA,atomB,coupling_val)
-    use modatom
+    use modcommons
     implicit none
     type(qatom) :: atomA,atomB
     complex*16  :: coupling_val ! you must overwrite this variable

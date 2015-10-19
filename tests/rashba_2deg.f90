@@ -70,7 +70,7 @@ program transporter
  lead_translation_vec = (/  dx , 0.0D0 , 0.0D0 /)
  call lead%init_lead(lead_shape,lead_translation_vec,qsystem%atoms)
 
- call lead%print_lead(output_folder//"lead.xml",qsystem%atoms)
+ call lead%save_lead(output_folder//"lead.xml")
  a_Emin =-0.01 / A0 / 1000.0 ! converting from [meV] to atomic units
  a_Emax =10.00 / A0 / 1000.0
  call lead%bands(output_folder//"bands.dat",-M_PI,+M_PI,M_PI/100.0,a_Emin,a_Emax)
@@ -92,7 +92,7 @@ program transporter
 ! If there is no interaction between them returns false, otherwise true.
 ! ---------------------------------------------------------------------------
 logical function connect_matrix(atomA,atomB,coupling_mat)
-    use modatom
+    use modcommons
     implicit none
     type(qatom) :: atomA,atomB
 

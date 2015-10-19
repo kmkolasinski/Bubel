@@ -545,14 +545,16 @@ program transporter
  doubleprecision            :: zeros_vector(200),posA(3),posB(3),deltaR(3)
  doubleprecision            :: a_dx,a_Emin,a_Emax,a_Bz
  integer                    :: no_expected_states,flagA,flagB
- integer ,parameter         :: nx = 100
- integer ,parameter         :: ny = 100
- doubleprecision,parameter  :: dx = 1.0 ! [nm]
+ integer ,parameter         :: nx = 400
+ integer ,parameter         :: ny = 5
+ doubleprecision,parameter  :: dx = 0.1 ! [nm]
  integer , dimension(nx,ny) :: gindex ! converts local index (i,j) to global index
  integer                    :: i,j,k,m,l
- doubleprecision            :: lead_translation_vec(3),x,y,z,Ef,dens,dist
- integer :: unit_cell_width , flag_start , flag_b_start , itmp
+ doubleprecision            :: lead_translation_vec(3),x,y,z,Ef,dens,dist,xa,xb
+ doubleprecision :: mSkl(-10:10),mTkl(-10:10)
+ integer :: unit_cell_width , flag_start , flag_b_start , itmp ,nnsize
  character(300) :: line
+ integer :: update = 0
 
  ! Use atomic units in effective band model -> see modunit.f90 for more details
  call modunits_set_GaAs_params()
@@ -569,110 +571,54 @@ program transporter
  ! ----------------------------------------------------------
  k      = 0
  gindex = 0
-
+ j = 1
  do i = 1 , nx
- do j = 1 , ny
-    ! Initalize atom structure with position of the atom.
+! do j = 1 , ny
+!     Initaliz atom structure with position of the atom.
     call solver%qatom%init((/ (i-1) * dx , (j-1) * dx + (i-1) * dx * 0.0 , 0.0 * dx /))
     ! Add atom to the system.
 !    if( i > nx/2 .and. j < ny/2+20 ) solver%qatom%bActive = .false.
 !    if( i > nx/2+30 .and. j < ny/2+20 ) solver%qatom%bActive = .false.
-    if( i < 3 .and. abs(j-ny/2) > 10 ) solver%qatom%bActive = .false.
-!    dist = sqrt(abs(j-ny/2-1)**2.0 + abs(i+20)**2.0)
-!    if( dist >= ny/2+15 ) solver%qatom%bActive = .false.
-!    if( dist <= ny/2+15 .and. dist >= ny/2+14 ) then
-!        solver%qatom%flag = 1
-!        solver%qatom%bActive =.true.
-!    endif
+!    if( i < 5 .and. abs(j-ny/2) > 10 ) solver%qatom%bActive = .false.
+
     call solver%qsystem%add_atom(solver%qatom)
     k           = k + 1
     gindex(i,j) = k
  enddo
- enddo
-
-!
-!solver%qnnbparam%box = (/2*dx,2*dx,0.0D0/) ! do not search for the sites far than (-dx:+dx) direction
-!call solver%qsystem%make_lattice(solver%qnnbparam,c_matrix=connect_matrix)
-!do i = 1 ,solver%qsystem%no_atoms
-!    if(solver%qsystem%atoms(i)%no_bonds == 2) then
-!        solver%qsystem%atoms(i)%bActive  = .false.
-!        solver%qsystem%atoms(i)%flag = 0
-!    endif
-!enddo
-!
-!
-!unit_cell_width = 0;
-!do j = 1 , ny
-!    flag_start = 0
-!    itmp = 0
-!do i = 1 , nx
-!    k  = gindex(i,j)
-!    if(solver%qsystem%atoms(k)%flag == 1) then
-!        flag_start = 1
-!
-!    else if(flag_start == 1) then
-!        flag_start = 0
-!    endif
-!    if(flag_start == 1) then
-!        itmp = itmp + 1
-!    endif
-!enddo
-!    if(itmp > unit_cell_width) unit_cell_width = itmp
-!enddo
-!unit_cell_width = unit_cell_width + 1
-!print*,"Unit cell width=",unit_cell_width
-!
-!
-!
-!do j = 1 , ny
-!do i = 1 , nx
-!    k  = gindex(i,j)
-!    if(solver%qsystem%atoms(k)%flag == 1) then
-!        l = gindex(i+unit_cell_width,j)
-!        solver%qsystem%atoms(l)%flag = 2
-!        solver%qsystem%atoms(l)%bActive = .true.
-!    endif
-!enddo
-!enddo
-!
-!
-!do j = 1 , ny
-!    flag_start = 0
-!do i = 1 , nx
-!    k  = gindex(i,j)
-!    if(solver%qsystem%atoms(k)%flag == 1) then
-!        flag_start = 1
-!    endif
-!    if(solver%qsystem%atoms(k)%flag == 2) then
-!        flag_start = 0
-!    endif
-!    if(flag_start == 1) then
-!        if(solver%qsystem%atoms(k)%flag == 0) then
-!            l = gindex(i-unit_cell_width,j)
-!            solver%qsystem%atoms(k)%flag    = 2
-!            solver%qsystem%atoms(k)%bActive = .true.
-!            solver%qsystem%atoms(l)%flag    = 1
-!        endif
-!    endif
-!enddo
-!enddo
-!
-!
-!do j = 1 , ny
-!do i = 1 , nx
-!    k  = gindex(i,j)
-!    if(solver%qsystem%atoms(k)%flag == 2) then
-!        call tmpsys%add_atom(solver%qsystem%atoms(k))
-!    endif
-!enddo
-!enddo
+! enddo
 
 ! ----------------------------------------------------------
 ! 2. Construct logical connections between sites on the mesh.
 ! ----------------------------------------------------------
-solver%qnnbparam%box = (/2*dx,2*dx,0.0D0/) ! do not search for the sites far than (-dx:+dx) direction
-call solver%qsystem%make_lattice(solver%qnnbparam,c_matrix=connect_matrix)
 
+nnsize = 3
+solver%qnnbparam%box = (/(nnsize+2)*dx,(nnsize+2)*dx,0.0D0/) ! do not search for the sites far than (-dx:+dx) direction
+
+
+print*,"S"
+do i = -10 , 0 ,1
+xa = 0
+xb = i*dx
+print*,i,Skl(xa,xb,dx/4)
+mSkl(i) = Skl(xa,xb,dx/4)
+enddo
+print*,"T"
+do i = -10 , 0 ,1
+xa = 0
+xb = i*dx
+print*,i,Tkl(xa,xb,dx/4)
+mTkl(i) = Tkl(xa,xb,dx/4)
+enddo
+do i = 1 , 10 ,1
+mTkl(i) = mTkl(-i)
+mSkl(i) = mSkl(-i)
+enddo
+update = 1
+
+call solver%qsystem%make_lattice(solver%qnnbparam,c_simple=connect,o_simple=connect_overlaps)
+
+
+!call solver%qsystem%update_lattice(c_simple=connect)
 ! Save lattice to file to see if constructed system is OK!
 ! Use plot_lattice.py to see the results.
 !call solver%qsystem%save_lattice(output_folder//"lattice.xml")
@@ -722,36 +668,36 @@ call solver%qsystem%make_lattice(solver%qnnbparam,c_matrix=connect_matrix)
 ! ----------------------------------------------------------
  ! Lead needs to know where it is (lead_shape) and using this information it will
  ! create propper matrices and connections using list of atoms
-lead_translation_vec = (/  dx , 0.0D0 , 0.0D0 /)
+lead_translation_vec = (/  nnsize*dx , 0.0D0 , 0.0D0 /)
 call lead_shape%init_range_3d((/ -0.5*dx , 0.0D0 , 0.0D0 /),lead_translation_vec)
 call solver%add_lead(lead_shape,lead_translation_vec)
 !call solver%leads(1)%save_lead(output_folder//"lead1.xml")
 
-!a_Emin =-10.0
-!a_Emax = 10.0
-!call solver%leads(1)%bands(output_folder//"bands.dat",-M_PI,+M_PI,M_PI/160.0,a_Emin,a_Emax)
+a_Emin =-10.0
+a_Emax = 1000.0
+call solver%leads(1)%bands(output_folder//"bands.dat",-M_PI,+M_PI,M_PI/160.0,a_Emin,a_Emax)
 
-lead_translation_vec = (/ -dx , 0.0D0 , 0.0D0 /)
+lead_translation_vec = (/ -nnsize*dx , 0.0D0 , 0.0D0 /)
 call lead_shape%init_range_3d((/ (+0.5+nx-1)*dx , 0.0D0 , 0.0D0 /),lead_translation_vec)
 call solver%add_lead(lead_shape,lead_translation_vec)
 !call solver%leads(2)%save_lead(output_folder//"lead2.xml")
 
 
-lead_translation_vec = (/ -unit_cell_width*dx , 0.0D0 , 0.0D0 /)
-call lead_shape%init_atoms_list(tmpsys%atoms(1:tmpsys%no_atoms))
+!lead_translation_vec = (/ -unit_cell_width*dx , 0.0D0 , 0.0D0 /)
+!call lead_shape%init_atoms_list(tmpsys%atoms(1:tmpsys%no_atoms))
 !call solver%add_lead(lead_shape,lead_translation_vec)
 !call solver%leads(2)%save_lead(output_folder//"lead2.xml")
 
 call solver%save_system("system.xml")
-Ef = 1.0
+Ef = 37.0
 call solver%calculate_modes(Ef);
-
 
 call solver%solve(1,Ef);
 
 
 do i = 1 , size(solver%qauxvec)
      solver%qauxvec(i) = sum(solver%densities(:,i))
+     write(111,*),i,sum(solver%densities(:,i))
 enddo
 call solver%qsystem%save_data("densities.xml",array2d=solver%densities,array1d=solver%qauxvec)
 
@@ -777,12 +723,66 @@ call tmpsys%destroy()
 ! Implement coupling
 ! Taken from Kwant tutorial: http://kwant-project.org/doc/1.0/tutorial/tutorial5
 ! ---------------------------------------------------------------------------
-logical function connect_matrix(atomA,atomB,coupling_mat)
-    use modatom
+logical function connect(atomA,atomB,cval)
+    use modcommons
     implicit none
     type(qatom) :: atomA,atomB
 
-    complex*16  :: coupling_mat(:,:) ! you must overwrite this variable
+    complex*16  :: cval ! you must overwrite this variable
+    ! local variables
+    integer         :: xdiff,ydiff
+    doubleprecision :: dydiff,dxdiff,t0,y,x,xhalf,x2
+
+    ! Calculate distance between atoms in units of dx.
+    dxdiff = -(atomA%atom_pos(1)-atomB%atom_pos(1))/dx
+    dydiff = -(atomA%atom_pos(2)-atomB%atom_pos(2))/dx
+    ! Convert it to integers
+    xdiff = NINT(dxdiff)
+    ydiff = NINT(dydiff)
+
+    x = atomA%atom_pos(1)
+    x2= atomB%atom_pos(1)
+    y = atomA%atom_pos(2)
+    xhalf = nx*dx/2
+    ! default return value
+    connect = .false.
+    cval   = 0.0
+    ! We assume that there is no spin taken into account so in our
+    ! case is always s1 = 1 and s2 = 1, thus s1 and s2 are not used
+    ! here.
+    t0    = 1.0
+    if(abs(xdiff)<=nnsize-1) then
+
+        cval   = mTkl(xdiff)
+        if(x > 2 .and. x < nx*dx-2 .and. xdiff == 0)  cval = cval + Vkl(x,x2,dx/4)
+          ! +exp(-0.2*((x-xhalf+10)**2)))
+        print"(2f6.2,i,A,1f12.6)",x,atomB%atom_pos(1),xdiff,"  c=",dble(cval)
+
+        connect = .true.
+    endif
+
+
+!    if( xdiff == 0 .and. ydiff == 0 ) then
+!        connect      = .true.
+!        cval = 2*t0 + 0.15*update*t0*( exp(-0.2*((x-14.0)**2))+exp(-0.2*((x-24.0)**2)))
+!    else if( abs(xdiff) ==  1 .and. ydiff == 0 ) then
+!        connect = .true.
+!        y = (atomA%atom_pos(2) - ny/2*dx ) * L2LA
+!        cval = -t0 * EXP(II*xdiff*y*0.0)
+!    else if( xdiff ==  0 .and. abs(ydiff) == 1 ) then
+!        connect = .true.
+!        cval = -t0
+!    endif
+
+end function connect
+
+
+logical function connect_overlaps(atomA,atomB,cval)
+    use modcommons
+    implicit none
+    type(qatom) :: atomA,atomB
+
+    complex*16  :: cval ! you must overwrite this variable
     ! local variables
     integer         :: xdiff,ydiff
     doubleprecision :: dydiff,dxdiff,t0,y,x
@@ -795,28 +795,87 @@ logical function connect_matrix(atomA,atomB,coupling_mat)
     ydiff = NINT(dydiff)
 
     x = atomA%atom_pos(1)
+    y = atomA%atom_pos(2)
 
     ! default return value
-    connect_matrix = .false.
-    coupling_mat   = 0.0
-    ! We assume that there is no spin taken into account so in our
-    ! case is always s1 = 1 and s2 = 1, thus s1 and s2 are not used
-    ! here.
-    t0    = 1.0
+    connect_overlaps = .false.
+    cval   = 0.0
 
-
-    if( xdiff == 0 .and. ydiff == 0 ) then
-        connect_matrix      = .true.
-        coupling_mat = 4*t0 !+ 0.1*t0*exp(-0.04*(x-150.0)**2) + 0.1*t0*exp(-0.04*(x-50.0)**2)
-    else if( abs(xdiff) ==  1 .and. ydiff == 0 ) then
-        connect_matrix = .true.
-        y = (atomA%atom_pos(2) - ny/2*dx ) * L2LA
-        coupling_mat = -t0 * EXP(II*xdiff*y*0.001)
-    else if( xdiff ==  0 .and. abs(ydiff) == 1 ) then
-        connect_matrix = .true.
-        coupling_mat = -t0
+!    if(abs(xdiff) <= nnsize-1) then
+    if(abs(xdiff) <= 0) then
+        cval   = mSkl(xdiff)
+!        cval   = 1.0
+!        print"(2f6.2,i,A,1f12.6)",x,atomB%atom_pos(1),xdiff,"  c=",mSkl(xdiff)
+        connect_overlaps = .true.
     endif
 
-end function connect_matrix
+
+
+end function connect_overlaps
+
+
+doubleprecision function gauss(x,x0,dx)
+doubleprecision  :: x,x0,dx
+gauss = sqrt(1.0/(dx*sqrt(2*M_PI))*exp(-0.5*((x-x0)/dx)**2))
+end function gauss
+
+doubleprecision function d2gaussdx(x,x0,dx)
+doubleprecision  :: x,x0,dx
+doubleprecision,parameter :: ddx = 0.0001
+d2gaussdx = gauss(x+ddx,x0,dx) - 2*gauss(x,x0,dx) + gauss(x-ddx,x0,dx)
+d2gaussdx = d2gaussdx/ddx/ddx
+end function d2gaussdx
+
+doubleprecision function Skl(xa,xb,dx)
+doubleprecision  :: xa,xb,dx
+doubleprecision xs,xf,deltax,x
+integer :: nsigma
+Skl = 0
+nsigma = 5
+xs = min(xa,xb)-nsigma*dx
+xf = max(xa,xb)+nsigma*dx
+deltax = dx/10
+do x = xs , xf , deltax
+Skl = Skl + gauss(x,xa,dx)*gauss(x,xb,dx)*deltax
+enddo
+
+end function Skl
+
+doubleprecision function Tkl(xa,xb,dx)
+doubleprecision  :: xa,xb,dx
+doubleprecision xs,xf,deltax,x
+integer :: nsigma
+Tkl = 0
+nsigma = 5
+xs = min(xa,xb)-nsigma*dx
+xf = max(xa,xb)+nsigma*dx
+deltax = dx/10
+do x = xs , xf , deltax
+Tkl = Tkl - 0.5*gauss(x,xa,dx)*d2gaussdx(x,xb,dx)*deltax
+enddo
+
+end function Tkl
+
+doubleprecision function pot(x)
+doubleprecision :: x,xhalf
+xhalf = nx*dx/2
+pot =  (exp(-0.2*((x-xhalf+10)**2))) + (exp(-0.2*((x-xhalf-10)**2)))
+end function pot
+
+doubleprecision function Vkl(xa,xb,dx)
+doubleprecision  :: xa,xb,dx
+doubleprecision xs,xf,deltax,x
+integer :: nsigma
+Vkl = 0
+nsigma = 5
+xs = min(xa,xb)-nsigma*dx
+xf = max(xa,xb)+nsigma*dx
+deltax = dx/20
+do x = xs , xf , deltax
+Vkl = Vkl + gauss(x,xa,dx)*gauss(x,xb,dx)*pot(x)*deltax
+enddo
+
+end function Vkl
+
 
 end program transporter

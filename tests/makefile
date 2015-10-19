@@ -4,7 +4,8 @@ all: build_simple_sqlat \
 	 build_rashba_2deg \
 	 build_carbon_nanotube \
 	 build_strange_graphene \
-	 build_superconductor
+	 build_superconductor \
+	 simple_galerkin1d
 
 run:
 		 ./simple_sqlat ; \
@@ -13,7 +14,9 @@ run:
 		 ./rashba_2deg ; \
 		 ./carbon_nanotube ; \
 		 ./strange_graphene ;\
-		 ./superconductor;
+		 ./superconductor; \
+		 ./simple_galerkin1d
+
 
 COMPILATION_TYPE=ifort
 # To build simple example of effective band mass on quare lattice
@@ -38,6 +41,8 @@ build_strange_graphene:
 build_superconductor:
 	make superconductor C=$(COMPILATION_TYPE) P=superconductor
 
+build_simple_galerkin1d:
+	make simple_galerkin1d C=$(COMPILATION_TYPE) P=simple_galerkin1d
 
 EXEC_FILE=$(P)
 # -----------------------------------
@@ -48,7 +53,7 @@ EXEC_FILE=$(P)
 #-DUSE_UMF_PACK
 #-DUSE_PARDISO
 UMFPACK_MACRO=-DUSE_PARDISO
-UMFPACK_MACRO=
+#UMFPACK_MACRO=
 
 
 
@@ -116,7 +121,7 @@ endif
 
 
 $(EXEC_FILE): $(EXEC_FILE).f90  $(UMFPACK_FILES)
-	$(FC) $(FBFLAGS)  $(EXEC_FILE).f90 ../libquantulaba.a $(FLIBS)   -o $@
+	$(FC) $(FBFLAGS)  $(EXEC_FILE).f90 -L..  -lquantulaba $(FLIBS)   -o $@
 
 
 clean:
@@ -127,4 +132,5 @@ clean:
 		  carbon_nanotube \
 		  rashba_2deg \
 		  strange_graphene \
-		  superconductor 2> /dev/null
+		  superconductor \
+		  simple_galerkin1d 2> /dev/null

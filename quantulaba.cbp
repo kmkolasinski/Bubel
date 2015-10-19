@@ -58,6 +58,7 @@
 		</Compiler>
 		<Unit filename="main.f90" />
 		<Unit filename="makefile" />
+		<Unit filename="modcommons.f90" />
 		<Unit filename="modlead.f90" />
 		<Unit filename="modscatter.f90" />
 		<Unit filename="modshape.f90" />
@@ -67,6 +68,7 @@
 		<Unit filename="tests/carbon_nanotube.f90" />
 		<Unit filename="tests/makefile" />
 		<Unit filename="tests/rashba_2deg.f90" />
+		<Unit filename="tests/simple_galerkin1d.f90" />
 		<Unit filename="tests/simple_graphene.f90" />
 		<Unit filename="tests/simple_graphene2.f90" />
 		<Unit filename="tests/simple_sqlat.f90" />

@@ -14,7 +14,7 @@
 module modlead
 use modshape
 use modsys
-use modatom
+use modcommons
 use modutils
 implicit none
 private
@@ -27,6 +27,8 @@ type qlead
 
     complex*16,dimension(:,:) , allocatable :: valsH0  ! Hamiltonian of the lead - unit cell
     complex*16,dimension(:,:) , allocatable :: valsTau ! Coupling matrix to the next unit cell
+    complex*16,dimension(:,:) , allocatable :: valsS0  ! Overlaps in the lead
+    complex*16,dimension(:,:) , allocatable :: valsS1  ! Overlaps in the next unit cell
 
     integer :: no_sites                                ! number of unknowns (number of sites in the lead,
                                                        ! including spin states)
@@ -139,16 +141,22 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
 
     if(allocated(this%valsH0))  deallocate(this%valsH0)
     if(allocated(this%valsTau)) deallocate(this%valsTau)
+    if(allocated(this%valsS0))  deallocate(this%valsS0)
+    if(allocated(this%valsS1))  deallocate(this%valsS1)
     if(allocated(this%l2g))     deallocate(this%l2g)
     if(allocated(this%next_l2g))deallocate(this%next_l2g)
 
     allocate(this%valsH0    (no_sites,no_sites))
     allocate(this%valsTau   (no_sites,no_sites))
+    allocate(this%valsS0    (no_sites,no_sites))
+    allocate(this%valsS1    (no_sites,no_sites))
     allocate(this%l2g       (no_sites,2))
     allocate(this%next_l2g  (no_sites,2))
 
     this%valsH0   = 0
     this%valsTau  = 0
+    this%valsS0   = 0
+    this%valsS1   = 0
     this%l2g      = 0
     this%next_l2g = 0
 
@@ -326,6 +334,8 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
 
                 ! fill coupling matrix
                 this%valsTau(irow,icol) = cval
+                this%valsS1(irow,icol)  = all_atoms(atom_id)%bonds(b)%overlapValue
+
 !                print*,i,lid,cval
 
 
@@ -339,6 +349,9 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
                 icol = lid
                 cval = all_atoms(atom_id)%bonds(b)%bondValue
                 this%valsH0(irow,icol) = cval
+
+                this%valsS0(irow,icol)  = all_atoms(atom_id)%bonds(b)%overlapValue
+
 !                print*,
 !                print*,irow,icol,atom_id,aid,sqrt(sum((all_atoms(atom_id)%atom_pos-all_atoms(aid)%atom_pos)**2 ))
             endif ! end of else if "atom is in the lead or outside"
@@ -360,6 +373,8 @@ subroutine destroy(this)
     print*,"SYS::LEAD::freeing memory"
     if(allocated(this%valsH0))  deallocate(this%valsH0)
     if(allocated(this%valsTau)) deallocate(this%valsTau)
+    if(allocated(this%valsS0))  deallocate(this%valsS0)
+    if(allocated(this%valsS1))  deallocate(this%valsS1)
     if(allocated(this%l2g))     deallocate(this%l2g)
     if(allocated(this%next_l2g))deallocate(this%next_l2g)
 
@@ -399,14 +414,14 @@ subroutine bands(this,filename,kmin,kmax,dk,Emin,Emax)
     !                    LAPACK
     ! -------------------------------------------------
     !     .. Local Scalars ..
-    INTEGER          INFO, LWORK, LRWORK, LIWORK, IL, IU, M , LWMAX
+    INTEGER          INFO, IFAIL, LWORK, LRWORK, LIWORK, IL, IU, M , LWMAX
     DOUBLE PRECISION ABSTOL, VL, VU
 
     !     .. Local Arrays ..
     INTEGER,allocatable,dimension(:)          :: ISUPPZ, IWORK
     DOUBLE PRECISION,allocatable,dimension(:) :: EVALS( : ), RWORK( : )
     COMPLEX*16,allocatable,dimension(:)       :: Z( :, : ), WORK( : )
-    COMPLEX*16,allocatable,dimension(:,:)     :: Hamiltonian
+    COMPLEX*16,allocatable,dimension(:,:)     :: Hamiltonian,Overlaps
 
     print*,"SYS::LEAD::Generating band structure data to file:",filename
     ! The size of the system
@@ -424,6 +439,7 @@ subroutine bands(this,filename,kmin,kmax,dk,Emin,Emax)
     allocate(RWORK ( LWMAX ))
     allocate(WORK  ( LWMAX ))
     allocate(Hamiltonian(N,N))
+    allocate(Overlaps(N,N))
     !
     !     Query the optimal workspace.
     !
@@ -471,6 +487,11 @@ subroutine bands(this,filename,kmin,kmax,dk,Emin,Emax)
                 Hamiltonian(i,j) = this%valsH0(i,j) + this%valsTau(i,j)*exp(kvec) + conjg(this%valsTau(j,i)*exp(kvec))
         enddo
         enddo
+        do i = 1 , N
+        do j = 1 , N
+                Overlaps(i,j)    = this%valsS0(i,j) + this%valsS1(i,j)*exp(kvec) + conjg(this%valsS1(j,i)*exp(kvec))
+        enddo
+        enddo
         ABSTOL = -1.0
         !     Set VL, VU to compute eigenvalues in half-open (VL,VU] interval
         VL = Emin
@@ -480,9 +501,13 @@ subroutine bands(this,filename,kmin,kmax,dk,Emin,Emax)
         !
         EVALS = 0
         M  = 0
-        CALL ZHEEVR( "V", 'Values', 'Lower', N, Hamiltonian, N, VL, VU, IL,&
-        &             IU, ABSTOL, M, EVALS, Z, N, ISUPPZ, WORK, LWORK, RWORK,&
-        &             LRWORK, IWORK, LIWORK, INFO )
+!        CALL ZHEEVR( "V", 'Values', 'Lower', N, Hamiltonian, N, VL, VU, IL,&
+!        &             IU, ABSTOL, M, EVALS, Z, N, ISUPPZ, WORK, LWORK, RWORK,&
+!        &             LRWORK, IWORK, LIWORK, INFO )
+
+        CALL ZHEGVX(1,'Vectors','Values in range','Upper',N,Hamiltonian,N,Overlaps,N,VL,VU,IL, &
+                      IU,ABSTOL,M,EVALS,Z,N,WORK,LWORK,RWORK, &
+                      IWORK,IFAIL,INFO)
 
         if(M > 0) then
             write(782321,"(1000e20.10)"),skank,EVALS(1:M)
@@ -499,6 +524,7 @@ subroutine bands(this,filename,kmin,kmax,dk,Emin,Emax)
     deallocate(RWORK)
     deallocate(WORK)
     deallocate(Hamiltonian)
+    deallocate(Overlaps)
 
 end subroutine bands
 
@@ -566,9 +592,11 @@ subroutine calculate_modes(this,Ef)
     ! -------------------------------------------------------
     ! Creation of the Generalize eigenvalue problem Eq. (52)
     ! -------------------------------------------------------
+!    print*,"S1="
     do i = 1 , N
+!        print"(50f9.4)", dble(this%valsS1(i,:))
     do j = 1 , N
-        Mdiag(i,j) =  conjg(this%valsTau(j,i)) ! Dag of Tau
+        Mdiag(i,j) =  conjg(this%valsTau(j,i)) - Ef*conjg(this%valsS1(j,i)) ! Dag of Tau
     enddo
     enddo
     ! Filling matrices
@@ -582,18 +610,21 @@ subroutine calculate_modes(this,Ef)
 
     ! filling diag with diagonal matrix
     Mdiag = 0
+!    print*,"S0="
     do i = 1 , N
+!        print"(50f9.4)", dble(this%valsS0(i,:))
         Mdiag(i,i) =  1
     enddo
     MA(1:N,N+1:2*N)     =  Mdiag
-    MA(N+1:2*N,N+1:2*N) =  Mdiag*Ef - this%valsH0
+!    MA(N+1:2*N,N+1:2*N) =  Mdiag*Ef - this%valsH0
+    MA(N+1:2*N,N+1:2*N) =  this%valsS0*Ef - this%valsH0
 
 
     MB(1:N,1:N)         = Mdiag
-    MB(N+1:2*N,N+1:2*N) = this%valsTau
+    MB(N+1:2*N,N+1:2*N) = this%valsTau  - this%valsS1*Ef
 
     ! Ustalenie parametrow LAPACKA
-    LWMAX = 20 * N
+    LWMAX = 40 * N
     LDVL  = 2  * N
     LDVR  = 2  * N
     ! Alokacja macierzy LAPACKA
@@ -628,7 +659,7 @@ subroutine calculate_modes(this,Ef)
     do i = 1 , 2*N
         if(abs(Beta(i))>1e-16) then !
             lambda= (ALPHA(i)/BETA(i))
-!            print"(i,2f10.5,A,f10.6)",i,lambda,"abs=",abs(lambda)
+!            print"(i,4f16.5,A,f16.6)",i,abs(BETA(i)),abs(ALPHA(i)),lambda,"abs=",abs(lambda)
             c(i,:) =  Z(1:N,i)
             d(i,:) =  Z(N+1:2*N,i)
             ! Normalize vectors
@@ -765,7 +796,7 @@ subroutine calculate_modes(this,Ef)
     ! Calculating of SigmaMatrix
     do i = 1 , N
     do j = 1 , N
-        Mdiag(i,j) =  conjg(this%valsTau(j,i)) ! Dag of Tau
+        Mdiag(i,j) =  conjg(this%valsTau(j,i)) - Ef * conjg(this%valsS1(j,i)) ! Dag of Tau
     enddo
     enddo
     do i = 1 , N

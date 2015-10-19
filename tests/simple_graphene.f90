@@ -106,7 +106,7 @@ call rect_shape%init_rect(SHAPE_RECTANGLE_XY,0.4D0,13.1D0,0.4D0,1.3D0)
 lead_translation_vec = (/ 0.0D0 , 1.0D0 , 0.0D0 /)
 
 call qt%add_lead(rect_shape,lead_translation_vec)
-call qt%leads(1)%print_lead(output_folder//"lead.xml",qt%qsystem%atoms)
+call qt%leads(1)%save_lead(output_folder//"lead.xml")
 call qt%leads(1)%bands(output_folder//"bands.dat",-3.14D0,3.14D0,0.1D0,-15.0D0,15.0D0)
 call qt%destroy_system()
 
@@ -119,7 +119,7 @@ print*,"Use Viewer program to see the structure and crated lead."
 contains
 
 logical function connect(atomA,atomB,s1,s2,coupling_val)
-    use modatom
+    use modcommons
     implicit none
     type(qatom) :: atomA,atomB
     integer    :: s1,s2

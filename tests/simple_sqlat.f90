@@ -11,15 +11,14 @@
 
 program transporter
 
- use modunits ! unit conversion tools
- use modsys   ! eigen values
- use modlead  ! bandgap structure
+ use modunits   ! unit conversion tools
+ use modscatter ! eigen values and transport
+ use modlead    ! bandgap structure
  use modshape
  implicit none
  character(*),parameter :: output_folder = "simple_sqlat_output/"
- type(qsys)                 :: qsystem
+ type(qscatter)             :: qt
  type(qshape)               :: lead_shape
- type(qlead)                :: lead
  doubleprecision            :: zeros_vector(200)
  doubleprecision            :: a_dx,a_Emin,a_Emax,a_Bz
  integer                    :: no_expected_states
@@ -28,7 +27,7 @@ program transporter
  doubleprecision,parameter  :: dx = 5.0 ! [nm]
  integer , dimension(nx,ny) :: gindex ! converts local index (i,j) to global index
  integer :: i,j,k
- doubleprecision            :: lead_translation_vec(3)
+ doubleprecision            :: lead_translation_vec(3),Ef
 
 
  ! Use atomic units in effective band model -> see modunit.f90 for more details
@@ -37,7 +36,7 @@ program transporter
  a_Bz = BtoAtomicB(1.0D0) ! 1 Tesla to atomic units
 
  ! Initalize system
- call qsystem%init()
+ call qt%init_system()
 
  ! ----------------------------------------------------------
  ! 1. Create mesh - loop over width and height of the lattice
@@ -49,18 +48,18 @@ program transporter
     ! Initalize atom structure with position of the atom.
     ! For more details see modsys.f90 and qatom structure parameters.
     ! We assume that the 2D lattice lies at z=0.
-    ! qsystem%qatom - is a auxiliary variable of type(qatom), you can use your own
+    ! qt%qatom - is a auxiliary variable of type(qatom), you can use your own
     !                 if you want.
 
-    call qsystem%qatom%init((/ (i-1) * dx , (j-1) * dx + (i-1) * dx * 0.0 , 0.0 * dx /))
+    call qt%qatom%init((/ (i-1) * dx , (j-1) * dx + (i-1) * dx * 0.0 , 0.0 * dx /))
 
     !here e.g. you can diable some part of atoms
 !    if( sqrt(abs(i - nx/2.0-1)**2 + abs(j - ny/2.0-1)**2)*dx < 20 ) then
-!        qsystem%qatom%bActive = .false. ! do not include those atoms in calculations
+!        qt%qatom%bActive = .false. ! do not include those atoms in calculations
 !    endif
 
     ! Add atom to the system.
-    call qsystem%add_atom(qsystem%qatom)
+    call qt%qsystem%add_atom(qt%qatom)
     k           = k + 1
     gindex(i,j) = k
  enddo
@@ -70,14 +69,12 @@ program transporter
  ! 2. Construct logical connections between sites on the mesh.
  ! ----------------------------------------------------------
  ! Set criterium for the nearest neightbours "radius" search algorithm.
- ! Same as above qsystem%qnnbparam is a auxiliary variable of type(nnb_params) - more details in modsys.f90
+ ! Same as above qt%qnnbparam is a auxiliary variable of type(nnb_params) - more details in modsys.f90
  ! This structure is responsible for different criteria of nearest neighbour searching
-  qsystem%qnnbparam%box = (/2*dx,2*dx,0.0D0/) ! do not search for the sites far than (-dx:+dx) direction
+  qt%qnnbparam%box = (/2*dx,2*dx,0.0D0/) ! do not search for the sites far than (-dx:+dx) direction
  ! Setup connections between sites with provided by you function "connect", see below for example.
- call qsystem%make_lattice(qsystem%qnnbparam,c_default=connect)
+ call qt%qsystem%make_lattice(qt%qnnbparam,c_default=connect)
 
- ! Save lattice to file to see if constructed system is OK!
- call qsystem%save_lattice(output_folder//"lattice.xml")
 
  ! ----------------------------------------------------------
  ! 3. Find eigenvalues of the system.
@@ -88,25 +85,25 @@ program transporter
  no_expected_states = 80
  a_Emin = 0.0  / E0 / 1000.0 ! converting from [meV] to atomic units
  a_Emax = 5.0  / E0 / 1000.0 ! converting from [meV] to atomic units
- call qsystem%calc_eigenproblem(a_Emin,a_Emax,no_expected_states)
+ call qt%qsystem%calc_eigenproblem(a_Emin,a_Emax,no_expected_states)
 
 
  ! Write founded eigenstates to file if there are states in the range (Emin,Emax)
- if(qsystem%no_eigenvalues > 0) then
+ if(qt%qsystem%no_eigenvalues > 0) then
  zeros_vector = 0
  open(unit=222,file=output_folder//"eigenvecs.dat")
  do i = 1 , nx
  do j = 1 , ny
-    if(qsystem%atoms(gindex(i,j))%bActive)then
+    if(qt%qsystem%atoms(gindex(i,j))%bActive)then
     ! get unique ID of current site
-    k = qsystem%atoms(gindex(i,j))%globalIDs(1) ! globalIDs(1) - get first spin state. In case when
-                                                ! when you want to add multiple states per site
-                                                ! you can use this array to separate sites with different
-                                                ! spins.
-    write(222,"(500e20.6)"),qsystem%atoms(gindex(i,j))%atom_pos(:),abs(qsystem%eigenvecs(k,:))**2
+    k = qt%qsystem%atoms(gindex(i,j))%globalIDs(1) ! globalIDs(1) - get first spin/orbital state. In case when
+                                                    ! when you want to add multiple states per site
+                                                    ! you can use this array to separate sites with different
+                                                    ! spins.
+    write(222,"(500e20.6)"),qt%qsystem%atoms(gindex(i,j))%atom_pos(:),abs(qt%qsystem%eigenvecs(k,:))**2
     else
     ! fill with zeros empty spaces
-    write(222,"(500e20.6)"),qsystem%atoms(gindex(i,j))%atom_pos(:),zeros_vector(1:qsystem%no_eigenvalues)
+    write(222,"(500e20.6)"),qt%qsystem%atoms(gindex(i,j))%atom_pos(:),zeros_vector(1:qt%qsystem%no_eigenvalues)
     endif
  enddo
     write(222,*),"" ! GNUPLOT necessary line break
@@ -115,25 +112,35 @@ program transporter
  endif ! end of if are there eigenstates?
 
 
- ! ----------------------------------------------------------
- ! 4. Use generated mesh to calculate the band structure
- ! in the region of homogenous lead.
- ! ----------------------------------------------------------
- ! Setup shape and initialize lead
- call lead_shape%init_rect(SHAPE_RECTANGLE_XY,-0.5*dx,0.5*dx,-0.5*dx,(ny+1)*dx)
- ! Lead needs to know where it is (lead_shape) and using this information it will
- ! create propper matrices and connections using list of atoms
- lead_translation_vec = (/  dx , 0.0D0 , 0.0D0 /)
- call lead%init_lead(lead_shape,lead_translation_vec,qsystem%atoms)
- a_Emin = 0.0 / A0 / 1000.0 ! converting from [meV] to atomic units
- call lead%print_lead(output_folder//"lead.xml",qsystem%atoms)
- a_Emax = 0.3 / A0 / 1000.0 ! converting from [meV] to atomic units
- call lead%bands(output_folder//"bands.dat",-M_PI,+M_PI,M_PI/50.0,a_Emin,a_Emax)
+! ----------------------------------------------------------
+! 4. Use generated mesh to calculate the band structure
+! in the region of homogenous lead.
+! ----------------------------------------------------------
+! Setup shape and initialize lead
+call lead_shape%init_rect(SHAPE_RECTANGLE_XY,-0.5*dx,0.5*dx,-0.5*dx,(ny+1)*dx)
+! Lead needs to know where it is (lead_shape) and using this information it will
+! create propper matrices and connections using list of atoms
+lead_translation_vec = (/  dx , 0.0D0 , 0.0D0 /)
+call qt%add_lead(lead_shape,lead_translation_vec)
+
+a_Emin = 0.0 / A0 / 1000.0 ! converting from [meV] to atomic units
+a_Emax = 0.3 / A0 / 1000.0 ! converting from [meV] to atomic units
+call qt%leads(1)%bands(output_folder//"bands.dat",-M_PI,+M_PI,M_PI/50.0,a_Emin,a_Emax)
+
+call qt%save_system(output_folder//"system.xml")
+Ef = 0.001
+
+call qt%calculate_modes(Ef)
+call qt%solve(1,Ef)
+do i = 1 , size(qt%qauxvec)
+    qt%qauxvec(i) = sum(qt%densities(:,i))
+enddo
+call qt%qsystem%save_data(output_folder//"densities.xml",array2d=qt%densities,array1d=qt%qauxvec)
  ! ----------------------------------------------------------
  ! X. Clean memory...
  ! ----------------------------------------------------------
- call lead%destroy()
- call qsystem%destroy()
+
+ call qt%destroy_system()
  print*,"Generating plots..."
  print*,"Plotting band structure..."
  call system("cd "//output_folder//"; ./plot_bands.py")
@@ -149,7 +156,7 @@ program transporter
 ! If there is no interaction between them returns false, otherwise true.
 ! ---------------------------------------------------------------------------
 logical function connect(atomA,atomB,s1,s2,coupling_val)
-    use modatom
+    use modcommons
     implicit none
     type(qatom) :: atomA,atomB
     integer     :: s1,s2
