@@ -57,7 +57,7 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(ui->horizontalSliderDataMaxValue,SIGNAL(sliderReleased()),this,SLOT(updateWidgets()));
 
     QHeaderView* header = ui->tableWidgetAtomInfo->horizontalHeader();
-#if QT_VERSION > QT_VERSION_CHECK(4, 8, 0)
+#if QT_VERSION < QT_VERSION_CHECK(4, 8, 0)
     header->setResizeMode(QHeaderView::Stretch);
 #else
     header->setSectionResizeMode(QHeaderView::Stretch);
@@ -134,7 +134,7 @@ void MainWindow::update_gui(){
     ui->tableWidgetDataStats->setItem(0,1,new QTableWidgetItem(QString::number(stats.no_atoms)));
 
     QHeaderView* header = ui->tableWidgetDataStats->horizontalHeader();             
-#if QT_VERSION > QT_VERSION_CHECK(4, 8, 0)
+#if QT_VERSION < QT_VERSION_CHECK(4, 8, 1)
     header->setResizeMode(QHeaderView::Stretch);
 #else
     header->setSectionResizeMode(QHeaderView::Stretch);
@@ -188,7 +188,7 @@ void MainWindow::update_gui(){
     for(unsigned int i = 0 ; i < xmlData.data.max_values.size() ; i++){
         double min = xmlData.data.min_values[i];
         double max = xmlData.data.max_values[i];
-        ui->listWidgetDatasetCols->addItem("column#"+QString::number(i+1));//+" min/max={"+QString::number(min)+","+QString::number(max)+"}");
+        ui->listWidgetDatasetCols->addItem("column#"+QString::number(i+1)+" {"+QString::number(min)+","+QString::number(max)+"}");
     }
     ui->listWidgetDatasetCols->setCurrentRow(0);
     bSkipSignals = false;

@@ -15,6 +15,7 @@ using namespace std;
 struct Atom{
     QVector3D pos;
     int flag,active,no_states,no_bounds;
+    int cnt_ptr;//id to connections list
     Atom():flag(0),active(1),no_states(1),no_bounds(0){
     }
 };

@@ -255,6 +255,9 @@ void DataReader::read_connections(QDomElement& root){
 
 
             connections.push_back(connection);
+
+            atoms[connection.atomA].cnt_ptr = connections.size()-1;
+
             if(connection.atomA != connection.atomB){
                 dist = atoms[connection.atomA].pos - atoms[connection.atomB].pos;
                 atoms_stats.ave_dist += dist.length();

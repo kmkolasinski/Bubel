@@ -349,6 +349,7 @@ void GLWidget::paintGL()
     GLfloat d7[4] = { 0.4, 0.4, 0.4, 1.0 };
     GLfloat red[4] = { 1.0, 0.0, 0.0, 1.0 };
     GLfloat grn[4] = { 0.0, 1.0, 0.0, 1.0 };
+    GLfloat orn[4] = { 1.0, 0.5, 0.0, 1.0 };
     glMaterialfv(GL_FRONT,GL_DIFFUSE,d4);
 
     glTranslatef(0.0,0.0,-5.0);
@@ -598,8 +599,27 @@ void GLWidget::paintGL()
             glPushMatrix();
 
             glTranslated(atom.pos.x(),atom.pos.y(),atom.pos.z());
-            gluSphere( quadric , radius*1.15 ,  25 , 25);
+            gluSphere( quadric , radius*1.16 ,  25 , 25);
             glPopMatrix();
+
+            int atomID = selectedAtomA;
+            int cntID = atom.cnt_ptr;
+            do{
+                AtomConnection &cnt = (*cnts)[cntID--];
+                atomID = cnt.atomA;
+                if(atomID != selectedAtomA) break;
+                Atom &atom = (*atoms)[cnt.atomB];
+                glPushMatrix();
+                glMaterialfv(GL_FRONT,GL_DIFFUSE,orn);
+                glTranslated(atom.pos.x(),atom.pos.y(),atom.pos.z());
+                gluSphere( quadric , radius*1.155 ,  25 , 25);
+                glPopMatrix();
+
+
+                if(cntID == 0) break;
+            }while(atomID == selectedAtomA);
+
+
         }
         if(selectedAtomB > -1){
             glMaterialfv(GL_FRONT,GL_DIFFUSE,grn);
@@ -607,7 +627,7 @@ void GLWidget::paintGL()
             glPushMatrix();
 
             glTranslated(atom.pos.x(),atom.pos.y(),atom.pos.z());
-            gluSphere( quadric , radius*1.155 ,  25 , 25);
+            gluSphere( quadric , radius*1.17 ,  25 , 25);
             glPopMatrix();
         }
         radius      = displayConnections.atom_size * DataReader::atoms_stats.scale * 0.3;
@@ -616,7 +636,7 @@ void GLWidget::paintGL()
             Atom& atomA = (*atoms)[selectedAtomA];
             Atom& atomB = (*atoms)[selectedAtomB];
 
-            renderCylinder(atomB.pos.x(),atomB.pos.y(),atomB.pos.z(),atomA.pos.x(),atomA.pos.y(),atomA.pos.z(),0.15*radius,15,quadric,0.5*radius);
+            renderCylinder(atomB.pos.x(),atomB.pos.y(),atomB.pos.z(),atomA.pos.x(),atomA.pos.y(),atomA.pos.z(),0.5*radius,15,quadric,0.5*radius);
         }
 
         gluDeleteQuadric(quadric);

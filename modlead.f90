@@ -633,6 +633,7 @@ subroutine calculate_modes(this,Ef)
     ! -------------------------------------------------------
 888 if(QSYS_USE_ZGGEV_TO_FIND_MODES) then
     do i = 1 , N
+!        print"(30f7.3)",dble(this%valsTau(:,i))
     do j = 1 , N
         Mdiag(i,j) =  conjg(this%valsTau(j,i)) - Ef*conjg(this%valsS1(j,i)) ! Dag of Tau
     enddo
@@ -693,7 +694,7 @@ subroutine calculate_modes(this,Ef)
     if(B_SINGULAR_MATRIX) then
         print*,"==============================================================================="
         print*,"SYS::ERROR::Lead B matrix is singular, trying to find eigen modes "
-        print*,"            modes with ZGGEV solver. Do you work with Graphene ? ;)"
+        print*,"            modes with ZGGEV solver."
         print*,"            Set QSYS_USE_ZGGEV_TO_FIND_MODES = .true. to disable this message."
         print*,"==============================================================================="
         QSYS_USE_ZGGEV_TO_FIND_MODES = .true.
@@ -783,6 +784,18 @@ subroutine calculate_modes(this,Ef)
     print*,"           No. in. evan.modes:",this%no_in_em
     print*,"           No. out.evan.modes:",this%no_out_em
     endif
+
+    ! checksum
+    no_in = this%no_in_modes + this%no_out_modes + this%no_in_em + this%no_out_em - 2*N
+    if( no_in /= 0 ) then
+        print*,"SYS::LEAD::ERROR::The total number of propagating modes and evanescent ones"
+        print*,"           does not sum up to number of sites in the leads. The difference"
+        print*,"           is following:",no_in," which means that your system is probably"
+        print*,"           higlhy degenerated (symmetry reasons or badly formulated problem)."
+        print*,"           The program will stop!"
+        stop -1
+    endif
+
 
     ! Allocate T-Matrix
     allocate(this%Tnm(this%no_out_modes,this%no_out_modes))
