@@ -57,7 +57,11 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(ui->horizontalSliderDataMaxValue,SIGNAL(sliderReleased()),this,SLOT(updateWidgets()));
 
     QHeaderView* header = ui->tableWidgetAtomInfo->horizontalHeader();
-                 header->setSectionResizeMode(QHeaderView::Stretch);
+#if QT_VERSION > QT_VERSION_CHECK(4, 8, 0)
+    header->setResizeMode(QHeaderView::Stretch);
+#else
+    header->setSectionResizeMode(QHeaderView::Stretch);
+#endif
 
 
     xmlData.read_data("../system.xml");
@@ -129,8 +133,12 @@ void MainWindow::update_gui(){
     ui->tableWidgetDataStats->setItem(0,0,new QTableWidgetItem("No. atoms"));
     ui->tableWidgetDataStats->setItem(0,1,new QTableWidgetItem(QString::number(stats.no_atoms)));
 
-    QHeaderView* header = ui->tableWidgetDataStats->horizontalHeader();
-                 header->setSectionResizeMode(QHeaderView::Stretch);
+    QHeaderView* header = ui->tableWidgetDataStats->horizontalHeader();             
+#if QT_VERSION > QT_VERSION_CHECK(4, 8, 0)
+    header->setResizeMode(QHeaderView::Stretch);
+#else
+    header->setSectionResizeMode(QHeaderView::Stretch);
+#endif
 
     info += QString("<br><b>Flags:</b> ");
     if(stats.flag_list.size() != glWidget->displayPerFlag.size()){

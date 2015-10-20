@@ -5,7 +5,7 @@ all: build_simple_sqlat \
 	 build_carbon_nanotube \
 	 build_strange_graphene \
 	 build_superconductor \
-	 simple_galerkin1d
+	 build_simple_galerkin1d
 
 run:
 		 ./simple_sqlat ; \
@@ -53,7 +53,7 @@ EXEC_FILE=$(P)
 #-DUSE_UMF_PACK
 #-DUSE_PARDISO
 UMFPACK_MACRO=-DUSE_PARDISO
-#UMFPACK_MACRO=
+UMFPACK_MACRO=
 
 
 
@@ -121,7 +121,8 @@ endif
 
 
 $(EXEC_FILE): $(EXEC_FILE).f90  $(UMFPACK_FILES)
-	$(FC) $(FBFLAGS)  $(EXEC_FILE).f90 -L..  -lquantulaba $(FLIBS)   -o $@
+	$(FC) $(FBFLAGS)  $(EXEC_FILE).f90 ../libquantulaba.a $(FLIBS)   -o $@
+#	$(FC) $(FBFLAGS)  $(EXEC_FILE).f90 -L..  -lquantulaba $(FLIBS)   -o $@
 
 
 clean:

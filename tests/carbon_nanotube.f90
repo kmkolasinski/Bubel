@@ -84,8 +84,8 @@ call lead%save_lead(output_folder//"lead.xml")
 Emin = -3.0
 Emax =  3.0
 call lead%bands(output_folder//"bands.dat",-M_PI,+M_PI,M_PI/60.0,Emin,Emax)
-
 call lead%destroy()
+
 call qsystem%destroy()
 call tmpsystem%destroy()
 

@@ -17,8 +17,6 @@ ENUM,BIND(C)
     ENUMERATOR :: SHAPE_ATOMS_LIST    = 4
 END ENUM
 
-integer,parameter :: MAX_ATOMS_IN_SHAPE = 5000
-
 type qshape
     integer         :: SHAPE_TYPE
     doubleprecision :: xmin,xmax,ymin,ymax
@@ -27,9 +25,14 @@ type qshape
 
 
     integer           :: no_atoms
-    type(qatom),dimension(MAX_ATOMS_IN_SHAPE) :: atoms_list
+    type(qatom),dimension(:),allocatable :: atoms_list
+
+
     contains
     procedure,pass(this) :: init
+    procedure,pass(this) :: destroy_shape
+    procedure,pass(this) :: copyFrom
+
     procedure,pass(this) :: is_inside
 
     procedure,pass(this) :: init_rect
@@ -55,8 +58,41 @@ subroutine init(this,shape_type)
     class(qshape) :: this
     integer  :: shape_type
     this%SHAPE_TYPE = shape_type
+    this%no_atoms   = 0
 end subroutine init
 
+
+subroutine destroy_shape(this)
+    class(qshape) :: this
+    if(allocated(this%atoms_list)) deallocate(this%atoms_list)
+    this%SHAPE_TYPE = SHAPE_NONE
+    this%no_atoms   = 0
+end subroutine destroy_shape
+
+subroutine copyFrom(this,source)
+    class(qshape) :: this
+    type(qshape)  :: source
+
+    this%SHAPE_TYPE = source%SHAPE_TYPE
+    this%xmin = source%xmin
+    this%xmax = source%xmax
+    this%ymin = source%ymin
+    this%ymax = source%ymax
+    this%quad_points        = source%quad_points
+    this%range_direction    = source%range_direction
+    this%range_base_pos     = source%range_base_pos
+    this%range_n            = source%range_n
+    this%range_lenght       = source%range_lenght
+    this%no_atoms           = source%no_atoms
+
+    if(allocated(this%atoms_list)) deallocate(this%atoms_list)
+    if(source%no_atoms > 0) then
+        if(allocated(this%atoms_list)) deallocate(this%atoms_list)
+        allocate(this%atoms_list(source%no_atoms))
+        this%atoms_list(1:source%no_atoms) = source%atoms_list(1:source%no_atoms)
+    endif
+
+end subroutine copyFrom
 ! ---------------------------------------------------------------
 ! Check is 3D point lies in the area defined by shape.
 ! If YES returns true if not false
@@ -96,6 +132,7 @@ subroutine init_rect(this,shape_type,xmin,xmax,ymin,ymax)
     this%xmax = xmax
     this%ymin = ymin
     this%ymax = ymax
+    this%no_atoms   = 0
     print"(A,2e12.3,A,2e12.3,A)"," SYS::SHAPE::Initializing rectagle box: x=(",xmin,xmax,"), y=(",ymin,ymax,")"
 end subroutine init_rect
 
@@ -110,6 +147,7 @@ subroutine init_convex_quad(this,quad_points)
 
     this%SHAPE_TYPE  = SHAPE_CONVEX_QUAD_XY
     this%quad_points = quad_points
+    this%no_atoms    = 0
     print"(A)"," SYS::SHAPE::Initializing quad shape"
 end subroutine init_convex_quad
 
@@ -129,6 +167,7 @@ subroutine init_range_3d(this,base,dir)
 
     this%range_lenght    = sqrt(sum(dir**2))
     this%range_n         = dir/this%range_lenght
+    this%no_atoms        = 0
     print"(A)"," SYS::SHAPE::Initializing range 3d shape"
 
 end subroutine init_range_3d
@@ -140,16 +179,12 @@ subroutine init_atoms_list(this,atoms)
 
     this%SHAPE_TYPE = SHAPE_ATOMS_LIST
     this%no_atoms   = size(atoms)
-    this%atoms_list(1:this%no_atoms) = atoms(:)
 
-    if(this%no_atoms > MAX_ATOMS_IN_SHAPE)then
-        print*,"SYS::ERROR::The number of atoms defined by shape is larger than "
-        print*,"            MAX_ATOMS_IN_SHAPE=",MAX_ATOMS_IN_SHAPE,". You can"
-        print*,"            change this parameter in source code and recompile"
-        print*,"            library or decrease the number of atoms in your shape."
-        print*,"            Number of atoms:",this%no_atoms
-        stop -1
-    endif
+    if(allocated(this%atoms_list)) deallocate(this%atoms_list)
+    allocate(this%atoms_list(size(atoms)))
+
+    this%atoms_list(:) = atoms(:)
+
 
     print"(A,i)"," SYS::SHAPE::Initializing atoms list of size:",this%no_atoms
 end subroutine init_atoms_list

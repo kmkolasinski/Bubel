@@ -86,7 +86,7 @@ call qt%add_lead(lead_shape,lead_translation_vec)
 ! ----------------------------------------------------------
 call qt%save_system(output_folder//"system.xml")
 open(unit=111,file=output_folder//"T.dat")
-do Ef = 28.5 , 32.0 , 0.005
+do Ef = 28.5 , 32.0 , 0.02
 
     call qt%qsystem%update_lattice(c_simple=connect,o_simple=connect_overlaps)
     call qt%calculate_modes(Ef);

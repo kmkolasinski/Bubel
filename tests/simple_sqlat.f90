@@ -23,7 +23,7 @@ program transporter
  doubleprecision            :: a_dx,a_Emin,a_Emax,a_Bz
  integer                    :: no_expected_states
  integer ,parameter         :: nx = 50
- integer ,parameter         :: ny = 25
+ integer ,parameter         :: ny = 100
  doubleprecision,parameter  :: dx = 5.0 ! [nm]
  integer , dimension(nx,ny) :: gindex ! converts local index (i,j) to global index
  integer :: i,j,k
@@ -82,10 +82,11 @@ program transporter
  ! number of expected states in that region. Eigen problem
  ! is solved with FEAST library.
  ! ----------------------------------------------------------
+ print*,"Finding eigenvalues..."
  no_expected_states = 80
  a_Emin = 0.0  / E0 / 1000.0 ! converting from [meV] to atomic units
- a_Emax = 5.0  / E0 / 1000.0 ! converting from [meV] to atomic units
- call qt%qsystem%calc_eigenproblem(a_Emin,a_Emax,no_expected_states)
+ a_Emax = 1.0  / E0 / 1000.0 ! converting from [meV] to atomic units
+ call qt%qsystem%calc_eigenproblem(a_Emin,a_Emax,no_expected_states,print_info=1)
 
 
  ! Write founded eigenstates to file if there are states in the range (Emin,Emax)
@@ -123,32 +124,56 @@ call lead_shape%init_rect(SHAPE_RECTANGLE_XY,-0.5*dx,0.5*dx,-0.5*dx,(ny+1)*dx)
 lead_translation_vec = (/  dx , 0.0D0 , 0.0D0 /)
 call qt%add_lead(lead_shape,lead_translation_vec)
 
+! Add second lead at the end of the system
+call lead_shape%init_rect(SHAPE_RECTANGLE_XY,(-0.5+nx-1)*dx,(0.5+nx-1)*dx,-0.5*dx,(ny+1)*dx)
+lead_translation_vec = (/  -dx , 0.0D0 , 0.0D0 /)
+call qt%add_lead(lead_shape,lead_translation_vec)
+
 a_Emin = 0.0 / A0 / 1000.0 ! converting from [meV] to atomic units
 a_Emax = 0.3 / A0 / 1000.0 ! converting from [meV] to atomic units
 call qt%leads(1)%bands(output_folder//"bands.dat",-M_PI,+M_PI,M_PI/50.0,a_Emin,a_Emax)
 
 call qt%save_system(output_folder//"system.xml")
-Ef = 0.001
 
+! Solve scattering problem for Ef=0.001
+Ef = 0.001
 call qt%calculate_modes(Ef)
 call qt%solve(1,Ef)
+! Save calculated electron density to file
 do i = 1 , size(qt%qauxvec)
     qt%qauxvec(i) = sum(qt%densities(:,i))
 enddo
 call qt%qsystem%save_data(output_folder//"densities.xml",array2d=qt%densities,array1d=qt%qauxvec)
- ! ----------------------------------------------------------
- ! X. Clean memory...
- ! ----------------------------------------------------------
+! Perform scan in function of Energy
+open(unit=111,file=output_folder//"T.dat")
+print*,"Performing energy scan..."
+QSYS_DEBUG_LEVEL = 1 ! show more info
+do Ef = 0.0 , 0.001 , 0.000025
+    ! Update hamiltonian elemenents value
+    call qt%qsystem%update_lattice(c_default=connect)
+    call qt%calculate_modes(Ef)
+    call qt%solve(1,Ef)
 
- call qt%destroy_system()
- print*,"Generating plots..."
- print*,"Plotting band structure..."
- call system("cd "//output_folder//"; ./plot_bands.py")
- print*,"Plotting eigenvectors..."
- call system("cd "//output_folder//"; ./plot_eigenvecs.py")
- print*,"Use Viewer program to see the structure and crated lead."
+    print*,Ef
+    write(111,"(100f20.6)"),Ef,sum(qt%Tn(:))
+enddo
+close(111)
 
- contains
+
+! ----------------------------------------------------------
+! X. Clean memory...
+! ----------------------------------------------------------
+call lead_shape%destroy_shape()
+call qt%destroy_system()
+print*,"Generating plots..."
+print*,"Plotting band structure..."
+call system("cd "//output_folder//"; ./plot_bands.py")
+print*,"Plotting eigenvectors..."
+call system("cd "//output_folder//"; ./plot_eigenvecs.py")
+print*,"Plotting Transmission..."
+call system("cd "//output_folder//"; ./plot_T.py")
+print*,"Use Viewer program to see the structure and crated leads."
+contains
 
 ! ---------------------------------------------------------------------------
 ! This function decides if site A (called here atomA) with spin s1 has hoping

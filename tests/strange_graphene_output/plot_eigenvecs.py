@@ -37,6 +37,7 @@ for i in range(9):
     ax.set_xticks([0,20,40,60])
     plt.title("State n="+str(i+1))
 
+
 plt.tight_layout()
 plt.savefig("eigenvecs.png")
 #plt.show()

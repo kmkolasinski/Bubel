@@ -20,6 +20,9 @@ implicit none
 private
 complex*16,parameter :: II = cmplx(0.0D0,1.0D0)
 integer ,parameter :: M_IN = 1 , M_OUT = 2
+
+
+
 type qlead
     type(qshape) :: lead_shape                         ! contains the area/volume in which are
                                                        ! located atoms which belong to the lead.
@@ -27,8 +30,8 @@ type qlead
 
     complex*16,dimension(:,:) , allocatable :: valsH0  ! Hamiltonian of the lead - unit cell
     complex*16,dimension(:,:) , allocatable :: valsTau ! Coupling matrix to the next unit cell
-    complex*16,dimension(:,:) , allocatable :: valsS0  ! Overlaps in the lead
-    complex*16,dimension(:,:) , allocatable :: valsS1  ! Overlaps in the next unit cell
+    complex*16,dimension(:,:) , allocatable :: valsS0  ! Overlaps in the lead in most cases this is diagonal matrix
+    complex*16,dimension(:,:) , allocatable :: valsS1  ! Overlaps in the next unit cell in most cases this is "zero matrix"
 
     integer :: no_sites                                ! number of unknowns (number of sites in the lead,
                                                        ! including spin states)
@@ -99,7 +102,9 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
     doubleprecision :: minimum_distance,dist
 
     ! copy shape for future possible usage
-    this%lead_shape  = lshape
+    call this%lead_shape%copyFrom(lshape)
+
+
     this%lead_vector = lvec
 
     print*,"SYS::LEAD::Initializing lead unit cell parameters"
@@ -386,6 +391,8 @@ subroutine destroy(this)
     if(allocated(this%Tnm))          deallocate(this%Tnm)
     if(allocated(this%currents))     deallocate(this%currents)
 
+    call this%lead_shape%destroy_shape()
+
     this%no_sites    = 0
     this%no_in_modes = 0
     this%no_out_em   = 0
@@ -414,15 +421,16 @@ subroutine bands(this,filename,kmin,kmax,dk,Emin,Emax)
     !                    LAPACK
     ! -------------------------------------------------
     !     .. Local Scalars ..
-    INTEGER          INFO, IFAIL, LWORK, LRWORK, LIWORK, IL, IU, M , LWMAX
+    INTEGER          INFO, LWORK, LRWORK, LIWORK, IL, IU, M , LWMAX
     DOUBLE PRECISION ABSTOL, VL, VU
 
     !     .. Local Arrays ..
-    INTEGER,allocatable,dimension(:)          :: ISUPPZ, IWORK
+    INTEGER,allocatable,dimension(:)          :: ISUPPZ, IWORK , IFAIL
     DOUBLE PRECISION,allocatable,dimension(:) :: EVALS( : ), RWORK( : )
     COMPLEX*16,allocatable,dimension(:)       :: Z( :, : ), WORK( : )
     COMPLEX*16,allocatable,dimension(:,:)     :: Hamiltonian,Overlaps
-
+    logical :: bIsIdentity
+    doubleprecision :: absSum
     print*,"SYS::LEAD::Generating band structure data to file:",filename
     ! The size of the system
     N = this%no_sites
@@ -434,6 +442,7 @@ subroutine bands(this,filename,kmin,kmax,dk,Emin,Emax)
     allocate(ISUPPZ( 2*N ))
     allocate(EVALS ( N ))
     allocate(Z( N, N ))
+    allocate(IFAIL( 2*N ))
 
     allocate(IWORK ( LWMAX ))
     allocate(RWORK ( LWMAX ))
@@ -476,7 +485,22 @@ subroutine bands(this,filename,kmin,kmax,dk,Emin,Emax)
     allocate(RWORK ( LRWORK ))
     allocate(WORK  ( LWORK  ))
 
-
+    bIsIdentity = .true.
+    ! Checking if overlap matrix is idenity matrix
+    absSum      = sum(abs(this%valsS1))
+    if( absSum > 1.0D-6 ) bIsIdentity = .false.
+    do i = 1 , N
+        if(.not. bIsIdentity) exit
+    do j = 1 , N
+        if(i == j .and. abs(this%valsS0(i,j)-1.0) > 1.0D-6 ) then
+            bIsIdentity = .false.
+            exit
+        else if( i /= j .and. abs(this%valsS0(i,j)) > 1.0D-6  ) then
+            bIsIdentity = .false.
+            exit
+        endif
+    enddo
+    enddo
     ! Perform scan
     open(unit = 782321, file= filename )
     do skank = kmin , kmax + dk/2 , dk
@@ -487,11 +511,13 @@ subroutine bands(this,filename,kmin,kmax,dk,Emin,Emax)
                 Hamiltonian(i,j) = this%valsH0(i,j) + this%valsTau(i,j)*exp(kvec) + conjg(this%valsTau(j,i)*exp(kvec))
         enddo
         enddo
+        Overlaps = 0
         do i = 1 , N
         do j = 1 , N
                 Overlaps(i,j)    = this%valsS0(i,j) + this%valsS1(i,j)*exp(kvec) + conjg(this%valsS1(j,i)*exp(kvec))
         enddo
         enddo
+
         ABSTOL = -1.0
         !     Set VL, VU to compute eigenvalues in half-open (VL,VU] interval
         VL = Emin
@@ -501,14 +527,16 @@ subroutine bands(this,filename,kmin,kmax,dk,Emin,Emax)
         !
         EVALS = 0
         M  = 0
-!        CALL ZHEEVR( "V", 'Values', 'Lower', N, Hamiltonian, N, VL, VU, IL,&
-!        &             IU, ABSTOL, M, EVALS, Z, N, ISUPPZ, WORK, LWORK, RWORK,&
-!        &             LRWORK, IWORK, LIWORK, INFO )
 
+        if(bIsIdentity) then
+        CALL ZHEEVR( "V", 'Values', 'Lower', N, Hamiltonian, N, VL, VU, IL,&
+        &             IU, ABSTOL, M, EVALS, Z, N, ISUPPZ, WORK, LWORK, RWORK,&
+        &             LRWORK, IWORK, LIWORK, INFO )
+        else
         CALL ZHEGVX(1,'Vectors','Values in range','Upper',N,Hamiltonian,N,Overlaps,N,VL,VU,IL, &
                       IU,ABSTOL,M,EVALS,Z,N,WORK,LWORK,RWORK, &
                       IWORK,IFAIL,INFO)
-
+        endif
         if(M > 0) then
             write(782321,"(1000e20.10)"),skank,EVALS(1:M)
         endif
@@ -519,6 +547,7 @@ subroutine bands(this,filename,kmin,kmax,dk,Emin,Emax)
     deallocate(ISUPPZ)
     deallocate(EVALS)
     deallocate(Z)
+    deallocate(IFAIL)
 
     deallocate(IWORK)
     deallocate(RWORK)
@@ -548,14 +577,15 @@ subroutine calculate_modes(this,Ef)
     COMPLEX*16 , dimension(:) ,     allocatable  :: ALPHA , BETA , WORK
     double precision, dimension(:), allocatable  :: RWORK
 
-    doubleprecision :: tmpc,current,time,dval1,dval2
-    COMPLEX*16 :: DUMMY(1,1),lambda
+    doubleprecision :: tmpc,current,time,dval1,dval2,time_calc
+    COMPLEX*16 :: DUMMY(1,1),lambda,one,zero
 
 
     time = get_clock()
     N = this%no_sites
-
+    if(QSYS_DEBUG_LEVEL > 0) then
     print*,"SYS::LEAD::Finding lead modes for N=",N
+    endif
     ! ---------------------------------------
     ! Memoru allocations
     ! ---------------------------------------
@@ -589,12 +619,20 @@ subroutine calculate_modes(this,Ef)
     this%SigmaMat = 0
     this%LambdaMat = 0
 
+    ! Setting the parameters for LAPACK
+    LWMAX = 40 * N
+    LDVL  = 2  * N
+    LDVR  = 2  * N
+
+    allocate(ALPHA(2*N))
+    allocate(BETA(2*N))
+    allocate(RWORK(8*N))
+    allocate(WORK(LWMAX))
     ! -------------------------------------------------------
-    ! Creation of the Generalize eigenvalue problem Eq. (52)
+    ! Creation of the Generalized eigenvalue problem Eq. (52)
     ! -------------------------------------------------------
-!    print*,"S1="
+888 if(QSYS_USE_ZGGEV_TO_FIND_MODES) then
     do i = 1 , N
-!        print"(50f9.4)", dble(this%valsS1(i,:))
     do j = 1 , N
         Mdiag(i,j) =  conjg(this%valsTau(j,i)) - Ef*conjg(this%valsS1(j,i)) ! Dag of Tau
     enddo
@@ -623,17 +661,6 @@ subroutine calculate_modes(this,Ef)
     MB(1:N,1:N)         = Mdiag
     MB(N+1:2*N,N+1:2*N) = this%valsTau  - this%valsS1*Ef
 
-    ! Ustalenie parametrow LAPACKA
-    LWMAX = 40 * N
-    LDVL  = 2  * N
-    LDVR  = 2  * N
-    ! Alokacja macierzy LAPACKA
-    allocate(ALPHA(2*N))
-    allocate(BETA(2*N))
-    allocate(RWORK(8*N))
-    allocate(WORK(LWMAX))
-
-
     LWORK = -1
     ! Initalization
     CALL ZGGEV("N","N", 2*N, MA, 2*N, MB,2*N, ALPHA,BETA, &
@@ -648,6 +675,62 @@ subroutine calculate_modes(this,Ef)
         stop
     endif
 
+    ! ------------------------------------------------------------
+    else ! Convert Generalized eigenvalue problem to standard one
+    ! ------------------------------------------------------------
+    do i = 1 , N
+    do j = 1 , N
+        Mdiag(i,j) =  conjg(this%valsTau(j,i)) - Ef*conjg(this%valsS1(j,i)) ! Dag of Tau
+    enddo
+    enddo
+    ! Filling matrices
+    MA  = 0
+    MB  = 0
+    ! Invert block NxN matrix
+    blochF(1,:,:) = this%valsTau  - this%valsS1*Ef
+
+    call inverse_matrix(N,blochF(1,:,:))
+    if(B_SINGULAR_MATRIX) then
+        print*,"==============================================================================="
+        print*,"SYS::ERROR::Lead B matrix is singular, trying to find eigen modes "
+        print*,"            modes with ZGGEV solver. Do you work with Graphene ? ;)"
+        print*,"            Set QSYS_USE_ZGGEV_TO_FIND_MODES = .true. to disable this message."
+        print*,"==============================================================================="
+        QSYS_USE_ZGGEV_TO_FIND_MODES = .true.
+        goto 888
+    endif
+!   MA(N+1:2*N,1:N) = -matmul(blochF(1,:,:),Mdiag) ! diag contains hermitian cojugate of Tau
+   one  = -1
+   zero = 0
+   call ZGEMM( 'N', 'N', N, N, N, one ,blochF(1,:,:)  , N, &
+                        Mdiag, N, zero,MA(N+1:2*N,1:N), N )
+    ! filling diag with diagonal matrix
+    Mdiag = 0
+    do i = 1 , N
+        Mdiag(i,i) =  1
+    enddo
+    MA(1:N,N+1:2*N)     =  Mdiag
+
+    one = +1
+    blochF(2,:,:) = this%valsS0*Ef - this%valsH0
+    call ZGEMM( 'N', 'N', N, N, N, one ,blochF(1,:,:)  , N, &
+                        blochF(2,:,:), N, zero,MA(N+1:2*N,N+1:2*N), N )
+!    MA(N+1:2*N,N+1:2*N) = matmul(blochF(1,:,:),this%valsS0*Ef - this%valsH0)
+
+    LWORK = -1
+    CALL ZGEEV( 'Not Left', 'Vectors',2*N, MA, 2*N, ALPHA, DUMMY, 1,&
+                Z, LDVR, WORK, LWORK, RWORK, INFO )
+    LWORK = MIN( LWMAX, INT( WORK( 1 ) ) )
+    CALL ZGEEV( 'Not Left', 'Vectors', 2*N, MA, 2*N, ALPHA, DUMMY, 1, &
+                Z, LDVR, WORK, LWORK, RWORK, INFO )
+
+    ! Checking solution
+    if( INFO /= 0 ) then
+        print*,"SYS::LEAD::Cannot solve generalized eigenvalue problem for eigenmodes: ZGEEV info:",INFO
+        stop
+    endif
+    BETA  = 1.0
+    endif ! else choose solver SGGEV
     ! -------------------------------------------------------
     ! Calculating the number of modes
     ! -------------------------------------------------------
@@ -665,7 +748,7 @@ subroutine calculate_modes(this,Ef)
             ! Normalize vectors
             c(i,:) = c(i,:)/sqrt(sum(abs(c(i,:))**2))
             d(i,:) = d(i,:)/sqrt(sum(abs(d(i,:))**2))
-
+!            print*,i,sqrt(sum(abs(c(i,:))**2)),sqrt(sum(abs(d(i,:))**2))
             if(  abs(abs(lambda) - 1.0) < 1.0E-6 ) then ! check if propagating mode
                 current = (mode_current(N,c(i,:),d(i,:),this%valsTau))
                 tmpc    = current
@@ -686,20 +769,20 @@ subroutine calculate_modes(this,Ef)
 
             else if( abs(lambda) < 1.0 .and. abs(lambda)> 1.D-16 ) then
                 this%no_in_em  = this%no_in_em + 1
-            else ! Strange case when lambda = 0 "standing mode" we assume that means
+            else ! Strange case when lambda = 0 "standing mode" we assume that
                  ! this case belongs to both evanescent modes
                 this%no_in_em  = this%no_in_em  + 1
                 this%no_out_em = this%no_out_em + 1
             endif ! end of filtering
         endif ! end of beta > 0
     enddo
-
+    if(QSYS_DEBUG_LEVEL > 0) then
     print*,"SYS::LEAD::Lead stats:"
     print*,"           No. incoming modes:",this%no_in_modes
     print*,"           No. outgoing modes:",this%no_out_modes
     print*,"           No. in. evan.modes:",this%no_in_em
     print*,"           No. out.evan.modes:",this%no_out_em
-
+    endif
 
     ! Allocate T-Matrix
     allocate(this%Tnm(this%no_out_modes,this%no_out_modes))
@@ -760,6 +843,7 @@ subroutine calculate_modes(this,Ef)
     ! Sorting propagating modes by the current amplitde
     call sort_modes(this%no_in_modes ,this%modes(M_IN,:,:) ,this%lambdas(M_IN,:),this%currents(M_IN,:))
     call sort_modes(this%no_out_modes,this%modes(M_OUT,:,:),this%lambdas(M_OUT,:),this%currents(M_OUT,:))
+    if(QSYS_DEBUG_LEVEL > 0) then
     print*,"-------------------------------------------------------"
     print*," K vec.  :    In     |       Out  |          Fluxes   "
     print*,"-------------------------------------------------------"
@@ -769,7 +853,7 @@ subroutine calculate_modes(this,Ef)
         print"(A,i4,A,f10.4,A,1f10.4,A,2f10.4)","   K[",i,"]:",dval1," | ",dval2 ," | " , this%currents(:,i)
     enddo
     print*,"-------------------------------------------------------"
-
+    endif
 
     ! Construction of the F^-1+ matrix Eq. (57)
     blochF = 0
@@ -782,6 +866,8 @@ subroutine calculate_modes(this,Ef)
         enddo
         enddo
     enddo
+
+
     ! Construction of the F^-1+ matrix Eq. (57)
     Mdiag(:,:) = this%modes(M_OUT,:,:)
     call inverse_matrix(N,Mdiag)
@@ -793,33 +879,53 @@ subroutine calculate_modes(this,Ef)
         enddo
         enddo
     enddo
+
+
+
     ! Calculating of SigmaMatrix
     do i = 1 , N
+
     do j = 1 , N
         Mdiag(i,j) =  conjg(this%valsTau(j,i)) - Ef * conjg(this%valsS1(j,i)) ! Dag of Tau
     enddo
     enddo
-    do i = 1 , N
-    do j = 1 , N
-        do k = 1 , N
-            this%SigmaMat(i,j) = this%SigmaMat(i,j) + Mdiag(i,k)*blochF(M_OUT,k,j)
-        enddo
-    enddo
+!    this%SigmaMat = 0
+!    do i = 1 , N
+!    do j = 1 , N
+!        do k = 1 , N
+!            this%SigmaMat(i,j) = this%SigmaMat(i,j) + Mdiag(i,k)*blochF(M_OUT,k,j)
+!        enddo
+!    enddo
+!    enddo
 
-    enddo
+    one  = 1.0
+    zero = 0.0
+    call ZGEMM( 'N', 'N', N, N, N, one ,Mdiag  , N, &
+                        blochF(M_OUT,:,:), N, zero,this%SigmaMat, N )
     ! add to sigma H0 internal hamiltonian
     this%SigmaMat = this%SigmaMat + this%valsH0
 
-    ! Lambda matrix calculation:
-    do i = 1 , N
-    do j = 1 , N
-        do k = 1 , N
-            this%LambdaMat(i,j) = this%LambdaMat(i,j) + Mdiag(i,k)*(blochF(M_IN,k,j)-blochF(M_OUT,k,j))
-        enddo
-    enddo
-    enddo
 
+    ! Lambda matrix calculation:
+!    this%LambdaMat = 0
+!    do i = 1 , N
+!    do j = 1 , N
+!        do k = 1 , N
+!            this%LambdaMat(i,j) = this%LambdaMat(i,j) + Mdiag(i,k)*(blochF(M_IN,k,j)-blochF(M_OUT,k,j))
+!        enddo
+!    enddo
+!    enddo
+
+    blochF(M_OUT,:,:) = blochF(M_IN,:,:)-blochF(M_OUT,:,:)
+
+    call ZGEMM( 'N', 'N', N, N, N, one ,Mdiag  , N, &
+                        blochF(M_OUT,:,:), N, zero,this%LambdaMat, N )
+
+
+
+    if(QSYS_DEBUG_LEVEL > 0) then
     print*,"SYS::LEAD::Modes calculated in time:", get_clock() - time , "[s]"
+    endif
     deallocate(Mdiag)
     deallocate(blochF)
 
@@ -904,6 +1010,8 @@ subroutine inverse_matrix(N,A)
   integer,allocatable,dimension (:)    :: IPIV
   integer info,error
 
+
+  B_SINGULAR_MATRIX = .false.
   allocate(WORK(N),IPIV(N),stat=error)
   if (error.ne.0)then
     print *,"SYS::LEAD::ZGETRF::error:not enough memory"
@@ -914,6 +1022,8 @@ subroutine inverse_matrix(N,A)
 !    write(*,*)"succeded"
   else
     write(*,*)"SYS::LEAD::ZGETRF::failed with info:",info
+    write(*,*)"           It seems your matrix is singular check your code"
+    B_SINGULAR_MATRIX = .true.
   end if
   call ZGETRI(N,A,N,IPIV,WORK,N,info)
   if(info .eq. 0) then

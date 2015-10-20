@@ -81,11 +81,15 @@ subroutine calculate_modes(this,Ef)
     class(qscatter) :: this
     integer :: i
     doubleprecision :: Ef
+    if(QSYS_DEBUG_LEVEL > 0) then
     print*,"SYS::SCATTER::Calculating lead modes"
+    endif
     do i = 1, this%no_leads
+        if(QSYS_DEBUG_LEVEL > 0) then
         print*,"-----------------------------------------"
         print*,"SYS::LEAD:",i
         print*,"-----------------------------------------"
+        endif
         call this%leads(i)%calculate_modes(Ef)
     enddo
 end subroutine calculate_modes
@@ -150,9 +154,9 @@ subroutine construct_matrix(this,Ef)
         this%NO_NON_ZERO_VALUES = this%NO_NON_ZERO_VALUES + this%leads(l)%no_sites**2 * 2
     enddo
 
-
+    if(QSYS_DEBUG_LEVEL > 0) then
     print*,"SYS::SCATTERING: N=",this%NO_VARIABLES," NON ZERO:",this%NO_NON_ZERO_VALUES
-
+    endif
 
     if(allocated(this%MATHVALS)) deallocate(this%MATHVALS)
     if(allocated(this%ROWCOLID)) deallocate(this%ROWCOLID)
@@ -288,8 +292,9 @@ subroutine solve(this,leadID,Ef)
                       this%MATHVALS(:),phi,1)
 
     timer_factorization = get_clock() - timer_factorization
+    if(QSYS_DEBUG_LEVEL > 0) then
     print*,"SYS::SCATTERING::Factorization time:",timer_factorization
-
+    endif
     this%Tn = 0
 
     ! ---------------------------------------------------------
@@ -324,12 +329,13 @@ subroutine solve(this,leadID,Ef)
     enddo
     this%Tn(modin) = total_Tn
     enddo ! end of loop over modes
-
+    if(QSYS_DEBUG_LEVEL > 0) then
     print*,"-----------------------------------------"
     print*,"SYS::SCATTERING problem solved:"
     print*,"        T=",sum(this%Tn)
     print*,"        R=", this%leads(leadID)%no_in_modes-sum(this%Tn)
     print*,"-----------------------------------------"
+    endif
     ! Free memory
     call solve_SSOLEQ(this%NO_VARIABLES, &
                       this%NO_NON_ZERO_VALUES,&

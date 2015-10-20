@@ -1,12 +1,14 @@
 module modcommons
 implicit none
 
+integer,parameter,public  :: QSYS_NO_BONDS_INC_VALUE      = 10     ! For sparse structures
+integer,parameter,public  :: QSYS_NO_ATOMS_INC_VALUE      = 10000  !
+logical,public            :: QSYS_USE_ZGGEV_TO_FIND_MODES = .false. ! When finding modes use generalied eigenvalue problem, can be more stable
+logical,public            :: QSYS_DISABLE_HERMICITY_CHECK = .false.
+integer,public            :: QSYS_DEBUG_LEVEL = 0   ! 0 - less messages, 1-more, 2-even more
 
-
+logical,public            :: B_SINGULAR_MATRIX = .false.
 private
-
-integer ,parameter :: QSYS_NO_BONDS_INC_VALUE = 10 ! For sparse structures
-
 ! -----------------------------------------------
 ! Stucture which holds connection between
 ! Atom A and B.
@@ -41,15 +43,18 @@ type qatom
 
 end type qatom
 
+
+
+! ----------------------------------------------------------------
+! Structure responsible for  Nearest neigthbour search parameter
+! ----------------------------------------------------------------
 ENUM , BIND(C)
   ENUMERATOR :: QSYS_NNB_FILTER_BOX       = 1
   ENUMERATOR :: QSYS_NNB_FILTER_CHECK_ALL = 2
   ENUMERATOR :: QSYS_NNB_FILTER_DISTANCE  = 3
 END ENUM
 
-! ----------------------------------------------------------------
-! Structure responsible for  Nearest neigthbour search parameter
-! ----------------------------------------------------------------
+
 type nnb_params
     doubleprecision :: box(3) ! estimated search distance in XYZ directions
     doubleprecision :: distance        ! if NNB_FILTER = QSYS_NNB_FILTER_DISTANCE compare distance

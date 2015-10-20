@@ -20,7 +20,7 @@ y     = data[:,1]
 
 dens  = data[:,3]
 no_x_samples = 50
-no_y_samples = 25
+no_y_samples = 50
 
 xmin , ymin = min(x) , min(y)
 xmax , ymax = max(x) , max(y)
@@ -34,8 +34,9 @@ for i in range(9):
     ax = plt.subplot(331+i)
     ax.contourf(xi, yi, zi, 40 )
     ax.set_aspect('equal')
-    plt.title("State n="+str(i+1))
+    ax.set_title("State n="+str(i+1))
+    ax.set_xticks([0,250])
 
-
+plt.tight_layout()
 plt.savefig("eigenvecs.png")
 #plt.show()

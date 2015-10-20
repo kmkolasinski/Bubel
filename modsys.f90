@@ -34,10 +34,7 @@ interface
     end function func_matrix
 endinterface
 private
-integer,parameter :: QSYS_NO_ATOMS_INC_VALUE      = 10000
-logical           :: QSYS_DISABLE_HERMICITY_CHECK = .false.
-doubleprecision   :: QSYS_COUPLING_CUTOFF = 1.0D-20 ! coupling smaller than this number will not be included in the matrix
-                                                    ! used by c_matrix connection method
+
 
 
 
@@ -75,8 +72,6 @@ type qsys
 
 endtype qsys
 public :: qsys
-public :: QSYS_DISABLE_HERMICITY_CHECK, QSYS_COUPLING_CUTOFF
-
 public :: convert_to_HB , sort_col_vals , solve_SSOLEQ
 contains
 
@@ -616,6 +611,7 @@ subroutine make_lattice(sys,nnbparams,c_default,c_simple,c_matrix,o_default,o_si
 
     if(present(c_matrix))deallocate(cpl_matrix)
     call sys%update_overlaps(o_default,o_simple,o_matrix)
+
     print*,"SYS::Connections has been found in ", get_clock()-time_start , " sec."
 
 end subroutine make_lattice
@@ -657,7 +653,7 @@ subroutine update_lattice(sys,c_default,c_simple,c_matrix,o_default,o_simple,o_m
             ts = sys%atoms(i)%bonds(b)%toInnerID
             fa = i
             fs = sys%atoms(i)%bonds(b)%fromInnerID
-
+            cpl_value = 0.0
             if(present(c_simple)) then
                 bondTest = c_simple(sys%atoms(fa),sys%atoms(ta),cpl_value)
                 sys%atoms(fa)%bonds(b)%bondValue = cpl_value
@@ -686,7 +682,9 @@ subroutine update_lattice(sys,c_default,c_simple,c_matrix,o_default,o_simple,o_m
     ! is the same as for the atom B connected with atom A.
     ! If both atoms are in the same spin state.
     if( .not. QSYS_DISABLE_HERMICITY_CHECK) then
-    print*,"SYS::INFO::Checking update hermiticity of the matrix."
+    if(QSYS_DEBUG_LEVEL > 0) then
+    print*,"SYS::INFO::Checking updated hermiticity of the matrix."
+    endif
     do i = 1 , sys%no_atoms ! take the atom A
         if(sys%atoms(i)%bActive) then
             do j = 1 , sys%atoms(i)%no_bonds ! take one bond to atom B
@@ -723,8 +721,9 @@ subroutine update_lattice(sys,c_default,c_simple,c_matrix,o_default,o_simple,o_m
     endif ! end of if disable hermiticity check
 
     call sys%update_overlaps(o_default,o_simple,o_matrix)
+    if(QSYS_DEBUG_LEVEL > 0) then
     print*,"SYS::Lattice update done in", get_clock()-time_start , " sec."
-
+    endif
     if(allocated(cpl_matrix)) deallocate(cpl_matrix)
 endsubroutine update_lattice
 
@@ -824,8 +823,9 @@ subroutine update_overlaps(sys,o_default,o_simple,o_matrix)
     enddo
     endif ! end of if disable hermiticity check
     endif ! present overlap check
-    print*,"SYS::Lattice update done in", get_clock()-time_start , " sec."
-
+    if(QSYS_DEBUG_LEVEL > 0 .and. sys%bOverlapMatrixEnabled ) then
+    print*,"SYS::Overlap matrix update done in", get_clock()-time_start , " sec."
+    endif
     if(allocated(cpl_matrix)) deallocate(cpl_matrix)
 endsubroutine update_overlaps
 
@@ -1047,9 +1047,9 @@ subroutine calc_eigenproblem(sys,pEmin,pEmax,NoStates,no_feast_contours,print_in
     NO_NON_ZERO_VALUES = itmp
     ! The number of unknows is taken from the last global index
     NO_VARIABLES       = sys%system_size
-
+    if(QSYS_DEBUG_LEVEL > 0) then
     print*,"SYS::Calulating eigenvalue problem using FEAST solver"
-
+    endif
     allocate(MATHVALS(NO_NON_ZERO_VALUES))
     allocate(ROWCOLID(NO_NON_ZERO_VALUES,2))
 
@@ -1210,8 +1210,9 @@ subroutine calc_eigenproblem(sys,pEmin,pEmax,NoStates,no_feast_contours,print_in
         deallocate(EVectors)
         deallocate(Evalues)
         deallocate(Rerrors)
-
+        if(QSYS_DEBUG_LEVEL > 0) then
         print*,"SYS::Eigenvalues calculated. Found:",sys%no_eigenvalues
+        endif
 end subroutine calc_eigenproblem
 
 
@@ -1444,9 +1445,9 @@ end subroutine sort_col_vals
              WRITE(*,*) 'SYS::PARDISO::The following ERROR was detected during the factorization step:', error
             STOP 1
           ENDIF
-
+          if(QSYS_DEBUG_LEVEL > 0) then
           WRITE(*,*) 'Peak memory usage   = ',max (IPARM(15), IPARM(16)+IPARM(17))/1024.0,"[MB]"
-
+          endif
       case(2)
           b_sol = 0
     !C.. Back substitution and iterative refinement
@@ -1459,7 +1460,6 @@ end subroutine sort_col_vals
           !WRITE(*,*) 'Solve completed ... '
           IF (error .NE. 0) THEN
              WRITE(*,*) 'SYS::PARDISO::The following ERROR was detected: ', error
-
           ENDIF
 
       case(3)
@@ -1467,8 +1467,9 @@ end subroutine sort_col_vals
             phase     = -1           ! release internal memory
             CALL pardiso (pt, maxfct, mnum, mtype, phase, n, ddum, idum, idum,&
                        idum, nrhs, iparm, msglvl, ddum, ddum, error)
-
+            if(QSYS_DEBUG_LEVEL > 0) then
             print*,"SYS::PARDISO::Solve time needed:",get_clock()-total_time,"[s]"
+            endif
             deallocate(b_sol)
       endselect
 
@@ -1501,8 +1502,9 @@ end subroutine sort_col_vals
 ! Last, free the storage allocated inside SuperLU
 !      iopt = 3
       call c_fortran_zgssv( iopt, n, nnz, nrhs, values, colptr,rowind, b, ldb,factors, info )
-
+      if(QSYS_DEBUG_LEVEL > 0) then
       print*,"SYS::SuperLU::Computations time:",get_clock()-total_time,"[s]"
+      endif
       endselect
 !DEC$ ENDIF
 
