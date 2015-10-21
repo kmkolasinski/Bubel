@@ -167,16 +167,16 @@ void GLWidget::initializeGL()
     glEnable(GL_LIGHTING);
     glEnable(GL_MULTISAMPLE);
 
-    int no_lights = 5;
+    int no_lights = 1;
     for (int light = 0 ; light < no_lights ; light++){
     glEnable(GL_LIGHT0+light);
     float rad = 15.0;
     float x = ((light==1)?rad:0.0+(light==2)?-rad:0.0);
     float y = ((light==3)?rad:0.0+(light==4)?-rad:0.0);
     GLfloat lightPosition[4] = { x , y , 10.0, 1.0 };
-    float ampd = 1.0/(no_lights-1);
+    float ampd = 0.7/(no_lights);
     GLfloat lightDiffuse [4] = { ampd, ampd, ampd, 1.0 };
-    float ampa = 0.2/no_lights;
+    float ampa = 1.0/no_lights;
     GLfloat lightAmbient [4] = { ampa, ampa, ampa, 1.0 };
 
     glLightfv(GL_LIGHT0+light, GL_POSITION, lightPosition);

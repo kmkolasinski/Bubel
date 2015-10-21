@@ -576,7 +576,7 @@ subroutine calculate_modes(this,Ef)
     complex*16, allocatable , dimension(:,:)      :: Mdiag,d,c
     complex*16, allocatable , dimension(:,:,:)    :: blochF
 
-    integer :: k,i,j,no_in,no_out,no_e_in,no_e_out
+    integer :: k,p,q,i,j,no_in,no_out,no_e_in,no_e_out,no_modes
 
     INTEGER                                      :: LDVL, LDVR , LWMAX , LWORK , INFO
     COMPLEX*16 , dimension(:) ,     allocatable  :: ALPHA , BETA , WORK
@@ -760,6 +760,216 @@ subroutine calculate_modes(this,Ef)
     this%no_in_em     = 0
     this%no_out_em    = 0
 
+!! ----------------------------------------------------------------------------
+!!
+!! ----------------------------------------------------------------------------
+!
+!
+!    do i = 1 , 2*N
+!        if(abs(Beta(i))>1e-16) then !
+!            lambda= (ALPHA(i)/BETA(i))
+!!            print"(i,4f16.5,A,f16.6)",i,abs(BETA(i)),abs(ALPHA(i)),lambda,"abs=",abs(lambda)
+!            c(i,:) =  Z(1:N,i)
+!            d(i,:) =  Z(N+1:2*N,i)
+!            ! Normalize vectors
+!            c(i,:) = c(i,:)/sqrt(sum(abs(c(i,:))**2))
+!            d(i,:) = d(i,:)/sqrt(sum(abs(d(i,:))**2))
+!!            print*,i,sqrt(sum(abs(c(i,:))**2)),sqrt(sum(abs(d(i,:))**2))
+!            if(  abs(abs(lambda) - 1.0) < 1.0E-6 ) then ! check if propagating mode
+!                current = (mode_current(N,c(i,:),d(i,:),this%valsTau))
+!                tmpc    = current
+!                ! Normalize to current = 1
+!                c(i,:)  = c(i,:)/sqrt(abs(current))
+!                d(i,:)  = d(i,:)/sqrt(abs(current))
+!                ! Sort between incoming and outgoing
+!                if(current > 0) then
+!                    this%no_in_modes  = this%no_in_modes + 1
+!                    this%currents(M_IN,this%no_in_modes) = tmpc
+!                else
+!                    this%no_out_modes = this%no_out_modes + 1
+!                    this%currents(M_OUT,this%no_out_modes) = tmpc
+!                endif
+!            ! Evanescent modes filtering
+!            else if( abs(lambda) > 1.0 ) then
+!                this%no_out_em = this%no_out_em + 1
+!
+!            else if( abs(lambda) < 1.0 .and. abs(lambda)> 1.D-16 ) then
+!                this%no_in_em  = this%no_in_em + 1
+!            else ! Strange case when lambda = 0 "standing mode" we assume that
+!                 ! this case belongs to both evanescent modes
+!                this%no_in_em  = this%no_in_em  + 1
+!                this%no_out_em = this%no_out_em + 1
+!            endif ! end of filtering
+!        endif ! end of beta > 0
+!    enddo
+!    if(QSYS_DEBUG_LEVEL > 0) then
+!    print*,"SYS::LEAD::Lead stats:"
+!    print*,"           No. incoming modes:",this%no_in_modes
+!    print*,"           No. outgoing modes:",this%no_out_modes
+!    print*,"           No. in. evan.modes:",this%no_in_em
+!    print*,"           No. out.evan.modes:",this%no_out_em
+!    endif
+!
+!    ! checksum
+!    no_in = this%no_in_modes - this%no_out_modes + this%no_in_em - this%no_out_em
+!
+!    if( no_in /= 0 ) then
+!        print*,"SYS::LEAD::ERROR::The total number of propagating modes and evanescent ones"
+!        print*,"           does not sum up to same number in for IN/OUT modes. The difference"
+!        print*,"           is following:",no_in," which means that your system is probably"
+!        print*,"           higlhy degenerated (symmetry reasons or badly formulated problem)."
+!        print*,"           The program will stop!"
+!        print*,"           You can try to remove the degeneracy by adding small perturbation"
+!        print*,"           to your system."
+!        stop -1
+!    endif
+!
+!
+!    ! Allocate T-Matrix
+!    allocate(this%Tnm(this%no_out_modes,this%no_out_modes))
+!    this%Tnm      = 0
+!
+!    ! -------------------------------------------------------
+!    ! Filling arrays
+!    ! -------------------------------------------------------
+!    no_in    = 0
+!    no_e_in  = 0
+!    no_out   = 0
+!    no_e_out = 0
+!    do i = 1 , 2*N
+!        if(abs(Beta(i))>1e-16) then
+!            lambda= (ALPHA(i)/BETA(i))
+!            if(  abs(abs(lambda) - 1.0) < 1.0E-6 ) then
+!                current = mode_current(N,c(i,:),d(i,:),this%valsTau)
+!                if(current > 0) then
+!                    no_in  = no_in + 1
+!                    this%modes   (M_IN,no_in,:)  = c(i,:)
+!                    this%lambdas (M_IN,no_in)    = lambda
+!                else
+!                    no_out = no_out + 1
+!                    this%modes   (M_OUT,no_out,:) = c(i,:)
+!                    this%lambdas (M_OUT,no_out)   = lambda
+!                endif
+!            else if( abs(lambda) > 1.0 ) then
+!                    no_e_out = no_e_out + 1
+!                    this%modes  (M_OUT,this%no_out_modes+no_e_out,:) = c(i,:)
+!                    this%lambdas(M_OUT,this%no_out_modes+no_e_out)   = lambda
+!            else if( abs(lambda) < 1.0 .and. abs(lambda)> 1.D-16 ) then
+!                    no_e_in = no_e_in + 1
+!                    this%modes  (M_IN,this%no_in_modes+no_e_in,:) = c(i,:)
+!                    this%lambdas(M_IN,this%no_in_modes+no_e_in)   = lambda
+!            else
+!                    no_e_out = no_e_out + 1
+!                    this%modes  (M_OUT,this%no_out_modes+no_e_out,:) = c(i,:)
+!                    this%lambdas(M_OUT,this%no_out_modes+no_e_out)   = 1.0D20
+!                    no_e_in = no_e_in + 1
+!                    this%modes  (M_IN,this%no_in_modes+no_e_in,:)    = c(i,:)
+!                    this%lambdas(M_IN,this%no_in_modes+no_e_in)      = 1.0D20
+!                    !print*,"Problematic case! Lambda == 0 "
+!            endif
+!        endif
+!    enddo
+!
+!    deallocate(ALPHA)
+!    deallocate(BETA)
+!    deallocate(RWORK)
+!    deallocate(WORK)
+!    deallocate(MA)
+!    deallocate(MB)
+!    deallocate(Z)
+!    deallocate(d)
+!    deallocate(c)
+!
+!
+!    ! Sorting propagating modes by the current amplitde
+!    call sort_modes(this%no_in_modes ,this%modes(M_IN,:,:) ,this%lambdas(M_IN,:),this%currents(M_IN,:))
+!    call sort_modes(this%no_out_modes,this%modes(M_OUT,:,:),this%lambdas(M_OUT,:),this%currents(M_OUT,:))
+!    if(QSYS_DEBUG_LEVEL > 0) then
+!    print*,"-------------------------------------------------------"
+!    print*," K vec.  :    In     |       Out  |          Fluxes   "
+!    print*,"-------------------------------------------------------"
+!    do i = 1 , this%no_in_modes
+!        dval1 = log(this%lambdas(M_IN ,i))/II
+!        dval2 = log(this%lambdas(M_OUT,i))/II
+!        print"(A,i4,A,f10.4,A,1f10.4,A,2f10.4)","   K[",i,"]:",dval1," | ",dval2 ," | " , this%currents(:,i)
+!    enddo
+!    print*,"-------------------------------------------------------"
+!    endif
+!
+!
+!    ! Construction of the F^-1+ matrix Eq. (57)
+!    blochF = 0
+!    Mdiag(:,:) = this%modes(M_IN,:,:)
+!    call inverse_matrix(N,Mdiag)
+!    do k = 1, N
+!        do i = 1, N
+!        do j = 1, N
+!        blochF(M_IN,i,j) = blochF(M_IN,i,j) + this%lambdas(M_IN,k)**(-1)  * this%modes(M_IN,k,i) * Mdiag(j,k)
+!        enddo
+!        enddo
+!    enddo
+!
+!
+!    ! Construction of the F^-1+ matrix Eq. (57)
+!    Mdiag(:,:) = this%modes(M_OUT,:,:)
+!    call inverse_matrix(N,Mdiag)
+!    this%UTildeDagger = Mdiag
+!    do k = 1, N
+!        do i = 1, N
+!        do j = 1, N
+!        blochF(M_OUT,i,j) = blochF(M_OUT,i,j) + this%lambdas(M_OUT,k)**(-1)  * this%modes(M_OUT,k,i) * Mdiag(j,k)
+!        enddo
+!        enddo
+!    enddo
+!
+!
+!
+!    ! Calculating of SigmaMatrix
+!    do i = 1 , N
+!
+!    do j = 1 , N
+!        Mdiag(i,j) =  conjg(this%valsTau(j,i)) - Ef * conjg(this%valsS1(j,i)) ! Dag of Tau
+!    enddo
+!    enddo
+!!    this%SigmaMat = 0
+!!    do i = 1 , N
+!!    do j = 1 , N
+!!        do k = 1 , N
+!!            this%SigmaMat(i,j) = this%SigmaMat(i,j) + Mdiag(i,k)*blochF(M_OUT,k,j)
+!!        enddo
+!!    enddo
+!!    enddo
+!
+!    one  = 1.0
+!    zero = 0.0
+!    call ZGEMM( 'N', 'N', N, N, N, one ,Mdiag  , N, &
+!                        blochF(M_OUT,:,:), N, zero,this%SigmaMat, N )
+!    ! add to sigma H0 internal hamiltonian
+!    this%SigmaMat = this%SigmaMat + this%valsH0
+!
+!
+!    ! Lambda matrix calculation:
+!!    this%LambdaMat = 0
+!!    do i = 1 , N
+!!    do j = 1 , N
+!!        do k = 1 , N
+!!            this%LambdaMat(i,j) = this%LambdaMat(i,j) + Mdiag(i,k)*(blochF(M_IN,k,j)-blochF(M_OUT,k,j))
+!!        enddo
+!!    enddo
+!!    enddo
+!
+!    blochF(M_OUT,:,:) = blochF(M_IN,:,:)-blochF(M_OUT,:,:)
+!
+!    call ZGEMM( 'N', 'N', N, N, N, one ,Mdiag  , N, &
+!                        blochF(M_OUT,:,:), N, zero,this%LambdaMat, N )
+
+
+
+
+! ----------------------------------------------------------------------------
+!
+! ----------------------------------------------------------------------------
+
     do i = 1 , 2*N
         if(abs(Beta(i))>1e-16) then !
             lambda= (ALPHA(i)/BETA(i))
@@ -792,8 +1002,8 @@ subroutine calculate_modes(this,Ef)
                 this%no_in_em  = this%no_in_em + 1
             else ! Strange case when lambda = 0 "standing mode" we assume that
                  ! this case belongs to both evanescent modes
-                this%no_in_em  = this%no_in_em  + 1
-                this%no_out_em = this%no_out_em + 1
+                !this%no_in_em  = this%no_in_em  + 1
+                !this%no_out_em = this%no_out_em + 1
             endif ! end of filtering
         endif ! end of beta > 0
     enddo
@@ -805,19 +1015,19 @@ subroutine calculate_modes(this,Ef)
     print*,"           No. out.evan.modes:",this%no_out_em
     endif
 
-    ! checksum
-    no_in = this%no_in_modes - this%no_out_modes + this%no_in_em - this%no_out_em
-
-    if( no_in /= 0 ) then
-        print*,"SYS::LEAD::ERROR::The total number of propagating modes and evanescent ones"
-        print*,"           does not sum up to same number in for IN/OUT modes. The difference"
-        print*,"           is following:",no_in," which means that your system is probably"
-        print*,"           higlhy degenerated (symmetry reasons or badly formulated problem)."
-        print*,"           The program will stop!"
-        print*,"           You can try to remove the degeneracy by adding small perturbation"
-        print*,"           to your system."
-        stop -1
-    endif
+!    ! checksum
+!    no_in = this%no_in_modes - this%no_out_modes + this%no_in_em - this%no_out_em
+!
+!    if( no_in /= 0 ) then
+!        print*,"SYS::LEAD::ERROR::The total number of propagating modes and evanescent ones"
+!        print*,"           does not sum up to same number in for IN/OUT modes. The difference"
+!        print*,"           is following:",no_in," which means that your system is probably"
+!        print*,"           higlhy degenerated (symmetry reasons or badly formulated problem)."
+!        print*,"           The program will stop!"
+!        print*,"           You can try to remove the degeneracy by adding small perturbation"
+!        print*,"           to your system."
+!        stop -1
+!    endif
 
 
     ! Allocate T-Matrix
@@ -854,12 +1064,12 @@ subroutine calculate_modes(this,Ef)
                     this%modes  (M_IN,this%no_in_modes+no_e_in,:) = c(i,:)
                     this%lambdas(M_IN,this%no_in_modes+no_e_in)   = lambda
             else
-                    no_e_out = no_e_out + 1
-                    this%modes  (M_OUT,this%no_out_modes+no_e_out,:) = c(i,:)
-                    this%lambdas(M_OUT,this%no_out_modes+no_e_out)   = 1.0D20
-                    no_e_in = no_e_in + 1
-                    this%modes  (M_IN,this%no_in_modes+no_e_in,:)    = c(i,:)
-                    this%lambdas(M_IN,this%no_in_modes+no_e_in)      = 1.0D20
+!                    no_e_out = no_e_out + 1
+!                    this%modes  (M_OUT,this%no_out_modes+no_e_out,:) = c(i,:)
+!                    this%lambdas(M_OUT,this%no_out_modes+no_e_out)   = 1.0D20
+!                    no_e_in = no_e_in + 1
+!                    this%modes  (M_IN,this%no_in_modes+no_e_in,:)    = c(i,:)
+!                    this%lambdas(M_IN,this%no_in_modes+no_e_in)      = 1.0D20
                     !print*,"Problematic case! Lambda == 0 "
             endif
         endif
@@ -891,73 +1101,57 @@ subroutine calculate_modes(this,Ef)
     print*,"-------------------------------------------------------"
     endif
 
+    ! Calculate overlap matrix
 
-    ! Construction of the F^-1+ matrix Eq. (57)
-    blochF = 0
-    Mdiag(:,:) = this%modes(M_IN,:,:)
-    call inverse_matrix(N,Mdiag)
-    do k = 1, N
-        do i = 1, N
-        do j = 1, N
-        blochF(M_IN,i,j) = blochF(M_IN,i,j) + this%lambdas(M_IN,k)**(-1)  * this%modes(M_IN,k,i) * Mdiag(j,k)
-        enddo
-        enddo
+    no_modes = this%no_out_modes !+ this%no_out_em
+    allocate(MA (no_modes,no_modes))
+    allocate(MB (N,N))
+    MA = 0
+    MB = 0
+    do i = 1 , no_modes
+    do j = 1 , no_modes
+        MA(i,j) = sum(conjg(this%modes(M_OUT,i,:))*this%modes(M_OUT,j,:))
     enddo
-
-
-    ! Construction of the F^-1+ matrix Eq. (57)
-    Mdiag(:,:) = this%modes(M_OUT,:,:)
-    call inverse_matrix(N,Mdiag)
-    this%UTildeDagger = Mdiag
-    do k = 1, N
-        do i = 1, N
-        do j = 1, N
-        blochF(M_OUT,i,j) = blochF(M_OUT,i,j) + this%lambdas(M_OUT,k)**(-1)  * this%modes(M_OUT,k,i) * Mdiag(j,k)
-        enddo
-        enddo
     enddo
+    call inverse_matrix(no_modes,MA)
 
+    blochF(M_OUT,:,:) = 0
+    do j = 1 , N
+    do i = 1 , N
 
+    do k = 1 , no_modes
+    do p = 1 , no_modes
+!        MB(j,i) = MB(j,i) + (-this%lambdas(M_OUT,k)**(-1))*this%modes(M_OUT,k,j)*MA(k,p)*conjg(this%modes(M_OUT,p,i))
+        MB(j,i) = MB(j,i) + (this%lambdas(M_OUT,k)-this%lambdas(M_OUT,k)**(-1)) * &
+                            this%modes(M_OUT,k,j)*MA(k,p)*conjg(this%modes(M_OUT,p,i))
+    enddo
+    enddo
+    enddo
+    blochF(M_OUT,i,i) = 1.0
+    enddo
+    blochF(M_OUT,:,:) =  blochF(M_OUT,:,:) - MB
+    blochF(M_OUT,:,:) =  MB!blochF(M_OUT,:,:) - MB
 
     ! Calculating of SigmaMatrix
     do i = 1 , N
-
     do j = 1 , N
-        Mdiag(i,j) =  conjg(this%valsTau(j,i)) - Ef * conjg(this%valsS1(j,i)) ! Dag of Tau
+        Mdiag(i,j) = conjg(this%valsTau(j,i)) - Ef * conjg(this%valsS1(j,i)) ! Dag of Tau
     enddo
     enddo
-!    this%SigmaMat = 0
-!    do i = 1 , N
-!    do j = 1 , N
-!        do k = 1 , N
-!            this%SigmaMat(i,j) = this%SigmaMat(i,j) + Mdiag(i,k)*blochF(M_OUT,k,j)
-!        enddo
-!    enddo
-!    enddo
 
     one  = 1.0
     zero = 0.0
     call ZGEMM( 'N', 'N', N, N, N, one ,Mdiag  , N, &
                         blochF(M_OUT,:,:), N, zero,this%SigmaMat, N )
     ! add to sigma H0 internal hamiltonian
+
+    this%LambdaMat = -this%SigmaMat
+
     this%SigmaMat = this%SigmaMat + this%valsH0
 
 
-    ! Lambda matrix calculation:
-!    this%LambdaMat = 0
-!    do i = 1 , N
-!    do j = 1 , N
-!        do k = 1 , N
-!            this%LambdaMat(i,j) = this%LambdaMat(i,j) + Mdiag(i,k)*(blochF(M_IN,k,j)-blochF(M_OUT,k,j))
-!        enddo
-!    enddo
-!    enddo
-
-    blochF(M_OUT,:,:) = blochF(M_IN,:,:)-blochF(M_OUT,:,:)
-
-    call ZGEMM( 'N', 'N', N, N, N, one ,Mdiag  , N, &
-                        blochF(M_OUT,:,:), N, zero,this%LambdaMat, N )
-
+    deallocate(MA)
+    deallocate(MB)
 
 
     if(QSYS_DEBUG_LEVEL > 0) then

@@ -211,7 +211,8 @@ subroutine construct_matrix(this,Ef)
                     ta = this%leads(lid)%next_l2g(lc,1)
                     ts = this%leads(lid)%next_l2g(lc,2)
                     itmp = itmp + 1
-                    this%MATHVALS(itmp)   = Ef*this%leads(lid)%valsS1(lr,lc) -this%leads(lid)%valsTau(lr,lc)
+                    this%MATHVALS(itmp)   = Ef*this%leads(lid)%valsS1(lr,lc) -this%leads(lid)%valsTau(lr,lc) &
+                                          + conjg(Ef*this%leads(lid)%valsS1(lc,lr) -this%leads(lid)%valsTau(lc,lr))
                     this%ROWCOLID(itmp,1) = this%qsystem%atoms(fa)%globalIDs(fs)
                     this%ROWCOLID(itmp,2) = this%qsystem%atoms(ta)%globalIDs(ts)
 !                    endif
@@ -321,7 +322,10 @@ subroutine solve(this,leadID,Ef)
         ls = this%leads(leadID)%l2g(i,2)
         lg = this%qsystem%atoms(la)%globalIDs(ls);
         do j = 1 , this%leads(leadID)%no_sites
-            phi(lg) = phi(lg) + this%leads(leadID)%LambdaMat(i,j)*this%leads(leadID)%modes(1,modin,j)
+            phi(lg) = phi(lg) + (this%leads(leadID)%LambdaMat(i,j) + &
+                                conjg(this%leads(leadID)%valsTau(j,i))*(this%leads(leadID)%lambdas(M_IN,modin)**(-1)) ) &
+                                *this%leads(leadID)%modes(M_IN,modin,j)
+!            phi(lg) = phi(lg) + this%leads(leadID)%LambdaMat(i,j)*this%leads(leadID)%modes(1,modin,j)
         enddo
     enddo
 
