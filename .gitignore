@@ -1,3 +1,6 @@
 *.mod
 *.o
 quantulaba
+*.so
+*.a
+viewer/viewer
