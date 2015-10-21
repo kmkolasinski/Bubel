@@ -73,7 +73,7 @@ program transporter
  ! This structure is responsible for different criteria of nearest neighbour searching
   qt%qnnbparam%box = (/2*dx,2*dx,0.0D0/) ! do not search for the sites far than (-dx:+dx) direction
  ! Setup connections between sites with provided by you function "connect", see below for example.
- call qt%qsystem%make_lattice(qt%qnnbparam,c_default=connect)
+ call qt%qsystem%make_lattice(qt%qnnbparam,c_simple=connect)
 
 
  ! ----------------------------------------------------------
@@ -85,7 +85,7 @@ program transporter
  print*,"Finding eigenvalues..."
  no_expected_states = 80
  a_Emin = 0.0  / E0 / 1000.0 ! converting from [meV] to atomic units
- a_Emax = 1.0  / E0 / 1000.0 ! converting from [meV] to atomic units
+ a_Emax = 2.0  / E0 / 1000.0 ! converting from [meV] to atomic units
  call qt%qsystem%calc_eigenproblem(a_Emin,a_Emax,no_expected_states,print_info=1)
 
 
@@ -113,6 +113,7 @@ program transporter
  endif ! end of if are there eigenstates?
 
 
+
 ! ----------------------------------------------------------
 ! 4. Use generated mesh to calculate the band structure
 ! in the region of homogenous lead.
@@ -136,7 +137,8 @@ call qt%leads(1)%bands(output_folder//"bands.dat",-M_PI,+M_PI,M_PI/50.0,a_Emin,a
 call qt%save_system(output_folder//"system.xml")
 
 ! Solve scattering problem for Ef=0.001
-Ef = 0.001
+Ef = 9.749999753694283E-004
+QSYS_DEBUG_LEVEL = 1 ! show more info
 call qt%calculate_modes(Ef)
 call qt%solve(1,Ef)
 ! Save calculated electron density to file
@@ -145,12 +147,15 @@ do i = 1 , size(qt%qauxvec)
 enddo
 call qt%qsystem%save_data(output_folder//"densities.xml",array2d=qt%densities,array1d=qt%qauxvec)
 ! Perform scan in function of Energy
+
+
+
 open(unit=111,file=output_folder//"T.dat")
 print*,"Performing energy scan..."
 QSYS_DEBUG_LEVEL = 1 ! show more info
 do Ef = 0.0 , 0.001 , 0.000025
     ! Update hamiltonian elemenents value
-    call qt%qsystem%update_lattice(c_default=connect)
+    call qt%qsystem%update_lattice(c_simple=connect)
     call qt%calculate_modes(Ef)
     call qt%solve(1,Ef)
 
@@ -180,11 +185,11 @@ contains
 ! to atom B with spin s2, and what is the value of the coupling.
 ! If there is no interaction between them returns false, otherwise true.
 ! ---------------------------------------------------------------------------
-logical function connect(atomA,atomB,s1,s2,coupling_val)
+logical function connect(atomA,atomB,coupling_val)
     use modcommons
     implicit none
     type(qatom) :: atomA,atomB
-    integer     :: s1,s2
+
     complex*16  :: coupling_val ! you must overwrite this variable
     ! local variables
     integer         :: xdiff,ydiff
@@ -202,9 +207,7 @@ logical function connect(atomA,atomB,s1,s2,coupling_val)
     ! default return value
     connect = .false.
 
-    ! We assume that there is no spin taken into account so in our
-    ! case is always s1 = 1 and s2 = 1, thus s1 and s2 are not used
-    ! here.
+    ! hoping parameter
     t0 = 1/(2*m_eff*a_dx**2)
 
     if( xdiff == 0 .and. ydiff == 0 ) then

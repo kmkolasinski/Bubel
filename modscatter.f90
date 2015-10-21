@@ -113,7 +113,7 @@ end subroutine save_system
 subroutine construct_matrix(this,Ef)
     class(qscatter) :: this
     integer   :: i ,j, itmp ,l ,lr,lc,lid , s , no_leads , no_atoms , ts,ta,fs,fa
-
+    integer   :: s1,s2,ns1,ns2
     doubleprecision :: Ef
     integer,allocatable :: leadFlags(:) , leadIds(:)
 
@@ -143,7 +143,9 @@ subroutine construct_matrix(this,Ef)
     itmp = 0
     do i = 1, this%qsystem%no_atoms
         if(this%qsystem%atoms(i)%bActive) then
-            itmp = itmp + this%qsystem%atoms(i)%no_bonds
+            do j = 1 , this%qsystem%atoms(i)%no_bonds
+                itmp = itmp + size(this%qsystem%atoms(i)%bonds(j)%bondMatrix)
+            enddo
         endif
     enddo
     this%NO_NON_ZERO_VALUES = itmp
@@ -163,7 +165,8 @@ subroutine construct_matrix(this,Ef)
 
     allocate(this%MATHVALS(this%NO_NON_ZERO_VALUES))
     allocate(this%ROWCOLID(this%NO_NON_ZERO_VALUES,2))
-
+    this%ROWCOLID = 0
+    this%MATHVALS = 0
     ! Filling matrix and row-col array
     itmp = 0
     do i = 1 ,  this%qsystem%no_atoms
@@ -193,12 +196,15 @@ subroutine construct_matrix(this,Ef)
 
                     this%ROWCOLID(itmp,1) = this%qsystem%atoms(fa)%globalIDs(fs)
                     this%ROWCOLID(itmp,2) = this%qsystem%atoms(ta)%globalIDs(ts)
+!                    print*,itmp,ta,ts,abs(this%leads(lid)%SigmaMat(lr,lc))
 
                     if(abs(this%MATHVALS(itmp)) < 1.0D-20) then
                     itmp = itmp - 1
                     endif
 
                 enddo
+!                print*,itmp,sum(this%ROWCOLID),sum(this%MATHVALS)
+!                stop
                 ! coupling matrix
                 do lc = 1 , this%leads(lid)%no_sites
 !                    if(lid == 1)then
@@ -212,34 +218,41 @@ subroutine construct_matrix(this,Ef)
 
                     if(abs(this%MATHVALS(itmp)) < 1.0D-20) then
                     itmp = itmp - 1
+!                    else
+!                    print"(3i,2f12.6)",itmp,this%ROWCOLID(itmp,:),this%MATHVALS(itmp)
                     endif
                 enddo
 
             enddo
         else
 
+        ns1   = this%qsystem%atoms(i)%no_in_states
+        do s1 = 1 , ns1
         do j = 1, this%qsystem%atoms(i)%no_bonds
+
+            ns2 = size(this%qsystem%atoms(i)%bonds(j)%bondMatrix,2)
+
+
+            do s2 = 1 , ns2
 
             itmp = itmp + 1
 
-            fs = this%qsystem%atoms(i)%bonds(j)%fromInnerID
-            this%ROWCOLID(itmp,1) = this%qsystem%atoms(i)%globalIDs(fs)
+            this%ROWCOLID(itmp,1) = this%qsystem%atoms(i)%globalIDs(s1)
 
             ta = this%qsystem%atoms(i)%bonds(j)%toAtomID
-            ts = this%qsystem%atoms(i)%bonds(j)%toInnerID
-            this%ROWCOLID(itmp,2) = this%qsystem%atoms(ta)%globalIDs(ts)
-!            if(this%ROWCOLID(itmp,1) == this%ROWCOLID(itmp,2)) then
-!                this%MATHVALS(itmp)   = Ef - this%qsystem%atoms(i)%bonds(j)%bondValue
-!            else
-!                this%MATHVALS(itmp)   = -this%qsystem%atoms(i)%bonds(j)%bondValue
-!            endif
-            this%MATHVALS(itmp)   = this%qsystem%atoms(i)%bonds(j)%overlapValue*Ef - this%qsystem%atoms(i)%bonds(j)%bondValue
 
+            this%ROWCOLID(itmp,2) = this%qsystem%atoms(ta)%globalIDs(s2)
+            this%MATHVALS(itmp)   = this%qsystem%atoms(i)%bonds(j)%overlapMatrix(s1,s2)*Ef &
+                                  - this%qsystem%atoms(i)%bonds(j)%bondMatrix(s1,s2)
 
+            ! Remove zero elements
             if(abs(this%MATHVALS(itmp)) < 1.0D-20) then
             itmp = itmp - 1
             endif
-        enddo
+
+            enddo ! end of s2
+        enddo ! end of bonds in i
+        enddo ! end of s1
         endif ! flag leads
         endif ! end of if active atom
     enddo

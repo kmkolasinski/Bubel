@@ -14,11 +14,12 @@ private
 ! Atom A and B.
 ! -----------------------------------------------
 type qbond
-    integer     :: fromInnerID    ! hoping from source atom with spin at ID fromInnerID
-    integer     :: toAtomID       ! ID of atom B
-    integer     :: toInnerID      ! ID of spin of atom B
-    complex*16  :: bondValue      ! hoping parameter
-    complex*16  :: overlapValue   ! overlap value in case of LCAO orbitals
+    integer     :: toAtomID        ! ID of atom B
+    complex*16,allocatable,dimension(:,:)  :: bondMatrix
+    complex*16,allocatable,dimension(:,:)  :: overlapMatrix ! overlap matrix in case of LCAO orbitals
+    contains
+    procedure, public, pass(this) :: destroy_bond
+    procedure, public, pass(this) :: copy_bond
 endtype qbond
 
 ! -----------------------------------------------
@@ -31,7 +32,7 @@ type qatom
     integer         :: no_in_states ! number of internal states (e.g. spin degree of freedom)
     logical         :: bActive      ! if the site is taken into calculations
     integer         :: flag , flag_aux0         ! arbitrary number, can be used by user e.g. to distinguish two different atoms
-    integer,allocatable,dimension(:)    :: globalIDs ! in case of no_bonds > 1 this array contains global ID of atom in spin state
+    integer,allocatable,dimension(:)     :: globalIDs ! in case of no_bonds > 1 this array contains global ID of atom in spin state
     type(qbond),allocatable,dimension(:) :: bonds     ! contains information about hoping between different atoms
                                                      ! Atom A may have connection with itself
     integer         :: no_bonds                      ! nuber of conetions with different atoms
@@ -39,7 +40,7 @@ type qatom
     contains
     procedure, public, pass(site) :: init
     procedure, public, pass(site) :: destroy
-    procedure, public, pass(site) :: add_bond!(site,atomID,innerID,bondValue)
+    procedure, public, pass(site) :: add_bond
 
 end type qatom
 
@@ -106,12 +107,18 @@ end subroutine init
 ! Free allocated memory
 ! ------------------------------------------------------------------------
 subroutine destroy(site)
-    class(qatom)     :: site
+    class(qatom)  :: site
+    integer :: b
     if(allocated(site%globalIDs)) deallocate(site%globalIDs)
+
+    do b = 1,site%no_bonds
+        call site%bonds(b)%destroy_bond()
+    enddo
     if(allocated(site%bonds))     deallocate(site%bonds)
     site%bActive      = .false.
     site%no_bonds     = 0
     site%flag         = 0
+    site%flag_aux0    = 0
 end subroutine destroy
 
 ! ------------------------------------------------------------------------
@@ -121,59 +128,81 @@ end subroutine destroy
 ! toInnerID   - id of spin state of atom B
 ! bondValue   - hoping paremeter
 ! ------------------------------------------------------------------------
-subroutine add_bond(site,fromInnerID,toAtomID,toInnerID,bondValue,overlapValue)
-    class(qatom)     :: site
-    integer         :: toAtomID,fromInnerID,toInnerID
-    complex*16      :: bondValue
-    complex*16, optional  :: overlapValue
-
+subroutine add_bond(site,toAtomID,bondMatrix,overlapMatrix)
+    class(qatom)          :: site
+    integer               :: toAtomID
+    complex*16,dimension(:,:)              :: bondMatrix
+    complex*16,dimension(:,:) , optional  :: overlapMatrix
+    integer :: b,nb,ns1,ns2
 
     ! temporal array
     type(qbond),allocatable,dimension(:) :: tmp_bonds
-    ! adding new bond requires resizing of the bonds array
-!    if(site%no_bonds > 0) then
-!        ! allocated tmp array and copy current array to it
-!        allocate(tmp_bonds(site%no_bonds))
-!        tmp_bonds = site%bonds
-!        ! deallocate bonds and allocate with new size , restore the values
-!        if(allocated(site%bonds)) deallocate(site%bonds)
-!        allocate(site%bonds(site%no_bonds+1))
-!        site%bonds(1:site%no_bonds) = tmp_bonds
-!        deallocate(tmp_bonds)
-!    else
-!        if(allocated(site%bonds)) deallocate(site%bonds)
-!        allocate(site%bonds(site%no_bonds+1))
-!    endif
 
 
     ! increase number of bond in atoms
     site%no_bonds = site%no_bonds+1
-
+    nb = size(site%bonds)
+    ! adding new bond requires resizing of the bonds array if necessary
     if(.not. allocated(site%bonds)) then
         allocate(site%bonds(QSYS_NO_BONDS_INC_VALUE))
-    else if( site%no_bonds > size(site%bonds) ) then
-!        print*,"SYS::INFO::Resizing the system from:",size(site%bonds)," to ",size(site%bonds)+QSYS_NO_BONDS_INC_VALUE
-        allocate(tmp_bonds(size(site%bonds)))
-        tmp_bonds = site%bonds
+    else if( site%no_bonds > nb ) then
+
+
+        allocate(tmp_bonds(nb))
+        do b = 1 , nb
+            call tmp_bonds(b)%copy_bond(site%bonds(b))
+            call site%bonds(b)%destroy_bond()
+        enddo
         if(allocated(site%bonds)) deallocate(site%bonds)
 
         allocate(site%bonds(size(tmp_bonds)+QSYS_NO_BONDS_INC_VALUE))
-        site%bonds(1:site%no_bonds) = tmp_bonds
-        deallocate(tmp_bonds)
-!    else if(site%no_bonds == 0) then
 
+        do b = 1 , nb
+            call site%bonds(b)%copy_bond(tmp_bonds(b))
+            call tmp_bonds(b)%destroy_bond()
+        enddo
+        deallocate(tmp_bonds)
     endif
 
 
     ! set new bond
-    site%bonds(site%no_bonds)%bondValue     = bondValue
-    site%bonds(site%no_bonds)%fromInnerID   = fromInnerID
+    ns1 = size(bondMatrix,1)
+    ns2 = size(bondMatrix,2)
+    allocate(site%bonds(site%no_bonds)%bondMatrix(ns1,ns2))
+    allocate(site%bonds(site%no_bonds)%overlapMatrix(ns1,ns2))
+
+    site%bonds(site%no_bonds)%bondMatrix    = bondMatrix
     site%bonds(site%no_bonds)%toAtomID      = toAtomID
-    site%bonds(site%no_bonds)%toInnerID     = toInnerID
-    site%bonds(site%no_bonds)%overlapValue  = 0.0;
-    if(present(overlapValue)) site%bonds(site%no_bonds)%overlapValue = overlapValue;
+
+    site%bonds(site%no_bonds)%overlapMatrix = 0.0
+    if(present(overlapMatrix)) site%bonds(site%no_bonds)%overlapMatrix = overlapMatrix;
 
 endsubroutine add_bond
 
+subroutine destroy_bond(this)
+    class(qbond)  :: this
+    this%toAtomID = -1
+    if(allocated(this%overlapMatrix)) deallocate(this%overlapMatrix)
+    if(allocated(this%bondMatrix))    deallocate(this%bondMatrix)
+
+end subroutine destroy_bond
+
+subroutine copy_bond(this,source)
+    class(qbond)  :: this
+    type(qbond) :: source
+    integer :: ns1,ns2
+
+    ns1 = size(source%bondMatrix,1)
+    ns2 = size(source%bondMatrix,2)
+    call this%destroy_bond()
+
+    allocate(this%bondMatrix   (ns1,ns2))
+    allocate(this%overlapMatrix(ns1,ns2))
+
+    this%toAtomID      = source%toAtomID
+    this%bondMatrix    = source%bondMatrix
+    this%overlapMatrix = source%overlapMatrix
+
+end subroutine copy_bond
 
 end module modcommons
