@@ -77,7 +77,7 @@ BASEDIR =/home/mkk/libs
 FBFLAGS =  -O0 -132
 
 ifeq ($(UMFPACK_MACRO),-DUSE_UMF_PACK)
-FCFLAGS = -c -132 -traceback -O0 -check all -fpe0 -warn -traceback -debug extended  $(UMFPACK_MACRO)
+FCFLAGS = -c -132 -traceback -O0 -fstack-protector -check all  -assume realloc_lhs -ftrapuv -fpe0 -warn -traceback -debug extended  $(UMFPACK_MACRO)
 # -I$(BASEDIR)/XC
 FCCFLAGS= -c -O0 -Wall -g
 LIBS= $(BASEDIR)/libumfpack.a $(BASEDIR)/libamd.a
@@ -85,14 +85,14 @@ SUPERLU_FILES=
 UMFPACK_FILES=umfpack.o
 else ifeq ($(UMFPACK_MACRO),-DUSE_PARDISO)
 LIBS=
-FCFLAGS = -c -132 -traceback -O0 -check all -fpe0 -warn -traceback -debug extended  $(UMFPACK_MACRO)
+FCFLAGS = -c -132 -traceback -O0 -fstack-protector -check all  -assume realloc_lhs  -ftrapuv -fpe0 -warn -traceback -debug extended  $(UMFPACK_MACRO)
 #-I$(BASEDIR)/XC
 FCCFLAGS= -c -O0 -Wall -g
 SUPERLU_FILES=
 UMFPACK_FILES=
 else
 LIBS= $(BASEDIR)/libsuperlu_4.3.a
-FCFLAGS = -c -132 -traceback -O0 -check all -fpe0 -warn -traceback -debug extended -I$(BASEDIR)/SuperLU_4.3/SRC $(UMFPACK_MACRO)
+FCFLAGS = -c -132 -traceback -O0 -fstack-protector -check all  -assume realloc_lhs -ftrapuv -fpe0 -warn -traceback -debug extended -I$(BASEDIR)/SuperLU_4.3/SRC $(UMFPACK_MACRO)
 # -I$(BASEDIR)/XC
 FCCFLAGS= -c -O0 -Wall -g -I$(BASEDIR)/SuperLU_4.3/SRC
 SUPERLU_FILES=zgssv.o

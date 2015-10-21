@@ -5,26 +5,28 @@
 ! nanotube.
 ! ------------------------------------------------------ !
 
-program transporter
+program cnt
 
- use modunits ! unit conversion tools
- use modsys   ! eigen values
- use modlead  ! bandgap structure
- use modshape
- implicit none
- character(*),parameter :: output_folder = "carbon_nanotube_output/"
- type(qsys)                 :: tmpsystem,qsystem
- type(qshape)               :: lead_shape
- type(qlead)                :: lead
- doubleprecision            :: posA(3),posB(3),deltaR(3),Emin,Emax
- integer                    :: flagA,flagB
- integer :: i,j,k
- doubleprecision            :: lead_translation_vec(3)
- character(300) :: line
+use modunits     ! unit conversion tools
+use modscatter   ! eigen problem and scattering problem
+use modsys       ! eigen problem & atom container
+use modlead      ! bandgap structure
+use modshape
+implicit none
+character(*),parameter     :: output_folder = "carbon_nanotube_output/"
+type(qsys)                 :: tmpsystem
+type(qscatter)             :: qt
 
- ! Initalize system
- call qsystem%init()
- call tmpsystem%init()
+type(qshape)               :: lead_shape
+doubleprecision            :: posA(3),posB(3),deltaR(3),Emin,Emax
+integer                    :: flagA,flagB
+integer :: i,j,k
+doubleprecision            :: lead_translation_vec(3),Ef
+character(300) :: line
+
+! Initalize system
+call qt%init_system()
+call tmpsystem%init()
 
 !  ----------------------------------------------------------
 !  1. Create mesh - read unit cell from file
@@ -41,7 +43,9 @@ do i=1,17*2
     call tmpsystem%qatom%init(posA,flag=1)
     call tmpsystem%add_atom(tmpsystem%qatom)
     call tmpsystem%qatom%init(posB,flag=2)
+
     call tmpsystem%add_atom(tmpsystem%qatom)
+
 enddo
 close(3)
 
@@ -53,8 +57,9 @@ do k = 1 , 10
     do i=1,tmpsystem%no_atoms
         posA  = tmpsystem%atoms(i)%atom_pos
         flagA = tmpsystem%atoms(i)%flag
-        call qsystem%qatom%init(posA+deltaR,flag=flagA)
-        call qsystem%add_atom(qsystem%qatom)
+        call qt%qatom%init(posA+deltaR,flag=flagA)
+        if(i==1) call qt%qatom%init(posA+deltaR,flag=flagA,flag_aux0=1)
+        call qt%qsystem%add_atom(qt%qatom)
     enddo
 enddo
 
@@ -62,10 +67,10 @@ enddo
 !  ----------------------------------------------------------
 !  2. Set nearest neightbour search radius and make Hmiltonian
 !  ----------------------------------------------------------
-qsystem%qnnbparam%distance   = 2.0
-qsystem%qnnbparam%NNB_FILTER = QSYS_NNB_FILTER_DISTANCE
-call qsystem%make_lattice(qsystem%qnnbparam,c_simple=connect_simple)
-call qsystem%save_lattice(output_folder//"lattice.xml")
+qt%qnnbparam%distance   = 2.0
+qt%qnnbparam%NNB_FILTER = QSYS_NNB_FILTER_DISTANCE
+call qt%qsystem%make_lattice(qt%qnnbparam,c_simple=coupling)
+
 
 !  ----------------------------------------------------------
 !  3. Set up unit cell
@@ -75,24 +80,58 @@ lead_translation_vec = (/  0.0D0 , 0.0D0 , 4.26D0 /)
 posA = (/0.0,0.0,-0.5/)
 posB = lead_translation_vec ! direction and range
 call lead_shape%init_range_3d(posA,posB)
-call lead%init_lead(lead_shape,lead_translation_vec,qsystem%atoms)
-call lead%save_lead(output_folder//"lead.xml")
+call qt%add_lead(lead_shape,lead_translation_vec)
 
 !  ----------------------------------------------------------
-!  4. Calculate band structure
+!  4. Plot band structure
 !  ----------------------------------------------------------
-Emin = -3.0
-Emax =  3.0
-call lead%bands(output_folder//"bands.dat",-M_PI,+M_PI,M_PI/60.0,Emin,Emax)
-call lead%destroy()
+Emin = -3.1
+Emax =  3.1
+call qt%leads(1)%bands(output_folder//"bands.dat",-M_PI,+M_PI,M_PI/60.0,Emin,Emax)
 
-call qsystem%destroy()
+
+posA = (/0.0,0.0,42.0/)
+posB = -lead_translation_vec ! direction and range
+call lead_shape%init_range_3d(posA,posB)
+call qt%add_lead(lead_shape,-lead_translation_vec)
+call qt%save_system(output_folder//"system.xml")
+
+Ef = 0.2
+QSYS_DEBUG_LEVEL = 1
+call qt%calculate_modes(Ef)
+call qt%solve(1,Ef)
+! Save calculated electron density to file
+do i = 1 , size(qt%qauxvec)
+    qt%qauxvec(i) = sum(qt%densities(:,i))
+enddo
+call qt%qsystem%save_data(output_folder//"densities.xml",array2d=qt%densities,array1d=qt%qauxvec)
+
+
+print*,"Performing energy scan..."
+open(unit=111,file=output_folder//"T.dat")
+!QSYS_DEBUG_LEVEL = 1 ! show more info
+do Ef = -3.0 , 3.025 , 0.051
+    ! Update hamiltonian elemenents value
+    call qt%qsystem%update_lattice(c_simple=coupling)
+    call qt%calculate_modes(Ef)
+    call qt%solve(1,Ef)
+
+    print*,"Energy:",Ef
+    write(111,"(100f20.6)"),Ef,sum(qt%Tn(:))
+enddo
+close(111)
+
+
+
+call qt%destroy_system()
 call tmpsystem%destroy()
 
 print*,"Generating plots..."
 print*,"Plotting band structure..."
 call system("cd "//output_folder//"; ./plot_bands.py")
-print*,"Use Viewer program to see the structure and crated lead."
+print*,"Plotting Transmission..."
+call system("cd "//output_folder//"; ./plot_T.py")
+print*,"Use Viewer program to see the structure and created lead."
  contains
 
 ! ---------------------------------------------------------------------------
@@ -100,18 +139,22 @@ print*,"Use Viewer program to see the structure and crated lead."
 ! to atom B with spin s2, and what is the value of the coupling.
 ! If there is no interaction between them returns false, otherwise true.
 ! ---------------------------------------------------------------------------
-logical function connect_simple(atomA,atomB,coupling_val)
+logical function coupling(atomA,atomB,coupling_val)
     use modcommons
     implicit none
     type(qatom) :: atomA,atomB
     complex*16  :: coupling_val ! you must overwrite this variable
 
     ! default return value
-    connect_simple = .false.
+    coupling = .false.
     coupling_val   = 0.0
     if( atomA%flag /= atomB%flag ) then
-        connect_simple = .true.
+        coupling = .true.
         coupling_val = 1.0
+    else ! Add small perturbation to the lattice to remove periodic boundary degeneracy
+         ! this should not change !significantly! the resutls
+        coupling = .true.
+        coupling_val = atomB%flag_aux0*0.0000001
     endif
-end function connect_simple
-end program transporter
+end function coupling
+end program cnt

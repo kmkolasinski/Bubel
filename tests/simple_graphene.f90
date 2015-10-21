@@ -50,7 +50,7 @@ enddo
 
 qt%qnnbparam%distance   = 0.6
 qt%qnnbparam%NNB_FILTER = QSYS_NNB_FILTER_DISTANCE
-call qt%qsystem%make_lattice(qt%qnnbparam,c_default=connect)
+call qt%qsystem%make_lattice(qt%qnnbparam,c_simple=connect)
 
 ! Add first lead using rectangle area
 call rect_shape%init_rect(SHAPE_RECTANGLE_XY,0.4D0,13.1D0,0.4D0,1.3D0)
@@ -86,7 +86,7 @@ open(unit=111,file=output_folder//"T.dat")
 QSYS_DEBUG_LEVEL = 1 ! show more info
 do Ef = -3.0 , 3.025 , 0.025
     ! Update hamiltonian elemenents value
-    call qt%qsystem%update_lattice(c_default=connect)
+    call qt%qsystem%update_lattice(c_simple=connect)
     call qt%calculate_modes(Ef)
     call qt%solve(1,Ef)
 
@@ -107,11 +107,10 @@ print*,"Use Viewer program to see the structure and created leads."
 
 contains
 
-logical function connect(atomA,atomB,s1,s2,coupling_val)
+logical function connect(atomA,atomB,coupling_val)
     use modcommons
     implicit none
     type(qatom) :: atomA,atomB
-    integer    :: s1,s2
     complex*16 :: coupling_val
     logical :: test
     connect = .false.

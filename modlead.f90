@@ -92,7 +92,7 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
     ! local variables
     integer ,allocatable ,dimension(:) :: tmp_g2l ! contains mapping between global ID of the state (atom+spin)
                                                   ! to local id of that site (atom,spin) in unit cell
-    integer :: i,j,k,b
+    integer :: i,j,k,b,s1,s2,ns1,ns2
     integer :: no_sites,system_size, atom_id,bond_atom_id,bond_id
     integer :: irow,icol,aid,gid,sid,lid
     integer :: no_atoms
@@ -246,7 +246,7 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
         endif
         enddo
     enddo
-!    print*,"minum distance=",minimum_distance
+    print*,"minum distance=",minimum_distance
 
     no_atoms = 0
     do i = 1 , size(all_atoms) ! Search in all active atoms
@@ -258,7 +258,7 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
                 do j = 1 , no_sites
 
                     cellA_pos = all_atoms(this%l2g(j,1))%atom_pos
-!                    print"(2i4,5f8.4)",i,j,sqrt(sum( tmp_pos - cellA_pos )**2),tmp_pos
+!                    print"(2i4,5f12.4)",i,j,sqrt(sum( (tmp_pos - cellA_pos )**2)),tmp_pos
                     if( sqrt(sum( (tmp_pos - cellA_pos)**2 )) < minimum_distance*1.0D-5 ) then
                         exit
                     endif
@@ -299,8 +299,14 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
         atom_id = this%l2g(i,1) ! get atom index , this%l2g(i,2) tells what is the spinID of that atom
         ! iterate over all bonds in that atom (A)
         do b = 1 , all_atoms(atom_id)%no_bonds
+            ns1 = size(all_atoms(atom_id)%bonds(b)%bondMatrix,1)
+            ns2 = size(all_atoms(atom_id)%bonds(b)%bondMatrix,2)
+
+            do s1 = 1 , ns1
+            do s2 = 1 , ns2
+
             ! Filter out bond from atom A but which do not have spin this%l2g(i,1)
-            if( all_atoms(atom_id)%bonds(b)%fromInnerID == this%l2g(i,2) ) then
+            if( s1 == this%l2g(i,2) ) then
             ! get ids of associated atom
             bond_atom_id = all_atoms(atom_id)%bonds(b)%toAtomID
             bond_id      = all_atoms(bond_atom_id)%globalIDs(1)
@@ -330,37 +336,36 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
                 ! to same state but in the next unit cell.
 
                 aid  = this%l2g(j,1) ! get globalID of that atom
-                sid  = all_atoms(atom_id)%bonds(b)%toInnerID ! and its spin
+                sid  = s2            ! and its spin
                 gid  = all_atoms(aid)%globalIDs(sid) ! get global ID of site (atom+spin)
                 lid  = tmp_g2l(gid) ! remap it to local ID in the lead
                 irow = i
                 icol = lid
-                cval = all_atoms(atom_id)%bonds(b)%bondValue
+                cval = all_atoms(atom_id)%bonds(b)%bondMatrix(s1,s2)
 
                 ! fill coupling matrix
                 this%valsTau(irow,icol) = cval
-                this%valsS1(irow,icol)  = all_atoms(atom_id)%bonds(b)%overlapValue
-
-!                print*,i,lid,cval
-
+                this%valsS1 (irow,icol) = all_atoms(atom_id)%bonds(b)%overlapMatrix(s1,s2)
 
             else ! in case of coupling occures within lead
 
-                aid = bond_atom_id ! id of connected atom
-                sid = all_atoms(atom_id)%bonds(b)%toInnerID ! and its spin ID
-                gid = all_atoms(aid)%globalIDs(sid) ! convert to global state id (atom+spin)
-                lid = tmp_g2l(gid) ! remap to local ID in lead
+                aid  = bond_atom_id ! id of connected atom
+                sid  = s2 ! and its spin ID
+                gid  = all_atoms(aid)%globalIDs(sid) ! convert to global state id (atom+spin)
+                lid  = tmp_g2l(gid) ! remap to local ID in lead
                 irow = i
                 icol = lid
-                cval = all_atoms(atom_id)%bonds(b)%bondValue
+                cval = all_atoms(atom_id)%bonds(b)%bondMatrix(s1,s2)
                 this%valsH0(irow,icol) = cval
+                this%valsS0(irow,icol) = all_atoms(atom_id)%bonds(b)%overlapMatrix(s1,s2)
 
-                this%valsS0(irow,icol)  = all_atoms(atom_id)%bonds(b)%overlapValue
-
-!                print*,
-!                print*,irow,icol,atom_id,aid,sqrt(sum((all_atoms(atom_id)%atom_pos-all_atoms(aid)%atom_pos)**2 ))
+!               print*,irow,icol,atom_id,aid,sqrt(sum((all_atoms(atom_id)%atom_pos-all_atoms(aid)%atom_pos)**2 ))
             endif ! end of else if "atom is in the lead or outside"
             endif ! end of if bond comes from the atom with the same spin what site has
+
+            enddo ! end of s1
+            enddo ! end of s2
+
         enddo ! end of do over bond in site
 
     enddo ! end of do over sites in lead
@@ -631,6 +636,7 @@ subroutine calculate_modes(this,Ef)
     ! -------------------------------------------------------
     ! Creation of the Generalized eigenvalue problem Eq. (52)
     ! -------------------------------------------------------
+
 888 if(QSYS_USE_ZGGEV_TO_FIND_MODES) then
     do i = 1 , N
 !        print"(30f7.3)",dble(this%valsTau(:,i))
@@ -670,7 +676,7 @@ subroutine calculate_modes(this,Ef)
     ! Solving GGEV problem
     CALL ZGGEV("N","V", 2*N, MA, 2*N, MB , 2*N, ALPHA,BETA, &
                 DUMMY, 1, Z, LDVR, WORK, LWORK, RWORK, INFO )
-    ! Checking solution
+!     Checking solution
     if( INFO /= 0 ) then
         print*,"SYS::LEAD::Cannot solve generalized eigenvalue problem for eigenmodes: ZGGEV info:",INFO
         stop
@@ -689,8 +695,11 @@ subroutine calculate_modes(this,Ef)
     MB  = 0
     ! Invert block NxN matrix
     blochF(1,:,:) = this%valsTau  - this%valsS1*Ef
-
     call inverse_matrix(N,blochF(1,:,:))
+
+
+
+
     if(B_SINGULAR_MATRIX) then
         print*,"==============================================================================="
         print*,"SYS::ERROR::Lead B matrix is singular, trying to find eigen modes "
@@ -718,12 +727,21 @@ subroutine calculate_modes(this,Ef)
                         blochF(2,:,:), N, zero,MA(N+1:2*N,N+1:2*N), N )
 !    MA(N+1:2*N,N+1:2*N) = matmul(blochF(1,:,:),this%valsS0*Ef - this%valsH0)
 
+
+
+
+
+
+!    print*,sum(abs(MA))
     LWORK = -1
     CALL ZGEEV( 'Not Left', 'Vectors',2*N, MA, 2*N, ALPHA, DUMMY, 1,&
                 Z, LDVR, WORK, LWORK, RWORK, INFO )
     LWORK = MIN( LWMAX, INT( WORK( 1 ) ) )
     CALL ZGEEV( 'Not Left', 'Vectors', 2*N, MA, 2*N, ALPHA, DUMMY, 1, &
                 Z, LDVR, WORK, LWORK, RWORK, INFO )
+
+
+
 
     ! Checking solution
     if( INFO /= 0 ) then
@@ -732,6 +750,8 @@ subroutine calculate_modes(this,Ef)
     endif
     BETA  = 1.0
     endif ! else choose solver SGGEV
+
+
     ! -------------------------------------------------------
     ! Calculating the number of modes
     ! -------------------------------------------------------
@@ -786,13 +806,16 @@ subroutine calculate_modes(this,Ef)
     endif
 
     ! checksum
-    no_in = this%no_in_modes + this%no_out_modes + this%no_in_em + this%no_out_em - 2*N
+    no_in = this%no_in_modes - this%no_out_modes + this%no_in_em - this%no_out_em
+
     if( no_in /= 0 ) then
         print*,"SYS::LEAD::ERROR::The total number of propagating modes and evanescent ones"
-        print*,"           does not sum up to number of sites in the leads. The difference"
+        print*,"           does not sum up to same number in for IN/OUT modes. The difference"
         print*,"           is following:",no_in," which means that your system is probably"
         print*,"           higlhy degenerated (symmetry reasons or badly formulated problem)."
         print*,"           The program will stop!"
+        print*,"           You can try to remove the degeneracy by adding small perturbation"
+        print*,"           to your system."
         stop -1
     endif
 
@@ -867,6 +890,7 @@ subroutine calculate_modes(this,Ef)
     enddo
     print*,"-------------------------------------------------------"
     endif
+
 
     ! Construction of the F^-1+ matrix Eq. (57)
     blochF = 0
@@ -958,7 +982,7 @@ subroutine calculate_Tnm(this,all_atoms,phi)
     complex*16 ,dimension(:)  :: phi
     ! local variables
     complex*16 ,allocatable , dimension(:) :: leadPhi
-    complex :: tmpT
+    complex*16 :: tmpT
     integer :: i,la,ls,lg
 
     allocate(leadPhi(this%no_sites))
