@@ -57,7 +57,7 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(ui->horizontalSliderDataMaxValue,SIGNAL(sliderReleased()),this,SLOT(updateWidgets()));
 
     QHeaderView* header = ui->tableWidgetAtomInfo->horizontalHeader();
-#if QT_VERSION < QT_VERSION_CHECK(4, 8, 0)
+#if QT_VERSION <= QT_VERSION_CHECK(4, 8, 1)
     header->setResizeMode(QHeaderView::Stretch);
 #else
     header->setSectionResizeMode(QHeaderView::Stretch);
@@ -134,7 +134,7 @@ void MainWindow::update_gui(){
     ui->tableWidgetDataStats->setItem(0,1,new QTableWidgetItem(QString::number(stats.no_atoms)));
 
     QHeaderView* header = ui->tableWidgetDataStats->horizontalHeader();             
-#if QT_VERSION < QT_VERSION_CHECK(4, 8, 1)
+#if QT_VERSION <= QT_VERSION_CHECK(4, 8, 1)
     header->setResizeMode(QHeaderView::Stretch);
 #else
     header->setSectionResizeMode(QHeaderView::Stretch);

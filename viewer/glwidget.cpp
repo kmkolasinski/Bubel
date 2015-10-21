@@ -480,15 +480,23 @@ void GLWidget::paintGL()
     no_subdivs = displayConnections.atom_quality;
 
     glMaterialfv(GL_FRONT,GL_DIFFUSE,d5);
+    int lastA = -1;
+    int lastB = -1;
+    int no_calls = 0;
     for(unsigned int i = 0 ; i < cnts->size() ; i++){
         AtomConnection &cnt = (*cnts)[i];
         Atom& atomA = (*atoms)[cnt.atomA];
         Atom& atomB = (*atoms)[cnt.atomB];
         if(cnt.atomA <= cnt.atomB) continue;
-
+        if(cnt.atomA != lastA  || cnt.atomB != lastB){
+            lastA = cnt.atomA;
+            lastB = cnt.atomB;
+        }else continue;
+        no_calls++;
         renderCylinder(atomA.pos.x(),atomA.pos.y(),atomA.pos.z(),atomB.pos.x(),atomB.pos.y(),atomB.pos.z(),0.2*radius,no_subdivs,quadric);
 
     }
+//    qDebug() << no_calls;
 
 
     glMaterialfv(GL_FRONT,GL_DIFFUSE,d4);
@@ -607,6 +615,7 @@ void GLWidget::paintGL()
             do{
                 AtomConnection &cnt = (*cnts)[cntID--];
                 atomID = cnt.atomA;
+                //qDebug() << atomID << selectedAtomA ;
                 if(atomID != selectedAtomA) break;
                 Atom &atom = (*atoms)[cnt.atomB];
                 glPushMatrix();

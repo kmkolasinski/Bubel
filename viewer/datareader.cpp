@@ -586,12 +586,13 @@ void DataReader::precalculate_data(){
     for(unsigned int i = 0 ; i < connections.size() ; i++){
         AtomConnection& cnt = connections[i];
 //        qDebug() << "Not:" << cnt.atomA << cnt.atomB;
-        if(cnt.atomA != fromAtom || cnt.atomB != toAtom){
+//        if(cnt.atomB != toAtom){
+//            if(cnt.atomA != fromAtom || cnt.atomB != toAtom){
             fromAtom = cnt.atomA ;
             toAtom   = cnt.atomB ;
             p_connections.push_back(cnt);
 //            qDebug() << "Filtered:" << fromAtom << toAtom;
-        }
+//        }
 //        if((cnt.spinA == atoms_stats.filter_spin_A && cnt.spinB == atoms_stats.filter_spin_B) ){
 
 //        }
