@@ -1,7 +1,6 @@
 #!/usr/bin/python
 """
 Created on Thu Mar  5 14:16:21 2015
-
 @author: Krzysztof Kolasinski
 """
 import numpy as np

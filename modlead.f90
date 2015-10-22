@@ -636,6 +636,20 @@ subroutine calculate_modes(this,Ef)
     ! -------------------------------------------------------
     ! Creation of the Generalized eigenvalue problem Eq. (52)
     ! -------------------------------------------------------
+!    Mdiag = -this%valsH0
+!    do i = 1 , N
+!!        print"(50f9.4)", dble(this%valsS0(i,:))
+!        Mdiag(i,i) =   Mdiag(i,i) + Ef
+!    enddo
+!    open(unit=1112,file="tau.dat")
+!    open(unit=1113,file="h0.dat")
+!    do i = 1 , N
+!        write(1112,"(500e20.8)"),this%valsTau(i,:)
+!        write(1113,"(500e20.8)"),Mdiag(i,:)
+!    enddo
+!    close(1112)
+!    close(1113)
+
 
 888 if(QSYS_USE_ZGGEV_TO_FIND_MODES) then
     do i = 1 , N
@@ -668,6 +682,9 @@ subroutine calculate_modes(this,Ef)
     MB(1:N,1:N)         = Mdiag
     MB(N+1:2*N,N+1:2*N) = this%valsTau  - this%valsS1*Ef
 
+
+!    call try_ZGGEVX(2*N,MA,MB,Z,ALPHA,BETA)
+
     LWORK = -1
     ! Initalization
     CALL ZGGEV("N","N", 2*N, MA, 2*N, MB,2*N, ALPHA,BETA, &
@@ -699,7 +716,6 @@ subroutine calculate_modes(this,Ef)
 
 
 
-
     if(B_SINGULAR_MATRIX) then
         print*,"==============================================================================="
         print*,"SYS::ERROR::Lead B matrix is singular, trying to find eigen modes "
@@ -709,9 +725,14 @@ subroutine calculate_modes(this,Ef)
         QSYS_USE_ZGGEV_TO_FIND_MODES = .true.
         goto 888
     endif
-!   MA(N+1:2*N,1:N) = -matmul(blochF(1,:,:),Mdiag) ! diag contains hermitian cojugate of Tau
+
    one  = -1
    zero = 0
+
+
+   ! ------------------------------------------------------
+   ! Simple apporach
+   ! ------------------------------------------------------
    call ZGEMM( 'N', 'N', N, N, N, one ,blochF(1,:,:)  , N, &
                         Mdiag, N, zero,MA(N+1:2*N,1:N), N )
     ! filling diag with diagonal matrix
@@ -725,14 +746,7 @@ subroutine calculate_modes(this,Ef)
     blochF(2,:,:) = this%valsS0*Ef - this%valsH0
     call ZGEMM( 'N', 'N', N, N, N, one ,blochF(1,:,:)  , N, &
                         blochF(2,:,:), N, zero,MA(N+1:2*N,N+1:2*N), N )
-!    MA(N+1:2*N,N+1:2*N) = matmul(blochF(1,:,:),this%valsS0*Ef - this%valsH0)
 
-
-
-
-
-
-!    print*,sum(abs(MA))
     LWORK = -1
     CALL ZGEEV( 'Not Left', 'Vectors',2*N, MA, 2*N, ALPHA, DUMMY, 1,&
                 Z, LDVR, WORK, LWORK, RWORK, INFO )
@@ -740,9 +754,32 @@ subroutine calculate_modes(this,Ef)
     CALL ZGEEV( 'Not Left', 'Vectors', 2*N, MA, 2*N, ALPHA, DUMMY, 1, &
                 Z, LDVR, WORK, LWORK, RWORK, INFO )
 
+   ! ------------------------------------------------------
+   ! Basis apporach
+   ! ------------------------------------------------------
+!   call ZGEMM( 'N', 'N', N, N, N, one ,blochF(1,:,:)  , N, &
+!                        Mdiag, N, zero,MA(N+1:2*N,1:N), N )
+!
+!
+!    MA(N+1:2*N,1:N) = -Mdiag
+!    ! filling diag with diagonal matrix
+!    MA(1:N,N+1:2*N)     =  blochF(1,:,:)
+!
+!    one = +1
+!    blochF(2,:,:) = this%valsS0*Ef - this%valsH0
+!    call ZGEMM( 'N', 'N', N, N, N, one ,blochF(2,:,:)  , N, &
+!                        blochF(1,:,:), N, zero,MA(N+1:2*N,N+1:2*N), N )
+!
+!    LWORK = -1
+!    CALL ZGEEV( 'Not Left', 'Vectors',2*N, MA, 2*N, ALPHA, DUMMY, 1,&
+!                Z, LDVR, WORK, LWORK, RWORK, INFO )
+!    LWORK = MIN( LWMAX, INT( WORK( 1 ) ) )
+!    CALL ZGEEV( 'Not Left', 'Vectors', 2*N, MA, 2*N, ALPHA, DUMMY, 1, &
+!                Z, LDVR, WORK, LWORK, RWORK, INFO )
 
-
-
+   ! ------------------------------------------------------
+   ! Further
+   ! ------------------------------------------------------
     ! Checking solution
     if( INFO /= 0 ) then
         print*,"SYS::LEAD::Cannot solve generalized eigenvalue problem for eigenmodes: ZGEEV info:",INFO
@@ -771,12 +808,16 @@ subroutine calculate_modes(this,Ef)
 !            print"(i,4f16.5,A,f16.6)",i,abs(BETA(i)),abs(ALPHA(i)),lambda,"abs=",abs(lambda)
             c(i,:) =  Z(1:N,i)
             d(i,:) =  Z(N+1:2*N,i)
+!            one = 1
+!            call ZGEMV ( 'N', N, N, one, blochF(1,:,:), N,d(i,:),1, zero,Mdiag(1,:) , 1 )
+!            d(i,:) = Mdiag(1,:)
             ! Normalize vectors
             c(i,:) = c(i,:)/sqrt(sum(abs(c(i,:))**2))
             d(i,:) = d(i,:)/sqrt(sum(abs(d(i,:))**2))
 !            print*,i,sqrt(sum(abs(c(i,:))**2)),sqrt(sum(abs(d(i,:))**2))
             if(  abs(abs(lambda) - 1.0) < 1.0E-6 ) then ! check if propagating mode
                 current = (mode_current(N,c(i,:),d(i,:),this%valsTau))
+!                current =  mode_current_lambda(N,c(i,:),lambda,this%valsTau)
                 tmpc    = current
                 ! Normalize to current = 1
                 c(i,:)  = c(i,:)/sqrt(abs(current))
@@ -836,11 +877,13 @@ subroutine calculate_modes(this,Ef)
     no_e_in  = 0
     no_out   = 0
     no_e_out = 0
+    k = 0
     do i = 1 , 2*N
         if(abs(Beta(i))>1e-16) then
             lambda= (ALPHA(i)/BETA(i))
             if(  abs(abs(lambda) - 1.0) < 1.0E-6 ) then
-                current = mode_current(N,c(i,:),d(i,:),this%valsTau)
+!                current = mode_current(N,c(i,:),d(i,:),this%valsTau)
+                current =  mode_current_lambda(N,c(i,:),lambda,this%valsTau)
                 if(current > 0) then
                     no_in  = no_in + 1
                     this%modes   (M_IN,no_in,:)  = c(i,:)
@@ -865,7 +908,8 @@ subroutine calculate_modes(this,Ef)
                     no_e_in = no_e_in + 1
                     this%modes  (M_IN,this%no_in_modes+no_e_in,:)    = c(i,:)
                     this%lambdas(M_IN,this%no_in_modes+no_e_in)      = 1.0D10
-!                    print*,"Problematic case! Lambda == 0 "
+                    k = k +1
+!                    print*,"Problematic case! Lambda == 0 ",k
             endif
         endif
     enddo
@@ -880,6 +924,11 @@ subroutine calculate_modes(this,Ef)
     deallocate(d)
     deallocate(c)
 
+!    open(unit=111,file="rho.dat")
+!    do i = 1 , N
+!        write(111,"(500e20.6)"),abs(this%modes(M_IN,1:this%no_in_modes,i))**2,abs(this%modes(M_OUT,1:this%no_out_modes,i))**2
+!    enddo
+!    close(111)
 
     ! Sorting propagating modes by the current amplitde
     call sort_modes(this%no_in_modes ,this%modes(M_IN,:,:) ,this%lambdas(M_IN,:),this%currents(M_IN,:))
@@ -891,7 +940,7 @@ subroutine calculate_modes(this,Ef)
     do i = 1 , this%no_in_modes
         dval1 = log(this%lambdas(M_IN ,i))/II
         dval2 = log(this%lambdas(M_OUT,i))/II
-        print"(A,i4,A,f10.4,A,1f10.4,A,2f10.4)","   K[",i,"]:",dval1," | ",dval2 ," | " , this%currents(:,i)
+        print"(A,i4,A,f10.4,A,1f10.4,A,2f12.8)","   K[",i,"]:",dval1," | ",dval2 ," | " , this%currents(:,i)
 !        print"(A,i4,A,2f10.4,A,2f10.4,A,2f10.4)","   K[",i,"]:",this%lambdas(M_IN ,i)," | ",this%lambdas(M_OUT ,i) ," | " , this%currents(:,i)
     enddo
     print*,"-------------------------------------------------------"
@@ -982,7 +1031,8 @@ subroutine calculate_modes(this,Ef)
             d(i,:) = d(i,:)/sqrt(sum(abs(d(i,:))**2))
 !            print*,i,sqrt(sum(abs(c(i,:))**2)),sqrt(sum(abs(d(i,:))**2))
             if(  abs(abs(lambda) - 1.0) < 1.0E-6 ) then ! check if propagating mode
-                current = (mode_current(N,c(i,:),d(i,:),this%valsTau))
+!                current = (mode_current(N,c(i,:),d(i,:),this%valsTau))
+                current =  mode_current_lambda(N,c(i,:),lambda,this%valsTau)
                 tmpc    = current
                 ! Normalize to current = 1
                 c(i,:)  = c(i,:)/sqrt(abs(current))
@@ -1047,7 +1097,8 @@ subroutine calculate_modes(this,Ef)
         if(abs(Beta(i))>1e-16) then
             lambda= (ALPHA(i)/BETA(i))
             if(  abs(abs(lambda) - 1.0) < 1.0E-6 ) then
-                current = mode_current(N,c(i,:),d(i,:),this%valsTau)
+!                current = mode_current(N,c(i,:),d(i,:),this%valsTau)
+                current =  mode_current_lambda(N,c(i,:),lambda,this%valsTau)
                 if(current > 0) then
                     no_in  = no_in + 1
                     this%modes   (M_IN,no_in,:)  = c(i,:)
@@ -1447,5 +1498,100 @@ subroutine save_lead(this,filename,ofunit)
 
 
 endsubroutine save_lead
+
+
+!subroutine try_ZGGEVX(N,A,B,Z,ALPHA,BETA)
+!
+!      integer    :: N
+!      complex*16 :: A(:,:),B(:,:),Z(:,:),ALPHA(:),BETA(:)
+!!  .. "Local Scalars" ..
+!      INTEGER :: I, J
+!      doubleprecision :: ABNRM, BBNRM
+!!  .. "Local Arrays" ..
+!      CHARACTER(LEN=*), PARAMETER :: FMT = '(4(1X,1H(,F7.3,1H,,F7.3,1H):))'
+!
+!
+!        INTEGER                                   :: LDVL, LDVR , LWMAX , LWORK , INFO , LDA, LDB , ILO , IHI
+!        COMPLEX*16 , dimension(:) ,  allocatable  ::  WORK
+!
+!        logical,allocatable :: BWORK(:)
+!        integer,allocatable :: IWORK(:)
+!        COMPLEX*16 :: DUMMY(1,1)
+!        doubleprecision, ALLOCATABLE :: LSCALE(:), RSCALE(:), RCONDE(:), RCONDV(:) , RWORK(:)
+!
+!
+!    ! Setting the parameters for LAPACK
+!    LWMAX = 4*N**2 + 4*N
+!    LDVL  = N
+!    LDVR  = N
+!    LDA = N
+!    LDB = N
+!
+!    allocate(RWORK(8*N))
+!    allocate(WORK(LWMAX))
+!    allocate(IWORK(N+2))
+!    allocate(BWORK(N))
+!    ALLOCATE( LSCALE(N), RSCALE(N), RCONDE(N), RCONDV(N))
+!
+!    LWORK = LWMAX
+!    IWORK = 6*N
+!
+!
+!!  .. "Executable Statements" ..
+!      WRITE (*,*) 'GGEVX Example Program Results'
+!
+!
+!
+!
+!!      INTERFACE
+!      call ZGGEVX('B','N','V','B',N,A,LDA,B,LDB,ALPHA,   &
+!     &                  BETA,DUMMY,1,Z,LDVR,ILO,IHI,LSCALE,RSCALE,     &
+!     &                  ABNRM,BBNRM,RCONDE,RCONDV,WORK,LWORK,RWORK,     &
+!     &                  IWORK,BWORK,INFO)
+!!      CHARACTER          BALANC,JOBVL,JOBVR,SENSE
+!!      INTEGER            IHI,ILO,INFO,LDA,LDB,LDVL,LDVR,LWORK,N
+!!      DOUBLE PRECISION   ABNRM,BBNRM
+!!      LOGICAL            BWORK(*)
+!!      INTEGER            IWORK(*)
+!!      DOUBLE PRECISION   LSCALE(*),RCONDE(*),RCONDV(*),RSCALE(*),       &
+!!     &                   RWORK(*)
+!!      COMPLEX*16         A(LDA,*),ALPHA(*),B(LDB,*),BETA(*),VL(LDVL,*), &
+!!     &                   VR(LDVR,*),WORK(*)
+!!      END
+!!      END INTERFACE
+!
+!      WRITE(*,*)
+!      WRITE(*,*)'LSCALE : '
+!      DO I=1,N
+!         WRITE(*,'(F9.5)') LSCALE(I)
+!      ENDDO
+!      WRITE(*,*)
+!      WRITE(*,*)'RSCALE : '
+!      DO I=1,N
+!         WRITE(*,'(F9.5)') RSCALE(I)
+!      ENDDO
+!      WRITE(*,*)
+!      WRITE(*,*)'ABNRM = ', ABNRM
+!      WRITE(*,*)
+!      WRITE(*,*)'BBNRM = ', BBNRM
+!      WRITE(*,*)
+!      WRITE(*,*)'RCONDE : '
+!      DO I=1,N
+!         WRITE(*,'(F9.5)') RCONDE(I)
+!      ENDDO
+!      WRITE(*,*)
+!      WRITE(*,*)'RCONDV : '
+!      DO I=1,N
+!         WRITE(*,'(F9.5)') RCONDV(I)
+!      ENDDO
+!
+!
+!      DEALLOCATE(LSCALE,BWORK,IWORK,WORK,RWORK)
+!      DEALLOCATE(RSCALE, RCONDE, RCONDV)
+!
+!end subroutine try_ZGGEVX
+
+
+
 
 endmodule modlead

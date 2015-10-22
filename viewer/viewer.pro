@@ -22,5 +22,4 @@ FORMS += \
     mainwindow.ui \
     formleadparams.ui
 
-RESOURCES += \
-    data.qrc
+RESOURCES +=
