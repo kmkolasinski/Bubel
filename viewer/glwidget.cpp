@@ -68,8 +68,11 @@ GLWidget::GLWidget(QWidget *parent)
     bUseOrtho = false;
     bPickAtom = false;
     bCompileDisplayList = true;
+    bHideConnections = false;
+    bHideAtoms       = false;
     selectedDataColumn = 0;
     selectedDataSpin   = 0;
+    bUseLines          = false;
 
     selectedAtomA = -1;
     selectedAtomB = -1;
@@ -316,8 +319,9 @@ void processHits (GLint hits, GLuint buffer[])
 //! [7]
 void GLWidget::paintGL()
 {
-    static GLuint displayIndex  = glGenLists(1);
-    static GLuint displayIndexNonPickable = glGenLists(1);
+    static GLuint displayIndex      = glGenLists(1);
+    static GLuint displayIndexCnts  = glGenLists(1);
+    static GLuint displayIndexLeads = glGenLists(1);
     makeCurrent();
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glEnable(GL_DEPTH_TEST);
@@ -412,6 +416,8 @@ void GLWidget::paintGL()
                               displayPerFlag[id].color.blueF(), 1.0 };
             glMaterialfv(GL_FRONT,GL_DIFFUSE,df);
         }
+
+
         glTranslated(atom.pos.x(),atom.pos.y(),atom.pos.z());
         gluSphere( quadric , radius , no_subdivs , no_subdivs );
         glPopMatrix();
@@ -433,6 +439,9 @@ void GLWidget::paintGL()
             if( data->spinIds[i] != selectedDataSpin ) continue;
             Atom &atom = (*atoms)[data->atomIds[i]];
 
+
+            if(flag2id[atom.flag] == selectDataFlag-1 ) continue;
+
             if(bUseSettingsPerFlag){
                 int id = flag2id[atom.flag];
                 if(displayPerFlag[id].bHide) continue;
@@ -440,10 +449,9 @@ void GLWidget::paintGL()
 
             glLoadName(data->atomIds[i]);
             double value = data->values[i][selectedDataColumn];
-            value = (value-min_value)/(max_value-min_value);
+            value = qMax((value-min_value)/(max_value-min_value),0.0);
 
-            value = (value-displayAllSettings.min_cutoff)/(displayAllSettings.max_cutoff-displayAllSettings.min_cutoff);
-
+            value = qMax(0.0,(value-displayAllSettings.min_cutoff)/(displayAllSettings.max_cutoff-displayAllSettings.min_cutoff));
 
             QVector3D color = HSL2RGB(value*0.5,1.0,0.5);
             glPushMatrix();
@@ -464,22 +472,31 @@ void GLWidget::paintGL()
         Atom &atom = (*atoms)[i];
         if(atom.active) continue;
         glLoadName(i);
-
         glPushMatrix();
-
         glTranslated(atom.pos.x(),atom.pos.y(),atom.pos.z());
         gluSphere( quadric , radius , no_subdivs , no_subdivs );
         glPopMatrix();
     }
 
     glEndList();
-    glNewList(displayIndexNonPickable, GL_COMPILE);
+    glNewList(displayIndexCnts, GL_COMPILE);
 
 
     radius     = displayConnections.atom_size * DataReader::atoms_stats.scale * 0.3;
     no_subdivs = displayConnections.atom_quality;
 
     glMaterialfv(GL_FRONT,GL_DIFFUSE,d5);
+    if(bUseLines){
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glEnable( GL_LINE_SMOOTH );
+        glEnable( GL_POLYGON_SMOOTH );
+        glHint( GL_LINE_SMOOTH_HINT, GL_NICEST );
+        glLineWidth(radius*500.0);
+        glDisable(GL_LIGHTING);
+        glBegin(GL_LINES);
+        glColor3fv(d5);
+    }
     int lastA = -1;
     int lastB = -1;
     int no_calls = 0;
@@ -493,16 +510,33 @@ void GLWidget::paintGL()
             lastB = cnt.atomB;
         }else continue;
         no_calls++;
-        renderCylinder(atomA.pos.x(),atomA.pos.y(),atomA.pos.z(),atomB.pos.x(),atomB.pos.y(),atomB.pos.z(),0.2*radius,no_subdivs,quadric);
+
+        if(bUseLines){
+
+            glVertex3d(atomA.pos.x(),atomA.pos.y(),atomA.pos.z());
+            glVertex3d(atomB.pos.x(),atomB.pos.y(),atomB.pos.z());
+        }else
+            renderCylinder(atomA.pos.x(),atomA.pos.y(),atomA.pos.z(),atomB.pos.x(),atomB.pos.y(),atomB.pos.z(),0.2*radius,no_subdivs,quadric);
 
     }
-//    qDebug() << no_calls;
+    if(bUseLines){
+
+        glEnd();
+        glEnable(GL_LIGHTING);
+    }
+
+
+    glEndList();
+    glNewList(displayIndexLeads, GL_COMPILE);
 
 
     glMaterialfv(GL_FRONT,GL_DIFFUSE,d4);
 
     radius      = displayAllSettings.atom_size * DataReader::atoms_stats.scale * 0.3;
     no_subdivs  = displayAllSettings.atom_quality;
+
+    glInitNames();
+    glPushName(0);
 
     for(unsigned int l = 0 ; l < leads->size() ; l++){
         Lead& lead = (*leads)[l];
@@ -518,7 +552,7 @@ void GLWidget::paintGL()
                 radius     = displayPerFlag[id].atom_size * DataReader::atoms_stats.scale * 0.3;
                 no_subdivs = displayPerFlag[id].atom_quality;
             }
-
+            glLoadName(lead.atoms[i]);
             glTranslated(atom.pos.x(),atom.pos.y(),atom.pos.z());
             gluSphere( quadric , radius*1.1 ,  5 + no_subdivs , 5 + no_subdivs);
             glPopMatrix();
@@ -532,6 +566,7 @@ void GLWidget::paintGL()
                 radius     = displayPerFlag[id].atom_size * DataReader::atoms_stats.scale * 0.3;
                 no_subdivs = displayPerFlag[id].atom_quality;
             }
+            glLoadName(lead.nex_atoms[i]);
             glTranslated(atom.pos.x(),atom.pos.y(),atom.pos.z());
             gluSphere( quadric , radius*1.1 , 5 + no_subdivs , 5 + no_subdivs );
             glPopMatrix();
@@ -593,11 +628,16 @@ void GLWidget::paintGL()
 
     // ---------------------------------------------------------------
     // ---------------------------------------------------------------
-    glCallList(displayIndex);
+    if(!bHideAtoms)glCallList(displayIndex);
+    glCallList(displayIndexLeads);
+
 
     if(!bPickAtom){
         if(atoms->size() == 0) return;
-        glCallList(displayIndexNonPickable);
+        if(!bHideConnections)glCallList(displayIndexCnts);
+
+
+
         GLUquadricObj *quadric = gluNewQuadric();
         double radius      = displayAllSettings.atom_size * DataReader::atoms_stats.scale * 0.3;
 

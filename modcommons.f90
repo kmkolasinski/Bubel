@@ -7,6 +7,18 @@ logical,public            :: QSYS_USE_ZGGEV_TO_FIND_MODES = .false. ! When findi
 logical,public            :: QSYS_DISABLE_HERMICITY_CHECK = .false.
 integer,public            :: QSYS_DEBUG_LEVEL = 0   ! 0 - less messages, 1-more, 2-even more
 
+
+ENUM, BIND(C)
+  ENUMERATOR :: QSYS_SCATTERING_QTBM   = 1 ! solve scattering problem with QTBM
+  ENUMERATOR :: QSYS_SCATTERING_WFM    = 2 ! solve with WFM
+  ENUMERATOR :: QSYS_SCATTERING_QTBM_TAKE_ALL_EVAN = -1 ! force QTBM to take all evanescent modes (may be not stable)
+END ENUM
+public :: QSYS_SCATTERING_QTBM, QSYS_SCATTERING_WFM , QSYS_SCATTERING_QTBM_TAKE_ALL_EVAN
+
+
+integer,public :: QSYS_SCATTERING_METHOD       = QSYS_SCATTERING_WFM ! choose approach
+integer,public :: QSYS_SCATTERING_QTBM_NO_EVAN = QSYS_SCATTERING_QTBM_TAKE_ALL_EVAN ! force number of evanescent modes in calculation
+
 logical,public            :: B_SINGULAR_MATRIX = .false.
 private
 ! -----------------------------------------------

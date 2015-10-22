@@ -11,8 +11,6 @@ MainWindow::MainWindow(QWidget *parent) :
 
     ui->horizontalLayoutGL->addWidget(glWidget);
 
-    connect(ui->spinBoxSpinA,SIGNAL(valueChanged(int)),this,SLOT(receiveSpinBoxes(int)));
-    connect(ui->spinBoxSpinB,SIGNAL(valueChanged(int)),this,SLOT(receiveSpinBoxes(int)));
     connect(ui->pushButtonOpen,SIGNAL(released()),this,SLOT(open()));
     connect(ui->pushButtonCloseFile,SIGNAL(released()),this,SLOT(close()));
     connect(ui->pushButtonReopenFile,SIGNAL(released()),this,SLOT(reopen()));
@@ -27,7 +25,11 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(ui->doubleSpinBoxAtomSize,SIGNAL(valueChanged(double)),this,SLOT(receiveDoubleSpinBoxes(double)));
     connect(ui->spinBoxAtomQ,SIGNAL(valueChanged(int)),this,SLOT(receiveSpinBoxes(int)));
     connect(ui->pushButtonAtomColor,SIGNAL(released()),this,SLOT(chooseColor()));
+    connect(ui->checkBoxHideAtoms,SIGNAL(stateChanged(int)),this,SLOT(receiveCheckBoxes(int)));
 
+
+    connect(ui->checkBoxCntsHide,SIGNAL(stateChanged(int)),this,SLOT(receiveCheckBoxes(int)));
+    connect(ui->checkBoxCntsUseLines,SIGNAL(stateChanged(int)),this,SLOT(receiveSpinBoxes(int)));
     connect(ui->doubleSpinBoxConnectionSize,SIGNAL(valueChanged(double)),this,SLOT(receiveDoubleSpinBoxes(double)));
     connect(ui->spinBoxConnectionQ,SIGNAL(valueChanged(int)),this,SLOT(receiveSpinBoxes(int)));
     connect(ui->pushButtonConnectionColour,SIGNAL(released()),this,SLOT(chooseConnectionColor()));
@@ -51,6 +53,7 @@ MainWindow::MainWindow(QWidget *parent) :
 
     // data vals
     connect(ui->comboBoxDatasetSpinFilter,SIGNAL(currentIndexChanged(int)),this,SLOT(receiveSpinBoxes(int)));
+    connect(ui->comboBoxDataSetFlagFilter,SIGNAL(currentIndexChanged(int)),this,SLOT(receiveSpinBoxes(int)));
     connect(ui->listWidgetDatasetCols,SIGNAL(currentRowChanged(int)),this,SLOT(receiveSpinBoxes(int)));
     connect(ui->checkBoxDatasetUse,SIGNAL(stateChanged(int)),this,SLOT(receiveSpinBoxes(int)));
     connect(ui->horizontalSliderDataMinValue,SIGNAL(sliderReleased()),this,SLOT(updateWidgets()));
@@ -145,6 +148,8 @@ void MainWindow::update_gui(){
     glWidget->displayPerFlag.clear();
     glWidget->flag2id.clear();
     ui->comboBoxFlags->clear();
+    ui->comboBoxDataSetFlagFilter->clear();
+    ui->comboBoxDataSetFlagFilter->addItem("All");
     for(unsigned int i = 0 ; i < stats.flag_list.size() ; i++){
         info += QString::number(stats.flag_list[i])+", ";
         glWidget->flag2id[stats.flag_list[i]] = i;
@@ -157,6 +162,7 @@ void MainWindow::update_gui(){
 
         glWidget->displayPerFlag.push_back(ds);
         ui->comboBoxFlags->addItem("Flag="+QString::number(stats.flag_list[i]));
+        ui->comboBoxDataSetFlagFilter->addItem(QString::number(stats.flag_list[i]));
     }
     }// display per flag
     info += QString("<br>");
@@ -171,10 +177,7 @@ void MainWindow::update_gui(){
 
     ui->textEditInfo->setText(info);
 
-    ui->spinBoxSpinA->setMinimum(1);
-    ui->spinBoxSpinA->setMaximum(stats.max_spin);
-    ui->spinBoxSpinB->setMinimum(1);
-    ui->spinBoxSpinB->setMaximum(stats.max_spin);
+
     }// end of if loading data
 
     // Data values
@@ -225,19 +228,22 @@ void MainWindow::receiveCheckBoxes(int toggle){
     if(ui->radioButtonMainXZ->isChecked()) glWidget->mainPlain = MAIN_PLAIN_XZ;
     if(ui->radioButtonMainYZ->isChecked()) glWidget->mainPlain = MAIN_PLAIN_YZ;
 
-    glWidget->bUseOrtho = ui->checkBoxOrthoProj->isChecked();
+    glWidget->bUseOrtho        = ui->checkBoxOrthoProj->isChecked();
+    glWidget->bHideConnections = ui->checkBoxCntsHide->isChecked();
+    glWidget->bHideAtoms       = ui->checkBoxHideAtoms->isChecked();
+
     glWidget->updateGL();
 }
 
 void MainWindow::updateWidgets(){
     if(bSkipSignals) return;
     glWidget->bCompileDisplayList = true;
-    xmlData.atoms_stats.filter_spin_A = ui->spinBoxSpinA->value();
-    xmlData.atoms_stats.filter_spin_B = ui->spinBoxSpinB->value();
+
     xmlData.precalculate_data();
 
     glWidget->displayConnections.atom_quality = ui->spinBoxConnectionQ->value();
     glWidget->displayConnections.atom_size    = ui->doubleSpinBoxConnectionSize->value();
+    glWidget->bUseLines                       = ui->checkBoxCntsUseLines->isChecked();
     QPalette palette = ui->pushButtonConnectionColour->palette();
     QColor color     = palette.color(QPalette::Button);
     glWidget->displayConnections.color = color;
@@ -261,6 +267,8 @@ void MainWindow::updateWidgets(){
     // Data values
     glWidget->selectedDataColumn = ui->listWidgetDatasetCols->currentRow();
     glWidget->selectedDataSpin   = ui->comboBoxDatasetSpinFilter->currentIndex();
+    glWidget->selectDataFlag     = ui->comboBoxDataSetFlagFilter->currentIndex();
+
 
     glWidget->displayAllSettings.min_cutoff=ui->horizontalSliderDataMinValue->value()/300.0;
     glWidget->displayAllSettings.max_cutoff=ui->horizontalSliderDataMaxValue->value()/300.0;

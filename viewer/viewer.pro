@@ -21,3 +21,6 @@ INSTALLS += target sources
 FORMS += \
     mainwindow.ui \
     formleadparams.ui
+
+RESOURCES += \
+    data.qrc

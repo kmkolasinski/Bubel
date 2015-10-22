@@ -201,26 +201,30 @@ subroutine construct_matrix(this,Ef)
                     if(abs(this%MATHVALS(itmp)) < 1.0D-20) then
                     itmp = itmp - 1
                     endif
-
                 enddo
-!                print*,itmp,sum(this%ROWCOLID),sum(this%MATHVALS)
-!                stop
+
                 ! coupling matrix
                 do lc = 1 , this%leads(lid)%no_sites
-!                    if(lid == 1)then
+
                     ta = this%leads(lid)%next_l2g(lc,1)
                     ts = this%leads(lid)%next_l2g(lc,2)
                     itmp = itmp + 1
-                    this%MATHVALS(itmp)   = Ef*this%leads(lid)%valsS1(lr,lc) -this%leads(lid)%valsTau(lr,lc) &
+                    ! ------------------------------------------------------
+                    if(QSYS_SCATTERING_METHOD == QSYS_SCATTERING_WFM) then
+                        this%MATHVALS(itmp)   = &
+                                            Ef*this%leads(lid)%valsS1(lr,lc) -this%leads(lid)%valsTau(lr,lc)
+                    ! ------------------------------------------------------
+                    else if(QSYS_SCATTERING_METHOD == QSYS_SCATTERING_QTBM) then
+                        this%MATHVALS(itmp)   = &
+                                            Ef*this%leads(lid)%valsS1(lr,lc)       -this%leads(lid)%valsTau(lr,lc) &
                                           + conjg(Ef*this%leads(lid)%valsS1(lc,lr) -this%leads(lid)%valsTau(lc,lr))
+                    endif
+                    ! ------------------------------------------------------
                     this%ROWCOLID(itmp,1) = this%qsystem%atoms(fa)%globalIDs(fs)
                     this%ROWCOLID(itmp,2) = this%qsystem%atoms(ta)%globalIDs(ts)
-!                    endif
 
                     if(abs(this%MATHVALS(itmp)) < 1.0D-20) then
                     itmp = itmp - 1
-!                    else
-!                    print"(3i,2f12.6)",itmp,this%ROWCOLID(itmp,:),this%MATHVALS(itmp)
                     endif
                 enddo
 
@@ -259,6 +263,10 @@ subroutine construct_matrix(this,Ef)
     enddo
     this%NO_NON_ZERO_VALUES = itmp
 
+!    do i = 1, itmp
+!        print"(3i,2f10.4)",i,this%ROWCOLID(i,1),this%ROWCOLID(i,2),this%MATHVALS(i)
+!    enddo
+
     deallocate(leadFlags)
     deallocate(leadIds)
 end subroutine construct_matrix
@@ -275,6 +283,7 @@ subroutine solve(this,leadID,Ef)
     doubleprecision :: timer_factorization,total_Tn
     integer ,allocatable   :: HBROWS(:)
     complex*16,allocatable :: phi(:)
+    complex*16 :: cval
     integer :: modin , i , j , lg , la ,ls
 
     ! --------------------------------------------------------------------
@@ -322,10 +331,16 @@ subroutine solve(this,leadID,Ef)
         ls = this%leads(leadID)%l2g(i,2)
         lg = this%qsystem%atoms(la)%globalIDs(ls);
         do j = 1 , this%leads(leadID)%no_sites
-            phi(lg) = phi(lg) + (this%leads(leadID)%LambdaMat(i,j) + &
-                                conjg(this%leads(leadID)%valsTau(j,i))*(this%leads(leadID)%lambdas(M_IN,modin)**(-1)) ) &
+            ! Choosing between available method
+            if(QSYS_SCATTERING_METHOD == QSYS_SCATTERING_QTBM) then
+            cval = this%leads(leadID)%lambdas(M_IN,modin) - this%leads(leadID)%lambdas(M_IN,modin)**(-1)
+            phi(lg) = phi(lg) + (this%leads(leadID)%LambdaMat(i,j) - &
+                                cval*conjg(this%leads(leadID)%valsTau(j,i)) ) &
                                 *this%leads(leadID)%modes(M_IN,modin,j)
-!            phi(lg) = phi(lg) + this%leads(leadID)%LambdaMat(i,j)*this%leads(leadID)%modes(1,modin,j)
+
+            else if(QSYS_SCATTERING_METHOD == QSYS_SCATTERING_WFM) then
+            phi(lg) = phi(lg) + this%leads(leadID)%LambdaMat(i,j)*this%leads(leadID)%modes(1,modin,j)
+            endif
         enddo
     enddo
 

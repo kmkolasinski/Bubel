@@ -27,7 +27,7 @@ character(300) :: line
 ! Initalize system
 call qt%init_system()
 call tmpsystem%init()
-
+QSYS_SCATTERING_METHOD = QSYS_SCATTERING_QTBM
 !  ----------------------------------------------------------
 !  1. Create mesh - read unit cell from file
 !  ----------------------------------------------------------
@@ -117,7 +117,7 @@ do Ef = -3.0 , 3.025 , 0.051
     call qt%solve(1,Ef)
 
     print*,"Energy:",Ef
-    write(111,"(100f20.6)"),Ef,sum(qt%Tn(:))
+    write(111,"(2f20.6)"),Ef,sum(qt%Tn(:))
 enddo
 close(111)
 

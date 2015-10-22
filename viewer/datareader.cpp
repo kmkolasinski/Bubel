@@ -518,8 +518,10 @@ void DataReader::read_lead(QDomElement &root){
             lead.shape.data[6] =  - tangent*scale;
             lead.shape.data[7] =  - btangent*scale;
 
-            QVector3D mc_offset = leadMC - dir.normalized() * ( QVector3D::dotProduct(dir.normalized(),leadMC)  );
-//            qDebug() << leadMC << mc_offset;
+//            QVector3D mc_offset = leadMC - dir.normalized() * ( QVector3D::dotProduct(dir.normalized(),leadMC)  );
+            QVector3D dmc = leadMC - base;
+            QVector3D mc_offset = btangent.normalized() * ( QVector3D::dotProduct(btangent.normalized(),dmc)  );
+
             base += mc_offset;
             lead.shape.data[0] += base;
             lead.shape.data[1] += base;

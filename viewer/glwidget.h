@@ -142,13 +142,17 @@ public:
     bool bUseOrtho;
     bool bCompileDisplayList;
     bool bSelectedAtomsConnected;
-    int  selectedDataColumn,selectedDataSpin;
+    bool bHideConnections;
+    bool bHideAtoms;
+    bool bUseLines;
+    int  selectedDataColumn,selectedDataSpin,selectDataFlag;
 
 
     vector<DisplaySettings> displayPerFlag;
     DisplaySettings          displayAllSettings;
     DisplaySettings          displayConnections;
     map<int,unsigned int> flag2id;
+    uint pointTexture;
 
 };
 //! [3]

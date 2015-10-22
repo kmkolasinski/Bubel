@@ -480,10 +480,12 @@ subroutine make_lattice(sys,nnbparams,c_simple,c_matrix,o_simple,o_matrix)
 
                 ns1 = size(sys%atoms(i)%bonds(j)%bondMatrix,1)
                 ns2 = size(sys%atoms(i)%bonds(j)%bondMatrix,2)
+
+
                 cpl_delta = 0.0
                 do s1 = 1 , ns1
                 do s2 = 1 , ns2
-                    cpl_delta = abs( sys%atoms(i)%bonds(j)%bondMatrix(s1,s2) - conjg(sys%atoms(vp)%bonds(k)%bondMatrix(s2,s1)) )
+                    cpl_delta = cpl_delta + abs( sys%atoms(i)%bonds(j)%bondMatrix(s1,s2) - conjg(sys%atoms(vp)%bonds(k)%bondMatrix(s2,s1)) )
                 enddo
                 enddo
                 if( abs(cpl_delta) > 10.0D-6 ) then
@@ -500,7 +502,7 @@ subroutine make_lattice(sys,nnbparams,c_simple,c_matrix,o_simple,o_matrix)
                     enddo
                     print"(A)",       "             Hoping matrix for B->A:"
                     do s2 = 1, ns2
-                    print"(A,3000e16.6)","              ",sys%atoms(vp)%bonds(k)%bondMatrix(:,s2)
+                    print"(A,3000e16.6)","             ",sys%atoms(vp)%bonds(k)%bondMatrix(:,s2)
                     enddo
                     print*,"==============================================================================="
                     stop -1
@@ -595,10 +597,11 @@ subroutine update_lattice(sys,c_simple,c_matrix,o_simple,o_matrix)
 
                 ns1 = size(sys%atoms(i)%bonds(j)%bondMatrix,1)
                 ns2 = size(sys%atoms(i)%bonds(j)%bondMatrix,2)
+
                 cpl_delta = 0.0
                 do s1 = 1 , ns1
                 do s2 = 1 , ns2
-                    cpl_delta = abs( sys%atoms(i)%bonds(j)%bondMatrix(s1,s2) - conjg(sys%atoms(vp)%bonds(k)%bondMatrix(s2,s1)) )
+                    cpl_delta = cpl_delta + abs( sys%atoms(i)%bonds(j)%bondMatrix(s1,s2) - conjg(sys%atoms(vp)%bonds(k)%bondMatrix(s2,s1)) )
                 enddo
                 enddo
                 if( abs(cpl_delta) > 10.0D-6 ) then
@@ -694,7 +697,9 @@ subroutine update_overlaps(sys,o_simple,o_matrix)
     if(present(o_simple)  .or. present(o_matrix)) then
     sys%bOverlapMatrixEnabled = .true.
     if( .not. QSYS_DISABLE_HERMICITY_CHECK) then
-    print*,"SYS::INFO::Checking hermiticity of the overlap matrix."
+    if(QSYS_DEBUG_LEVEL > 0)then
+        print*,"SYS::INFO::Checking hermiticity of the overlap matrix."
+    endif
     do i = 1 , sys%no_atoms ! take the atom A
         if(sys%atoms(i)%bActive) then
             do j = 1 , sys%atoms(i)%no_bonds ! take one bond to atom B
@@ -713,7 +718,7 @@ subroutine update_overlaps(sys,o_simple,o_matrix)
                 cpl_delta = 0.0
                 do s1 = 1 , ns1
                 do s2 = 1 , ns2
-                    cpl_delta = abs( sys%atoms(i)%bonds(j)%overlapMatrix(s1,s2) - conjg(sys%atoms(vp)%bonds(k)%overlapMatrix(s2,s1)) )
+                    cpl_delta = cpl_delta +  abs( sys%atoms(i)%bonds(j)%overlapMatrix(s1,s2) - conjg(sys%atoms(vp)%bonds(k)%overlapMatrix(s2,s1)) )
                 enddo
                 enddo
                 if( abs(cpl_delta) > 10.0D-6 ) then
@@ -1355,7 +1360,8 @@ end subroutine sort_col_vals
           iparm(32) = 0 ! if 1 use multirecursive iterative algorithm
            error = 0 ! initialize error flag
           msglvl = 0 ! print statistical information
-          mtype     = 3 !13     ! complex unsymmetric matrix
+          mtype     = 3 !     ! complex struturaly symmetrix
+          mtype     = 13     ! complex unsymmetric matrix
 
           phase     = 11      ! only reordering and symbolic factorization
           CALL pardiso (pt, maxfct, mnum, mtype, phase, n, values, rowind, colptr,&
