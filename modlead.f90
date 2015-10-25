@@ -65,6 +65,7 @@ type qlead
     procedure,pass(this) :: save_lead!(this,filename,funit)
     procedure,pass(this) :: calculate_modes!(this,Ef)
     procedure,pass(this) :: calculate_Tnm!(this,all_atoms,n,phi)
+    procedure,pass(this) :: diagonalize_currents!(this,all_atoms,n,phi)
 
 endtype qlead
 
@@ -594,45 +595,45 @@ subroutine calculate_modes(this,Ef)
     ! ---------------------------------------
     ! Memoru allocations
     ! ---------------------------------------
-    allocate(MA (2*N,2*N))
-    allocate(MB (2*N,2*N))
-    allocate(Z  (2*N,2*N))
-    allocate(Mdiag(N,N))
-    allocate(blochF(2,N,N))
-    allocate(d(2*N,N))
-    allocate(c(2*N,N))
+    allocate(MA     (2*N,2*N))
+    allocate(MB     (2*N,2*N))
+    allocate(Z      (2*N,2*N))
+    allocate(Mdiag  (N,N))
+    allocate(blochF (2,N,N))
+    allocate(d      (2*N,N))
+    allocate(c      (2*N,N))
 
+    if(allocated(this%modes))       deallocate(this%modes)
+    if(allocated(this%lambdas))     deallocate(this%lambdas)
+    if(allocated(this%SigmaMat))    deallocate(this%SigmaMat)
+    if(allocated(this%LambdaMat))   deallocate(this%LambdaMat)
+    if(allocated(this%Tnm))         deallocate(this%Tnm)
+    if(allocated(this%currents))    deallocate(this%currents)
+    if(allocated(this%UTildeDagger))deallocate(this%UTildeDagger)
 
-    if(allocated(this%modes))     deallocate(this%modes)
-    if(allocated(this%lambdas))  deallocate(this%lambdas)
-    if(allocated(this%SigmaMat)) deallocate(this%SigmaMat)
-    if(allocated(this%LambdaMat)) deallocate(this%LambdaMat)
-    if(allocated(this%Tnm))      deallocate(this%Tnm)
-    if(allocated(this%currents))      deallocate(this%currents)
-    if(allocated(this%UTildeDagger)) deallocate(this%UTildeDagger)
-
-    allocate(this%modes(2,N,N))
-    allocate(this%lambdas(2,N))
-    allocate(this%SigmaMat(N,N))
-    allocate(this%LambdaMat(N,N))
-    allocate(this%currents(2,N))
+    allocate(this%modes     (2,N,N))
+    allocate(this%lambdas   (2,N))
+    allocate(this%SigmaMat  (N,N))
+    allocate(this%LambdaMat (N,N))
+    allocate(this%currents  (2,N))
     allocate(this%UTildeDagger(N,N))
-    this%currents = 0
-    this%UTildeDagger = 0
-    this%modes     = 0
-    this%lambdas  = 0
-    this%SigmaMat = 0
-    this%LambdaMat = 0
+
+    this%currents       = 0
+    this%UTildeDagger   = 0
+    this%modes          = 0
+    this%lambdas        = 0
+    this%SigmaMat       = 0
+    this%LambdaMat      = 0
 
     ! Setting the parameters for LAPACK
     LWMAX = 40 * N
     LDVL  = 2  * N
     LDVR  = 2  * N
 
-    allocate(ALPHA(2*N))
-    allocate(BETA(2*N))
-    allocate(RWORK(8*N))
-    allocate(WORK(LWMAX))
+    allocate(ALPHA  (2*N))
+    allocate(BETA   (2*N))
+    allocate(RWORK  (8*N))
+    allocate(WORK   (LWMAX))
     ! -------------------------------------------------------
     ! Creation of the Generalized eigenvalue problem Eq. (52)
     ! -------------------------------------------------------
@@ -932,7 +933,38 @@ subroutine calculate_modes(this,Ef)
 
     ! Sorting propagating modes by the current amplitde
     call sort_modes(this%no_in_modes ,this%modes(M_IN,:,:) ,this%lambdas(M_IN,:),this%currents(M_IN,:))
+    lambda = this%lambdas(M_IN,1)
+    j      = 1
+    do i = 2 ,this%no_in_modes
+
+        if( abs(lambda -this%lambdas(M_IN,i)) > 1.0D-10  ) then
+            print*,"diagonalize from:",j," to:",i-1
+
+            call this%diagonalize_currents(M_IN,j,i-1)
+            j = i
+            lambda = this%lambdas(M_IN,i)
+        endif
+    enddo
+    call this%diagonalize_currents(M_IN,j,i-1)
+
     call sort_modes(this%no_out_modes,this%modes(M_OUT,:,:),this%lambdas(M_OUT,:),this%currents(M_OUT,:))
+
+    lambda = this%lambdas(M_OUT,1)
+    j      = 1
+    do i = 2 ,this%no_in_modes
+
+        if( abs(lambda -this%lambdas(M_OUT,i)) > 1.0D-10  ) then
+            print*,"diagonalize from:",j," to:",i-1
+
+            call this%diagonalize_currents(M_OUT,j,i-1)
+            j = i
+            lambda = this%lambdas(M_OUT,i)
+        endif
+    enddo
+
+    call this%diagonalize_currents(M_OUT,j,i-1)
+
+
     if(QSYS_DEBUG_LEVEL > 0) then
     print*,"-------------------------------------------------------"
     print*," K vec.  :    In     |       Out  |          Fluxes   "
@@ -1591,7 +1623,122 @@ endsubroutine save_lead
 !
 !end subroutine try_ZGGEVX
 
+subroutine diagonalize_currents(this,mdir,ifrom,ito)
+    class(qlead) :: this
 
+    integer :: mdir,ifrom,ito,N,i,j,Nlead
+
+    complex*16,allocatable :: VelMat(:,:) , BaseMat(:,:) , tmpMat(:,:) , tmpVec(:)
+    complex*16 :: alpha,beta,lambda
+    doubleprecision :: current
+
+    alpha = II
+    beta  = 0.0
+
+    N     = ito-ifrom+1
+    Nlead = this%no_sites
+
+    allocate(VelMat(N,N))
+    allocate(BaseMat(N,N))
+    allocate(tmpMat(Nlead,Nlead))
+    allocate(tmpVec(Nlead))
+
+    tmpMat = 0
+    lambda = this%lambdas(mdir,ifrom)
+    do i = 1 , Nlead
+    do j = 1 , Nlead
+        tmpMat(i,j) = + ( this%valsTau(i,j)*lambda &
+                  - conjg(this%valsTau(j,i)*lambda))
+    enddo
+    enddo
+
+    do i = 0 , N-1
+    do j = 0 , N-1
+       call ZGEMV ( 'N', Nlead, Nlead, ALPHA, tmpMat, Nlead, this%modes(mdir,ifrom+j,:), 1, BETA, tmpVec, 1 )
+       VelMat(i+1,j+1) = sum(conjg(this%modes(mdir,ifrom+i,:))*tmpVec)
+    enddo
+    enddo
+
+    call alg_ZHEEV(N,VelMat,BaseMat,tmpVec(1:N))
+
+    do i = 1 , Nlead
+        beta = 0
+    do j = 1 , N
+        tmpVec(j) = sum(this%modes(mdir,ifrom:ito,i)*BaseMat(:,j))
+    enddo
+        this%modes(mdir,ifrom:ito,i) = tmpVec(1:N)
+    enddo
+
+    print*,"Velmat2:",N,ifrom,ito
+    do i = 0 , N-1
+    do j = 0 , N-1
+       call ZGEMV ( 'N', Nlead, Nlead, ALPHA, tmpMat, Nlead, this%modes(mdir,ifrom+j,:), 1, BETA, tmpVec, 1 )
+       VelMat(i+1,j+1) = sum(conjg(this%modes(mdir,ifrom+i,:))*tmpVec)
+    enddo
+       print"(20e16.4)", VelMat(i+1,:)
+    enddo
+
+
+    do i = ifrom , ito
+        current = (mode_current_lambda(Nlead,this%modes(mdir,i,:),lambda,this%valsTau))
+        this%modes(mdir,i,:) = this%modes(mdir,i,:)/sqrt(abs(current))
+        current = (mode_current_lambda(Nlead,this%modes(mdir,i,:),lambda,this%valsTau))
+        this%currents(mdir,i) = current
+    enddo
+
+
+    deallocate(VelMat)
+    deallocate(BaseMat)
+    deallocate(tmpMat)
+    deallocate(tmpVec)
+end subroutine diagonalize_currents
+
+
+subroutine alg_ZHEEV(N,Mat,Vecs,Lambdas)
+    integer :: N
+    complex*16 :: Mat(:,:),Vecs(:,:),Lambdas(:)
+
+    ! -------------------------------------------------
+    !                    LAPACK
+    ! -------------------------------------------------
+    !     .. Local Scalars ..
+    INTEGER          INFO, LWORK, LWMAX
+
+    !     .. Local Arrays ..
+
+    DOUBLE PRECISION,allocatable :: RWORK( : )
+    COMPLEX*16,allocatable        :: WORK( : )
+
+
+    ! Initialize lapack and allocate arrays
+    LWMAX = N*50
+
+    allocate(RWORK ( 3*N  ))
+    allocate(WORK  ( LWMAX ))
+
+    !
+    !     Query the optimal workspace.
+    !
+    LWORK  = -1
+    call zheev("N", "L", N, Mat, N, Lambdas, work, lwork, rwork, info)
+
+
+    if( INFO /= 0 ) then
+        print*,"  alg_ZHEEV: Error during solving with info:",INFO
+        stop
+    endif
+    LWORK  = MIN( LWMAX, INT( WORK( 1 ) ) )
+
+    deallocate( WORK)
+    allocate(WORK  ( LWORK ))
+
+    Vecs = Mat
+    call zheev("V", "L", N, Vecs, N, Lambdas, work, lwork, rwork, info)
+
+    deallocate(RWORK)
+    deallocate(WORK)
+
+end subroutine alg_ZHEEV
 
 
 endmodule modlead
