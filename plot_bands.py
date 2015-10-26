@@ -25,7 +25,6 @@ plt.ylabel("Energy [some units]")
 plt.savefig("bands.pdf")
 #plt.show()        
 
-
 #data = np.loadtxt("fort.2")
 #n = np.size(data[:,0])
 #

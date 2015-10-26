@@ -51,7 +51,7 @@ call qt%qsystem%make_lattice(qt%qnnbparam,c_simple=connect)
 
 ! remove single bonds if necessary
 do atom = 1 ,qt%qsystem%no_atoms
-    if(qt%qsystem%atoms(atom)%no_bonds == 1)   qt%qsystem%atoms(atom)%bActive  = .false.
+    if(qt%qsystem%atoms(atom)%no_bonds == 2)   qt%qsystem%atoms(atom)%bActive  = .false.
 enddo
 ! 3. Calculate coupling again.
 call qt%qsystem%make_lattice(qt%qnnbparam,c_simple=connect)

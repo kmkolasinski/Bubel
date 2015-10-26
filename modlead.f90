@@ -651,6 +651,8 @@ subroutine calculate_modes(this,Ef)
 !    close(1113)
 
 
+!    call solve_GGEV(this%valsS0*Ef - this%valsH0,this%valsTau)
+
 888 if(QSYS_USE_ZGGEV_TO_FIND_MODES) then
     do i = 1 , N
 !        print"(30f7.3)",dble(this%valsTau(:,i))
@@ -669,15 +671,11 @@ subroutine calculate_modes(this,Ef)
 
     ! filling diag with diagonal matrix
     Mdiag = 0
-!    print*,"S0="
     do i = 1 , N
-!        print"(50f9.4)", dble(this%valsS0(i,:))
         Mdiag(i,i) =  1
     enddo
     MA(1:N,N+1:2*N)     =  Mdiag
-!    MA(N+1:2*N,N+1:2*N) =  Mdiag*Ef - this%valsH0
     MA(N+1:2*N,N+1:2*N) =  this%valsS0*Ef - this%valsH0
-
 
     MB(1:N,1:N)         = Mdiag
     MB(N+1:2*N,N+1:2*N) = this%valsTau  - this%valsS1*Ef
@@ -973,46 +971,22 @@ subroutine calculate_modes(this,Ef)
     enddo
 
 
-
     ! Calculating of SigmaMatrix
     do i = 1 , N
-
     do j = 1 , N
         Mdiag(i,j) =  conjg(this%valsTau(j,i)) - Ef * conjg(this%valsS1(j,i)) ! Dag of Tau
     enddo
     enddo
-!    this%SigmaMat = 0
-!    do i = 1 , N
-!    do j = 1 , N
-!        do k = 1 , N
-!            this%SigmaMat(i,j) = this%SigmaMat(i,j) + Mdiag(i,k)*blochF(M_OUT,k,j)
-!        enddo
-!    enddo
-!    enddo
-
     one  = 1.0
     zero = 0.0
     call ZGEMM( 'N', 'N', N, N, N, one ,Mdiag  , N, &
                         blochF(M_OUT,:,:), N, zero,this%SigmaMat, N )
     ! add to sigma H0 internal hamiltonian
     this%SigmaMat = this%SigmaMat + this%valsH0
-
-
     ! Lambda matrix calculation:
-!    this%LambdaMat = 0
-!    do i = 1 , N
-!    do j = 1 , N
-!        do k = 1 , N
-!            this%LambdaMat(i,j) = this%LambdaMat(i,j) + Mdiag(i,k)*(blochF(M_IN,k,j)-blochF(M_OUT,k,j))
-!        enddo
-!    enddo
-!    enddo
-
     blochF(M_OUT,:,:) = blochF(M_IN,:,:)-blochF(M_OUT,:,:)
-
     call ZGEMM( 'N', 'N', N, N, N, one ,Mdiag  , N, &
                         blochF(M_OUT,:,:), N, zero,this%LambdaMat, N )
-
 
 
 ! ----------------------------------------------------------------------------
@@ -1592,6 +1566,533 @@ endsubroutine save_lead
 !end subroutine try_ZGGEVX
 
 
+subroutine ZSVD(N,A,U,S,VT)
+      integer :: N
+      complex*16 , dimension(:,:) :: A
+      complex*16 ,allocatable , dimension(:,:) :: U,VT
+      doubleprecision,allocatable,dimension(:) :: S
 
+!*     .. Parameters ..
+      INTEGER          LDA, LDU, LDVT
+      INTEGER          LWMAX
+      INTEGER          INFO, LWORK
+      complex*16,allocatable,dimension(:) :: WORK
+      doubleprecision,allocatable,dimension(:) :: RWORK
+
+      LDA   = N
+      LDU   = N
+      LDVT  = N
+      LWORK = -1
+      LWMAX = 40*N
+
+      allocate(U( LDU, N ), VT( LDVT, N ), S( N ),WORK(LWMAX) , RWORK(5*N))
+
+
+      CALL ZGESVD( 'All', 'All', N, N, A, LDA, S, U, LDU, VT, LDVT, WORK, LWORK , RWORK, INFO )
+      LWORK = MIN( LWMAX, INT( WORK( 1 ) ) )
+
+      CALL ZGESVD( 'All', 'All', N, N, A, LDA, S, U, LDU, VT, LDVT, WORK, LWORK , RWORK, INFO )
+
+      IF( INFO.GT.0 ) THEN
+         WRITE(*,*)'The algorithm computing SVD failed to converge.'
+         STOP
+      END IF
+
+
+end subroutine ZSVD
+
+subroutine solve_GGEV(H0,Tau)
+    complex*16 :: H0(:,:) , Tau(:,:)
+    integer :: N,M
+    complex*16 , allocatable  :: U(:,:),VT(:,:) , V(:,:) , tU(:,:),tVT(:,:)
+    doubleprecision , allocatable  :: S(:) , tS(:)
+    doubleprecision :: rcond,eps
+    integer :: i,j
+    logical :: bStabilize
+    N = size(H0,1)
+    print*,"Perform SVD",N
+
+    call ZSVD(N,Tau,tU,tS,tVT)
+    M = 0
+    do i = 1 , N
+       if(abs(tS(i)) > 1.0d-20 ) M = M+1
+    enddo
+
+
+    allocate(S(M),U(N,M),Vt(M,N),V(N,M))
+    S = tS(1:M)
+    print*,S,M
+    U  = tU(1:N,1:M)
+    Vt = tVt(1:M,1:N)
+    V  = conjg(transpose(Vt))
+
+    do i = 1 , N
+    do j = 1 , M
+        U(i,j) =   U(i,j) * sqrt( S(j) )
+        V(i,j) =   V(i,j) * sqrt( S(j) )
+    enddo
+    enddo
+    rcond = cond_number(N,tau)
+
+    eps        = 1.0D-10
+    bStabilize = .false.
+
+    if( rcond < eps  ) bStabilize = .true.
+
+    if(bStabilize) then
+        do i = 1 , N
+        do j = 1 , N
+            tU(i,j) = sum(U(i,:)*conjg(U(j,:))) + sum(V(i,:)*conjg(V(j,:)))
+        enddo
+        enddo
+        tVt = H0 + II * tU
+        rcond = cond_number(N,tVt)
+        if( rcond < eps ) then
+            print*,"SYS::ERROR::Hoping matrix baldy defined"
+            stop -1
+        endif
+
+    endif
+
+end subroutine solve_GGEV
+
+
+doubleprecision function cond_number(N,A) result(rval)
+  integer :: N
+  complex*16,dimension(:,:):: A
+  complex*16,allocatable,dimension(:)       :: WORK
+  doubleprecision,allocatable,dimension(:)  :: RWORK
+  integer,allocatable,dimension (:)    :: IPIV
+  integer info,error
+  doubleprecision :: anorm,norm
+  external zlange
+  doubleprecision zlange
+  B_SINGULAR_MATRIX = .false.
+  allocate(WORK(2*N),IPIV(N),RWORK(2*N),stat=error)
+  if (error.ne.0)then
+    print *,"SYS::LEAD::ZGETRF::error:not enough memory"
+    stop
+  end if
+
+  anorm = ZLANGE( '1', N, N, A, N, WORK )
+
+  call ZGETRF(N,N,A,N,IPIV,info)
+  call zgecon( '1', N, A, N, anorm, norm, work, rwork, info )
+  rval = norm
+
+
+  deallocate(IPIV,WORK,RWORK,stat=error)
+  if (error.ne.0)then
+    print *,"SYS::LEAD::ZGETRF::error:fail to release"
+    stop
+  end if
+end function cond_number
+
+
+!
+!subroutine feast_dense()
+!!subroutine feast_dense(N,A,B,lambdas,Z)
+!
+!
+!
+!
+!!!!!!!!!!!!!!!!!! Feast declaration variable
+!  integer,dimension(64) :: feastparam
+!  integer :: loop
+!  character(len=1) :: UPLO='F' ! 'L' or 'U' also fine
+!
+!!!!!!!!!!!!!!!!!! Matrix declaration variable
+!  character(len=100) :: name
+!  integer :: n,nnz
+!  complex(kind=kind(1.0d0)),dimension(:,:),allocatable :: A
+!
+!!!!!!!!!!!!!!!!!! Contour
+!  integer :: ccN
+!  complex(kind=kind(1.0d0)),dimension(:),allocatable :: Zne, Wne, Zedge
+!  integer, dimension(:), allocatable :: Nedge, Tedge
+!
+!!!!!!!!!!!!!!!!!! Others
+!  integer :: t1,t2,tim
+!  integer :: i,j,k
+!  double precision :: rea,img
+!
+!!!!!!!!!!!!!!!!!! FEAST
+!  integer :: M0,M,info
+!  complex(kind=kind(1.0d0)) :: Emid
+!  double precision :: r, epsout
+!  complex(kind=kind(1.0d0)),dimension(:,:),allocatable :: XR ! eigenvectors
+!  complex(kind=kind(1.0d0)),dimension(:),allocatable :: E ! eigenvalues
+!  double precision,dimension(:),allocatable :: resr ! residual
+!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!Read Coordinate format and convert to dense format
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!  name='../../system4'
+!
+!  open(10,file=trim(name),status='old')
+!  read(10,*) n,nnz
+!  allocate(A(1:n,1:n))
+!  A(1:N,1:N)=(0.0d0,0.0d0)
+!  do k=1,nnz
+!     read(10,*) i,j,rea,img
+!     A(i,j)=rea*(1.0d0,0.0d0)+img*(0.0d0,1.0d0)
+!  enddo
+!  close(10)
+!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!! INFORMATION ABOUT MATRIX !!!!!!!!!!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!  print *,'dense matrix -system4- size',n
+!
+!  call system_clock(t1,tim)
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!!!!!!!!!!! FEAST in dense format !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!
+!  call feastinit(feastparam)
+!  feastparam(1)=1
+!  M0=50 !! M0>=M
+!
+!  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!  ! Create Custom Contour
+!  ccN = 3     !! number of pieces that make up contour
+!  allocate(Zedge(1:ccN))
+!  allocate(Nedge(1:ccN))
+!  allocate(Tedge(1:ccN))
+!  !!! Example contour - triangle
+!  Zedge = (/(0.10d0,0.410d0),(4.2d0,0.41d0),(4.2d0,-8.3d0)/)
+!  Tedge(:) = (/0,0,0/)
+!  Nedge(:) = (/6,6,18/)
+!  !! Note: user must specify total # of contour points and edit feastparam(8)
+!  feastparam(8) = sum(Nedge(1:ccN))
+!  allocate(Zne(1:feastparam(8))) !! Contains the complex valued contour points
+!  allocate(Wne(1:feastparam(8))) !! Contains the complex valued integrations weights
+!
+!  !! Fill Zne/Wne
+!  print *, 'Enter FEAST'
+!  call zfeast_customcontour(feastparam(8),ccN,Nedge,Tedge,Zedge,Zne,Wne)
+!  print *,'---- Printing Countour Nodes ----'
+!  do i=1,feastparam(8)
+!     write(*,*)i,dble(Zne(i)),aimag(Zne(i))
+!  enddo
+!  print *,'---- Printing Contour Weights ----'
+!  do i=1,feastparam(8)
+!     write(*,*)i,dble(Wne(i)),aimag(Wne(i))
+!  enddo
+!  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!
+!!!!!!!!!!!!!! ALLOCATE VARIABLE
+!  allocate(E(1:M0))     ! Eigenvalue
+!  allocate(XR(1:n,1:M0)) ! Right Eigenvectors ( XL = CONJG(XR) )
+!  allocate(resr(1:M0))   ! Residual (if needed)
+!
+!!!!!!!!!!!!!  FEAST
+!  print *, 'Enter FEAST'
+!  call zfeast_syevx(UPLO,N,A,N,feastparam,epsout,loop,Emid,r,M0,E,XR,M,resr,info,Zne,Wne)
+!
+!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!! POST-PROCESSING !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!  call system_clock(t2,tim)
+!  print *,'FEAST OUTPUT INFO',info
+!  if (info==0) then
+!     print *,'*************************************************'
+!     print *,'************** REPORT ***************************'
+!     print *,'*************************************************'
+!     print *,'SIMULATION TIME',(t2-t1)*1.0d0/tim
+!     print *,'# mode found/subspace',M,M0
+!     print *,'# iterations',loop
+!     print *,'TRACE',sum(E(1:M))
+!     print *,'Relative error on the Trace',epsout
+!     print *,'Eigenvalues/Residuals'
+!     do i=1,M
+!        print *,i,E(i),resr(i)
+!     enddo
+!  endif
+!
+!!    complex*16,dimension(:,:) :: A,B,Z
+!!    complex*16,dimension(:)   :: lambdas
+!!    integer                   :: N
+!!
+!!
+!!    doubleprecision :: emin , emax
+!!    integer :: fpm(128),m0
+!!    doubleprecision :: epsout
+!!
+!!    emin = 0.0
+!!    emax = 1.0
+!!    call feastinit(fpm)
+!!    fpm(1)=1                 ! do not show any information
+!!    fpm(2)=8                 ! number of contours
+!!    fpm(3)=12                ! exponent of the error
+!!    fpm(4)=10                ! maximum number of iteration
+!!    fpm(5)=0                 ! we start with default vector (if 1 then with provided)
+!!    fpm(6)=0                 ! convergece criterium with value of residuum (0 albo 1)
+!!
+!!
+!!    m0 = 10
+!!
+!!
+!!    call zfeast_hegv('F', N, A, N, B, N, fpm, epsout, loop, emin, emax, m0, lambdas, Z, m, res, info)
+!
+!
+!!    class(qsys) :: sys
+!!    doubleprecision   :: pEmin, pEmax
+!!    integer           :: NoStates
+!!    integer,optional  :: no_feast_contours,print_info,pmaks_iter
+!!
+!!
+!!
+!!    integer :: i,j,info,itmp,nw,M0,loop,no_evals,ta,ts,ns1,ns2,s1,s2
+!!    integer :: no_contours,display_info,maks_iter
+!!    doubleprecision :: epsout
+!!    doubleprecision :: Emin, Emax
+!!    doubleprecision :: time_start
+!!
+!!    integer,allocatable                          :: HBROWS(:)
+!!    complex*16,dimension(:,:), allocatable       :: EVectors
+!!    complex*16,dimension(:)  , allocatable       :: MATHVALS
+!!    integer   ,dimension(:,:), allocatable       :: ROWCOLID
+!!    double precision,dimension(:), allocatable   :: Evalues,Rerrors
+!!
+!!    integer :: NO_NON_ZERO_VALUES , NO_VARIABLES
+!!
+!!    if(sys%bOverlapMatrixEnabled) then
+!!        print*,"==============================================================================="
+!!        print*,"SYS::ERROR::Eigenvalue problem not supported for system with "
+!!        print*,"            Overlap matrix different than identity matrix."
+!!        print*,"==============================================================================="
+!!        stop -1
+!!    endif
+!!    time_start = get_clock()
+!!    ! Przejscie do jednostek donorowych
+!!    Emin = pEmin
+!!    Emax = pEmax
+!!
+!!
+!!
+!!    ! setting the default parameters
+!!    if(.not. present(no_feast_contours)) then
+!!        no_contours = 8
+!!    else
+!!        no_contours = no_feast_contours
+!!    endif
+!!    if(.not. present(print_info)) then
+!!        display_info = 0
+!!    else
+!!        display_info = print_info
+!!    endif
+!!    if(.not. present(pmaks_iter)) then
+!!        maks_iter = 20
+!!    else
+!!        maks_iter = pmaks_iter
+!!    endif
+!!
+!!
+!!
+!!    call feastinit(fpm)
+!!    fpm(1)=display_info      ! do not show any information
+!!    fpm(2)=no_contours       ! number of contours
+!!    fpm(3)=12                ! exponent of the error
+!!    fpm(4)=maks_iter         ! maximum number of iteration
+!!    fpm(5)=0                 ! we start with default vector (if 1 then with provided)
+!!    fpm(6)=0                 ! convergece criterium with value of residuum (0 albo 1)
+!!
+!!    ! Calculate the number of non-zero elements in Hamiltonian matrix
+!!    itmp = 0
+!!    do i = 1, sys%no_atoms
+!!        if(sys%atoms(i)%bActive) then
+!!            do j = 1, sys%atoms(i)%no_bonds
+!!            ns1 = size(sys%atoms(i)%bonds(j)%bondMatrix,1)
+!!            ns2 = size(sys%atoms(i)%bonds(j)%bondMatrix,2)
+!!!            if( abs(sys%atoms(i)%bonds(j)%bondValue) > QSYS_COUPLING_CUTOFF ) &
+!!            itmp = itmp + ns1*ns2
+!!            enddo
+!!        endif
+!!    enddo
+!!    NO_NON_ZERO_VALUES = itmp
+!!    ! The number of unknows is taken from the last global index
+!!    NO_VARIABLES       = sys%system_size
+!!    if(QSYS_DEBUG_LEVEL > 0) then
+!!    print*,"SYS::Calulating eigenvalue problem using FEAST solver"
+!!    endif
+!!    allocate(MATHVALS(NO_NON_ZERO_VALUES))
+!!    allocate(ROWCOLID(NO_NON_ZERO_VALUES,2))
+!!
+!!    ! Filling matrix and row-col array
+!!    itmp = 0
+!!    do i = 1 ,  sys%no_atoms
+!!
+!!        if(sys%atoms(i)%bActive) then
+!!
+!!        ns1   = sys%atoms(i)%no_in_states
+!!        do s1 = 1 , ns1
+!!
+!!        do j  = 1, sys%atoms(i)%no_bonds
+!!        ns2 = size(sys%atoms(i)%bonds(j)%bondMatrix,2)
+!!
+!!
+!!        do s2 = 1 , ns2
+!!            itmp = itmp + 1
+!!            MATHVALS(itmp)   = sys%atoms(i)%bonds(j)%bondMatrix(s1,s2)
+!!            ROWCOLID(itmp,1) = sys%atoms(i)%globalIDs(s1)
+!!
+!!            ta = sys%atoms(i)%bonds(j)%toAtomID
+!!            ROWCOLID(itmp,2) = sys%atoms(ta)%globalIDs(s2)
+!!
+!!!            print"(3i4,2f10.4)",itmp,ROWCOLID(itmp,1),ROWCOLID(itmp,2),MATHVALS(itmp)
+!!
+!!        enddo
+!!
+!!        ! remove zero ellements
+!!!        if( abs(MATHVALS(itmp)) < QSYS_COUPLING_CUTOFF )  itmp = itmp - 1
+!!
+!!        enddo
+!!        enddo
+!!        endif ! end of if active atom
+!!    enddo
+!!
+!!    ! auxiliary variable
+!!    nw   = NO_NON_ZERO_VALUES
+!!
+!!    if(display_info==1) then
+!!        print*,"--------------------------------------------------"
+!!        print*,"SYS::EIGENVALUE PROBLEM INPUTS"
+!!        print*,"--------------------------------------------------"
+!!        print*,"SYS::FEAST::Number of variables   ",NO_VARIABLES
+!!        print*,"SYS::FEAST::Energy range from     ",Emin," to ",Emax
+!!        print*,"SYS::FEAST::Number of contours    ",no_contours
+!!        print*,"SYS::FEAST::Max. no. of iters     ",maks_iter
+!!        print*,"SYS::FEAST::Expected no. of states",NoStates
+!!    endif
+!!
+!!
+!!    ! -----------------------------------------------------------
+!!    allocate(HBROWS(NO_VARIABLES+1))
+!!    call convert_to_HB(NO_NON_ZERO_VALUES,ROWCOLID,MATHVALS,HBROWS)
+!!
+!!    ! zgadujemy liczbe stanow
+!!    M0  = NoStates
+!!    allocate(EVectors(NO_VARIABLES,M0))
+!!    allocate(Evalues(M0))
+!!    allocate(Rerrors(M0))
+!!
+!!
+!!
+!!    call zfeast_hcsrev('F',&               ! - 'F' oznacza ze podawana jest pelna macierz
+!!                          NO_VARIABLES,&   ! - rozmiar problemu (ile wezlow z flaga B_NORMAL)
+!!                          MATHVALS(1:nw),& ! - kolejne nie zerowe wartosci w macierzy H
+!!                          HBROWS,&         ! - numeracja wierszy (rodzaj zapisu macierzy rzakidch)
+!!                          ROWCOLID(1:nw,2),& ! - indeksy kolumn odpowiadaja tablicy wartosci CMATA
+!!                          fpm,&            ! - wektor z konfiguracja procedury
+!!                          epsout,&         ! - Residuum wyjsciowe
+!!                          loop, &          ! - Koncowa liczba iteracji
+!!                          Emin,&           ! - Minimalna energia przeszukiwania
+!!                          Emax,&           ! - Maksymalna energia
+!!                          M0,&             ! - Spodziewana liczba modow w zakresie (Emin,Emax)
+!!                          Evalues,&        ! - Wektor z otrzymanymi wartosciami wlasnymi
+!!                          EVectors,&       ! - Macierz z wektorami (kolejne kolumny odpowiadaja kolejnym wartoscia z tablicy Evalues)
+!!                          no_evals,&       ! - Liczba otrzymanych wartosci z przedziale (Emin,Emax)
+!!                          Rerrors,&        ! - Wektor z bledami dla kolejnych wartosci wlasnych
+!!                          info)            ! - Ewentualne informacje o bledach
+!!
+!!
+!!
+!!        if(display_info==1) then
+!!            print*,"SYS::FEAST::Output error       ",  epsout
+!!            print*,"SYS::FEAST::No. interations    ",  loop
+!!            print*,"SYS::FEAST::No. states         ",  no_evals
+!!            print*,"SYS::FEAST::Ouput info value   ",  info
+!!            print*,"SYS::FEAST::Calulation time [s]",  get_clock() - time_start
+!!            print*,"--------------------------------------------------"
+!!        endif
+!!
+!!
+!!
+!!        sys%no_eigenvalues = no_evals
+!!
+!!        ! ----------------------------------------------------------------------------------
+!!        ! Obsluga bledow:
+!!        ! ----------------------------------------------------------------------------------
+!!        selectcase(info)
+!!        case( 202 )
+!!            print*," Error : Problem with size of the system n (n≤0) "
+!!            stop
+!!        case( 201 )
+!!            print*," Error : Problem with size of initial subspace m0 (m0≤0 or m0>n) "
+!!            stop
+!!        case( 200 )
+!!            print*," Error : Problem with emin,emax (emin≥emax) "
+!!            stop
+!!        case(100:199)
+!!            print"(A,I4,A)"," Error : Problem with ",info-100,"-th value of the input Extended Eigensolver parameter (fpm(i)). Only the parameters in use are checked. "
+!!            sys%no_eigenvalues = 0
+!!            stop
+!!        case( 4 )
+!!            print*," Warning : Successful return of only the computed subspace after call withfpm(14) = 1 "
+!!            sys%no_eigenvalues = 0
+!!
+!!        case( 3 )
+!!            print*," Warning : Size of the subspace m0 is too small (m0<m) "
+!!            sys%no_eigenvalues = 0
+!!
+!!        case( 2 )
+!!            print*," Warning : No Convergence (number of iteration loops >fpm(4))"
+!!            sys%no_eigenvalues = 0
+!!        case( 1 )
+!!            print*," Warning : No eigenvalue found in the search interval. See remark below for further details. "
+!!            sys%no_eigenvalues = 0
+!!        case( 0 )
+!!            print*,               "---------------------------------------------"
+!!            print"(A,i12)",       " SYS::FEAST:: No. states  :",sys%no_eigenvalues
+!!            print"(A,f12.3)",     "              Time [s]    :",get_clock() - time_start
+!!            print"(A,e12.4)",     "              Error       :",epsout
+!!            print"(A,i12)",       "              No. iters   :",loop
+!!            print*,               "---------------------------------------------"
+!!        case( -1 )
+!!            print*," Error : Internal error for allocation memory. "
+!!            stop
+!!        case( -2 )
+!!            print*," Error : Internal error of the inner system solver. Possible reasons: not enough memory for inner linear system solver or inconsistent input. "
+!!            stop
+!!        case( -3 )
+!!            print*," Error : Internal error of the reduced eigenvalue solver Possible cause: matrix B may not be positive definite. It can be checked with LAPACK routines, if necessary."
+!!            stop
+!!        case(-199:-100)
+!!            print"(A,I4,A)"," Error : Problem with the ",-info-100,"-th argument of the Extended Eigensolver interface. "
+!!            stop
+!!        endselect
+!!
+!!        ! -----------------------------------------------------------------
+!!        ! Kopiowanie wynikow do odpowiednich tablic
+!!        ! -----------------------------------------------------------------
+!!
+!!
+!!        if(allocated(sys%eigenvals)) deallocate(sys%eigenvals)
+!!        if(allocated(sys%eigenvecs)) deallocate(sys%eigenvecs)
+!!
+!!
+!!        if(sys%no_eigenvalues > 0 ) then
+!!            allocate(sys%eigenvecs(NO_VARIABLES,sys%no_eigenvalues))
+!!
+!!            sys%eigenvecs(:,1:sys%no_eigenvalues) = EVectors(:,1:sys%no_eigenvalues)
+!!            allocate(sys%eigenvals(sys%no_eigenvalues))
+!!            sys%eigenvals(1:sys%no_eigenvalues) = Evalues(1:sys%no_eigenvalues)
+!!
+!!        endif
+!!
+!!
+!!        deallocate(MATHVALS)
+!!        deallocate(ROWCOLID)
+!!        deallocate(HBROWS)
+!!        deallocate(EVectors)
+!!        deallocate(Evalues)
+!!        deallocate(Rerrors)
+!!        if(QSYS_DEBUG_LEVEL > 0) then
+!!        print*,"SYS::Eigenvalues calculated. Found:",sys%no_eigenvalues
+!!        endif
+!end subroutine feast_dense
+!
 
 endmodule modlead

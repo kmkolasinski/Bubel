@@ -37,7 +37,9 @@ do i = 1 , 100
 do j = 1 , 500
     do atom = atom_A , atom_B
         ! set atom position in space
-        atom_pos(1:2) = atoms_zigzag(:,atom) + (i-1) * vecs_zigzag(:,1) +  (j-1) * vecs_zigzag(:,2) + pos_offset_zigzag
+        atom_pos(1:2) = atoms_zigzag(:,atom) + &
+                    (i-1) * vecs_zigzag(:,1) + &
+                    (j-1) * vecs_zigzag(:,2) + pos_offset_zigzag
         ! cut some atoms to have rectangular flake
         if(atom_pos(1) > 0.2 .and. atom_pos(1) < 12.5 .and. &
            atom_pos(2) > 0.0 .and. atom_pos(2) < 70.9 ) then
