@@ -1,105 +1,84 @@
 ! ------------------------------------------------------ !
-! Quantulaba - carbon_nanotube.f90 - Krzysztof Kolasinski 2015
+! Quantulaba - simple_graphene.f90 - Krzysztof Kolasinski 2015
 !
-! Example of hamiltonian creation for simple carbon
-! nanotube.
 ! ------------------------------------------------------ !
 
-program cnt
+program graphene2
+ use modscatter
+ use modsys
+ use modshape
+ use modunits
+ implicit none
+ type(qscatter) :: qt
+ type(qshape) :: lead_area
 
-use modunits     ! unit conversion tools
-use modscatter   ! eigen problem and scattering problem
-use modsys       ! eigen problem & atom container
-use modlead      ! bandgap structure
-use modshape
-implicit none
-character(*),parameter     :: output_folder = "./"
-type(qsys)                 :: tmpsystem
-type(qscatter)             :: qt
 
-type(qshape)               :: lead_shape
-doubleprecision            :: posA(3),posB(3),deltaR(3),Emin,Emax
-integer                    :: flagA,flagB
-integer :: i,j,k
-doubleprecision            :: lead_translation_vec(3),Ef
-character(300) :: line
+ character(*),parameter    :: output_folder = "./"
+ doubleprecision,parameter :: alpha30 =  30.0/180.0*M_PI
+ doubleprecision,parameter :: vecs_armchair(2,2) =  (/  (/ 1.0D0,0.0D0 /) , (/ sin(alpha30) , cos(alpha30) /) /)
+ doubleprecision,parameter :: atoms_armchair(2,2) =  (/  (/ 0.0D0,0.0D0 /) , (/ 0.0D0 , 1.0D0/sqrt(3.0) /) /)
+ doubleprecision,parameter :: pos_offset(2) =  (/ -5.0D0,0.0D0 /)
+ doubleprecision           :: atom_pos(3),lead_translation_vec(3),range_base(3),range_dir(3),Ef
+ integer,parameter         :: atom_A = 1 , atom_B = 2
+ integer           :: atom,i,j
+ integer,parameter :: nx = 50  , ny = 200
 
-! Initalize system
-call qt%init_system()
-call tmpsystem%init()
+ call qt%init_system()
 
-!  ----------------------------------------------------------
-!  1. Create mesh - read unit cell from file
-!  ----------------------------------------------------------
-open(unit=3,file=output_folder//"nt-17-0-1.xyz")
-read(3,*) line
-read(3,*) line
-! ----------------------------------
-! Reading unit cell
-! ----------------------------------
-do i=1,17*2
-    read(3,*) line, (posA(j), j=1, 3)
-    read(3,*) line, (posB(j), j=1, 3)
-    call tmpsystem%qatom%init(posA,flag=1)
-    call tmpsystem%add_atom(tmpsystem%qatom)
-    call tmpsystem%qatom%init(posB,flag=2)
-
-    call tmpsystem%add_atom(tmpsystem%qatom)
-
-enddo
-close(3)
-
-! ----------------------------------
-! Translating unit cell X-times
-! ----------------------------------
-do k = 1 , 10
-    deltaR = (/0.0,0.0,(k-1)*4.26/)
-    do i=1,tmpsystem%no_atoms
-        posA  = tmpsystem%atoms(i)%atom_pos
-        flagA = tmpsystem%atoms(i)%flag
-        call qt%qatom%init(posA+deltaR,flag=flagA)
-        if(i==1) call qt%qatom%init(posA+deltaR,flag=flagA,flag_aux0=1)
+! --------------------------------------------------------------------------
+! Graphene test
+! 1. Generate atoms positions:
+! --------------------------------------------------------------------------
+do i = 1 , nx
+do j = 1 , ny
+    do atom = atom_A , atom_B
+    ! set atom position in space
+        atom_pos(1:2)   = atoms_armchair(:,atom) + &
+                   (i-1) * vecs_armchair(:,1) +  &
+                   (j-1) * vecs_armchair(:,2)
+        call qt%qatom%init( (/ atom_pos(1) , atom_pos(2) , 0.0D0 /),flag=atom)
         call qt%qsystem%add_atom(qt%qatom)
-    enddo
+    enddo ! end of atom loop
 enddo
-
-
-!  ----------------------------------------------------------
-!  2. Set nearest neightbour search radius and make Hmiltonian
-!  ----------------------------------------------------------
-qt%qnnbparam%distance   = 2.0
+enddo
+! --------------------------------------------------------------------------
+! 2. Initiate couplings between atoms: We use c_simple connection type
+!    i.e. without including spin degree of freedom per atom
+! --------------------------------------------------------------------------
+qt%qnnbparam%distance   = 0.6
 qt%qnnbparam%NNB_FILTER = QSYS_NNB_FILTER_DISTANCE
-call qt%qsystem%make_lattice(qt%qnnbparam,c_simple=coupling)
+call qt%qsystem%make_lattice(qt%qnnbparam,c_simple=connect)
+
+! remove single bonds if necessary
+do atom = 1 ,qt%qsystem%no_atoms
+    if(qt%qsystem%atoms(atom)%no_bonds == 2)   qt%qsystem%atoms(atom)%bActive  = .false.
+enddo
+! 3. Calculate coupling again.
+call qt%qsystem%make_lattice(qt%qnnbparam,c_simple=connect)
+
+! --------------------------------------------------------------------------
+! 3. Add translational lead to the system. We use range_3d object to define
+!    area where the lead is located in the system.
+! --------------------------------------------------------------------------
+range_base = (/-0.5,0.0,0.0 /) ! initial position of range
+range_dir  =  0.8*(/cos(alpha30),-sin(alpha30),0.0D0/) ! direction of the range (lenght contains distance)
+call lead_area%init_range_3d(range_base,range_dir)
+call qt%add_lead(lead_area,(/1.0D0,0.0D0,0.0D0/))
+!call qt%leads(1)%bands(output_folder//"bands.dat",-3.14D0,3.14D0,0.1D0,-15.0D0,15.0D0)
+
+range_base = (/49.4,0.0,0.0 /) ! initial position of range
+call lead_area%init_range_3d(range_base,-range_dir)
+call qt%add_lead(lead_area,(/-1.0D0,0.0D0,0.0D0/))
 
 
-!  ----------------------------------------------------------
-!  3. Set up unit cell
-!  ----------------------------------------------------------
 
-lead_translation_vec = (/  0.0D0 , 0.0D0 , 4.26D0 /)
-posA = (/0.0,0.0,-0.5/)
-posB = lead_translation_vec ! direction and range
-call lead_shape%init_range_3d(posA,posB)
-call qt%add_lead(lead_shape,lead_translation_vec)
-
-!  ----------------------------------------------------------
-!  4. Plot band structure
-!  ----------------------------------------------------------
-Emin = -3.1
-Emax =  3.1
-call qt%leads(1)%bands(output_folder//"bands.dat",-M_PI,+M_PI,M_PI/60.0,Emin,Emax)
-
-
-posA = (/0.0,0.0,42.0/)
-posB = -lead_translation_vec ! direction and range
-call lead_shape%init_range_3d(posA,posB)
-call qt%add_lead(lead_shape,-lead_translation_vec)
-call qt%save_system(output_folder//"system.xml")
-
-Ef = 0.2
+!call qt%save_system(output_folder//"system.xml")
+Ef = 2.9
 QSYS_DEBUG_LEVEL = 1
 call qt%calculate_modes(Ef)
+
 call qt%solve(1,Ef)
+stop
 ! Save calculated electron density to file
 do i = 1 , size(qt%qauxvec)
     qt%qauxvec(i) = sum(qt%densities(:,i))
@@ -110,52 +89,40 @@ call qt%qsystem%save_data(output_folder//"densities.xml",array2d=qt%densities,ar
 print*,"Performing energy scan..."
 open(unit=111,file=output_folder//"T.dat")
 !QSYS_DEBUG_LEVEL = 1 ! show more info
-do Ef = -3.0+0.01 , 3.025 , 0.051
+do Ef = -3.0 , 3.025 , 0.025
     ! Update hamiltonian elemenents value
-    call qt%qsystem%make_lattice(qt%qnnbparam,c_simple=coupling)
-!    call qt%qsystem%update_lattice(c_simple=coupling)
+    call qt%qsystem%update_lattice(c_simple=connect)
     call qt%calculate_modes(Ef)
     call qt%solve(1,Ef)
 
     print*,"Energy:",Ef
-    write(111,"(2f20.6)"),Ef,sum(qt%Tn(:))
+    write(111,"(100f20.6)"),Ef,sum(qt%Tn(:))
 enddo
 close(111)
-
-
-
-call qt%destroy_system()
-call tmpsystem%destroy()
 
 print*,"Generating plots..."
 print*,"Plotting band structure..."
 call system("cd "//output_folder//"; ./plot_bands.py")
 print*,"Plotting Transmission..."
 call system("cd "//output_folder//"; ./plot_T.py")
-print*,"Use Viewer program to see the structure and created lead."
- contains
+print*,"Use Viewer program to see the structure and created leads."
 
-! ---------------------------------------------------------------------------
-! This function decides if site A (called here atomA) with spin s1 has hoping
-! to atom B with spin s2, and what is the value of the coupling.
-! If there is no interaction between them returns false, otherwise true.
-! ---------------------------------------------------------------------------
-logical function coupling(atomA,atomB,coupling_val)
+call qt%destroy_system()
+contains
+
+logical function connect(atomA,atomB,coupling_val)
     use modcommons
     implicit none
     type(qatom) :: atomA,atomB
-    complex*16  :: coupling_val ! you must overwrite this variable
+    complex*16 :: coupling_val
+    logical :: test
+    connect = .false.
 
-    ! default return value
-    coupling = .false.
-    coupling_val   = 0.0
-    if( atomA%flag /= atomB%flag ) then
-        coupling = .true.
-        coupling_val = 1.0
-!    else ! Add small perturbation to the lattice to remove periodic boundary degeneracy
-!         ! this should not change !significantly! the resutls
-!        coupling = .true.
-!        coupling_val = atomB%flag_aux0*0.0000001
+    ! In clean graphene atom from sublattice A always couples to atom from lattice B
+    test = .not.(atomA%flag == atomB%flag)
+    if(test) then
+        connect      = .true.
+        coupling_val = 1.0D0
     endif
-end function coupling
-end program cnt
+end function connect
+end program graphene2

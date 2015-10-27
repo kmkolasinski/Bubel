@@ -587,7 +587,8 @@ subroutine calculate_modes(this,Ef)
     INTEGER                                      :: LDVL, LDVR , LWMAX , LWORK , INFO
     COMPLEX*16 , dimension(:) ,     allocatable  :: ALPHA , BETA , WORK
     double precision, dimension(:), allocatable  :: RWORK
-    logical, dimension(:), allocatable  :: iselect
+    logical, dimension(:), allocatable    :: iselect
+    integer, dimension(:,:), allocatable  :: ifrom_to
 
     doubleprecision :: tmpc,current,time,dval1,dval2,time_calc
     COMPLEX*16 :: DUMMY(1,1),lambda,one,zero
@@ -626,6 +627,8 @@ subroutine calculate_modes(this,Ef)
     allocate(this%currents  (2,N))
     allocate(this%UTildeDagger(N,N))
     allocate(iselect(2*N))
+    allocate(ifrom_to(2*N,2))
+    ifrom_to = -1
 
     this%currents       = 0
     this%UTildeDagger   = 0
@@ -703,7 +706,7 @@ subroutine calculate_modes(this,Ef)
         print*,"SYS::LEAD::Shur decomposition failed: gges info:",INFO
         stop
     endif
-
+    print*,"Tb0=",get_clock()-time
     ! Calculate eigen vectors of translation operator
     Z  = Zshur
     call tgevc(Sshur, Pshur ,howmny = 'B' ,vr=Z ,info=info)
@@ -711,7 +714,7 @@ subroutine calculate_modes(this,Ef)
         print*,"SYS::LEAD::Shur decomposition failed: tgevc info:",INFO
         stop
     endif
-
+    print*,"Tb=",get_clock()-time
     ! ------------------------------------------------------------
     else ! Convert Generalized eigenvalue problem to standard one
     ! ------------------------------------------------------------
@@ -728,7 +731,7 @@ subroutine calculate_modes(this,Ef)
     blochF(1,:,:) = this%valsTau  - this%valsS1*Ef
     call inverse_matrix(N,blochF(1,:,:))
 
-
+    print*,"Ta=",get_clock()-time
 
     if(B_SINGULAR_MATRIX) then
         print*,"==============================================================================="
@@ -819,11 +822,13 @@ subroutine calculate_modes(this,Ef)
                     this%no_out_modes = this%no_out_modes + 1
                     this%currents(M_OUT,this%no_out_modes) = tmpc
                     iselect(i) = .true.
+
                 endif
             ! Evanescent modes filtering
             else if( abs(lambda) > 1.0 ) then
                 this%no_out_em = this%no_out_em + 1
                 iselect(i) = .true.
+
 
             else if( abs(lambda) < 1.0 .and. abs(lambda)> 1.D-16 ) then
                 this%no_in_em  = this%no_in_em + 1
@@ -834,6 +839,7 @@ subroutine calculate_modes(this,Ef)
         else  ! else of beta > 0
             this%no_out_em = this%no_out_em + 1
             iselect(i) = .true.
+
         endif ! end of beta > 0
     enddo
 
@@ -904,7 +910,7 @@ subroutine calculate_modes(this,Ef)
                     this%lambdas(M_OUT,this%no_out_modes+no_e_out)   = 1.0D20
         endif
     enddo
-
+    print*,"Tc=",get_clock()-time
     ! Sorting propagating modes by the current amplitde
     ! and diagonalizing current operator for degenerated states
     call sort_modes(this%no_in_modes ,this%modes(M_IN,:,:) ,this%lambdas(M_IN,:),this%currents(M_IN,:))
@@ -934,6 +940,7 @@ subroutine calculate_modes(this,Ef)
     call this%diagonalize_currents(M_OUT,j,i-1)
 
 
+
     if(QSYS_DEBUG_LEVEL > 0) then
     print*,"-------------------------------------------------------"
     print*," K vec.  :    In     |       Out  |          Fluxes   "
@@ -945,6 +952,7 @@ subroutine calculate_modes(this,Ef)
     enddo
     print*,"-------------------------------------------------------"
     endif
+    print*,"Tsort=",get_clock()-time
 
     if(.not. this%bUseShurDecomposition) then
         ! Construction of the F^-1+ matrix Eq. (57)
@@ -963,10 +971,13 @@ subroutine calculate_modes(this,Ef)
         ! Reorded Shur Unitary matrix - Z
         Z  = Zshur
         call tgsen(a=Sshur,b=Pshur, select=iselect,z=Z ,info=info)
+
+
         if( INFO /= 0 ) then
             print*,"SYS::LEAD::Shur decomposition failed: tgsen info:",INFO
             stop
         endif
+        print*,"Td1=",get_clock()-time
         ! Take block elements - Michael Wimmer work
         Z11(:,:) = Z(1:N,1:N)
         Z21(:,:) = Z(N+1:2*N,1:N)
@@ -980,6 +991,7 @@ subroutine calculate_modes(this,Ef)
             enddo
         enddo
         enddo
+        print*,"Td2=",get_clock()-time
     endif
 
     ! Calculating of SigmaMatrix
@@ -995,7 +1007,7 @@ subroutine calculate_modes(this,Ef)
     this%SigmaMat = this%SigmaMat + this%valsH0
     ! Lambda matrix calculation:
     call ZGEMM( 'N', 'N', N, N, N, one ,Mdiag  , N, blochF(M_OUT,:,:), N, zero,this%LambdaMat, N )
-
+    print*,"Td3=",get_clock()-time
     if(this%bUseShurDecomposition) then
         ! -------------------------------------------------
         ! Calculate overlap matrix
@@ -1003,16 +1015,21 @@ subroutine calculate_modes(this,Ef)
         no_modes = this%no_out_modes + this%no_out_em
         deallocate(MA)
         allocate(MA (no_modes,no_modes))
-        MA = 0
-        do i = 1 , no_modes
-        do j = 1 , no_modes
-            MA(i,j) = sum(conjg(this%modes(M_OUT,i,:))*this%modes(M_OUT,j,:))
-        enddo
-        enddo
-        if(no_modes > 0) call inverse_matrix(no_modes,MA)
         deallocate(this%UTildeDagger)
         allocate(this%UTildeDagger(no_modes,no_modes))
-        this%UTildeDagger = MA
+
+!        MA = 0
+!        do i = 1 , no_modes
+!        do j = 1 , no_modes
+!            MA(i,j) = sum(conjg(this%modes(M_OUT,i,:))*this%modes(M_OUT,j,:))
+!        enddo
+!        enddo
+
+        MA = transpose(this%modes(M_OUT,:,:))
+        call ZGEMM( 'C', 'T', no_modes,no_modes,no_modes, one , &
+                    MA, no_modes, this%modes(M_OUT,:,:), no_modes, zero,this%UTildeDagger, no_modes )
+        if(no_modes > 0) call inverse_matrix(no_modes,this%UTildeDagger)
+
 
         deallocate(Qshur)
         deallocate(Zshur)
@@ -1021,9 +1038,10 @@ subroutine calculate_modes(this,Ef)
         deallocate(Z21)
         deallocate(Z11)
     endif
-
+    print*,"Te=",get_clock()-time
 
     deallocate(iselect)
+    deallocate(ifrom_to)
     deallocate(ALPHA)
     deallocate(BETA)
     deallocate(RWORK)
