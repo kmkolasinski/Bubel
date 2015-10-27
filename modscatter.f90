@@ -339,7 +339,13 @@ subroutine solve(this,leadID,Ef)
                                 *this%leads(leadID)%modes(M_IN,modin,j)
 
             else if(QSYS_SCATTERING_METHOD == QSYS_SCATTERING_WFM) then
-            phi(lg) = phi(lg) + this%leads(leadID)%LambdaMat(i,j)*this%leads(leadID)%modes(1,modin,j)
+            cval = this%leads(leadID)%lambdas(M_IN,modin)**(-1)
+            phi(lg) = phi(lg) + (-this%leads(leadID)%LambdaMat(i,j) + &
+                                cval*conjg(this%leads(leadID)%valsTau(j,i)) ) &
+                                *this%leads(leadID)%modes(M_IN,modin,j)
+
+!            phi(lg) = phi(lg) + this%leads(leadID)%LambdaMat(i,j)*this%leads(leadID)%modes(1,modin,j)
+
             endif
         enddo
     enddo

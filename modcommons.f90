@@ -1,6 +1,6 @@
 module modcommons
 implicit none
-
+doubleprecision,public :: CONDA
 integer,parameter,public  :: QSYS_NO_BONDS_INC_VALUE      = 10     ! For sparse structures
 integer,parameter,public  :: QSYS_NO_ATOMS_INC_VALUE      = 10000  !
 logical,public            :: QSYS_USE_ZGGEV_TO_FIND_MODES = .false. ! When finding modes use generalied eigenvalue problem, can be more stable

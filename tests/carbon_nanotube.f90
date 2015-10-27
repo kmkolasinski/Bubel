@@ -27,7 +27,7 @@ character(300) :: line
 ! Initalize system
 call qt%init_system()
 call tmpsystem%init()
-QSYS_SCATTERING_METHOD = QSYS_SCATTERING_QTBM
+
 !  ----------------------------------------------------------
 !  1. Create mesh - read unit cell from file
 !  ----------------------------------------------------------
@@ -110,7 +110,7 @@ call qt%qsystem%save_data(output_folder//"densities.xml",array2d=qt%densities,ar
 print*,"Performing energy scan..."
 open(unit=111,file=output_folder//"T.dat")
 !QSYS_DEBUG_LEVEL = 1 ! show more info
-do Ef = -3.0 , 3.025 , 0.051
+do Ef = -3.0 + 0.01 , 3.025 , 0.051
     ! Update hamiltonian elemenents value
     call qt%qsystem%update_lattice(c_simple=coupling)
     call qt%calculate_modes(Ef)
@@ -151,10 +151,10 @@ logical function coupling(atomA,atomB,coupling_val)
     if( atomA%flag /= atomB%flag ) then
         coupling = .true.
         coupling_val = 1.0
-    else ! Add small perturbation to the lattice to remove periodic boundary degeneracy
-         ! this should not change !significantly! the resutls
-        coupling = .true.
-        coupling_val = atomB%flag_aux0*0.0000001
+!    else ! Add small perturbation to the lattice to remove periodic boundary degeneracy
+!         ! this should not change !significantly! the resutls
+!        coupling = .true.
+!        coupling_val = atomB%flag_aux0*0.0000001
     endif
 end function coupling
 end program cnt

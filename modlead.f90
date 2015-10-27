@@ -11,11 +11,14 @@
 ! Those information can be used to generate the
 ! band structure and for scattering problems.
 ! -----------------------------------------------
+include 'lapack.f90'
 module modlead
 use modshape
 use modsys
 use modcommons
 use modutils
+use mkl95_lapack
+
 implicit none
 private
 complex*16,parameter :: II = cmplx(0.0D0,1.0D0)
@@ -57,7 +60,8 @@ type qlead
 
     integer,dimension(:,:),allocatable        ::      l2g ! mapping from local id in lead to global id (:,1)  = atom_ID , (:,2) = spin_ID
     integer,dimension(:,:),allocatable        :: next_l2g ! the same as above but mapping to the atoms in the next unit cell
-    logical :: LEAD_BAD_NEARST = .false.
+    logical :: LEAD_BAD_NEARST       = .false.
+    logical :: bUseShurDecomposition = .false.
     contains
     procedure,pass(this) :: init_lead!()
     procedure,pass(this) :: bands!(this,filename,kmin,kmax,dk,Emin,Emax)
@@ -65,6 +69,7 @@ type qlead
     procedure,pass(this) :: save_lead!(this,filename,funit)
     procedure,pass(this) :: calculate_modes!(this,Ef)
     procedure,pass(this) :: calculate_Tnm!(this,all_atoms,n,phi)
+    procedure,pass(this) :: diagonalize_currents!(this,all_atoms,n,phi)
 
 endtype qlead
 
@@ -569,11 +574,12 @@ end subroutine bands
 ! Ef - value of Fermi level energy
 ! ------------------------------------------------------------------------
 subroutine calculate_modes(this,Ef)
+
     class(qlead)    :: this
     doubleprecision :: Ef
     integer :: N
-    complex*16  , allocatable , dimension(:,:)    :: MA,MB,Z
-    complex*16, allocatable , dimension(:,:)      :: Mdiag,d,c
+    complex*16  , allocatable , dimension(:,:)    :: MA,MB,Z,Qshur,Zshur,Sshur,Pshur
+    complex*16, allocatable , dimension(:,:)      :: Mdiag,d,c,Z11,Z21
     complex*16, allocatable , dimension(:,:,:)    :: blochF
 
     integer :: k,p,q,i,j,no_in,no_out,no_e_in,no_e_out,no_modes
@@ -581,10 +587,12 @@ subroutine calculate_modes(this,Ef)
     INTEGER                                      :: LDVL, LDVR , LWMAX , LWORK , INFO
     COMPLEX*16 , dimension(:) ,     allocatable  :: ALPHA , BETA , WORK
     double precision, dimension(:), allocatable  :: RWORK
+    logical, dimension(:), allocatable  :: iselect
 
     doubleprecision :: tmpc,current,time,dval1,dval2,time_calc
     COMPLEX*16 :: DUMMY(1,1),lambda,one,zero
 
+    this%bUseShurDecomposition = .false.
 
     time = get_clock()
     N = this%no_sites
@@ -594,68 +602,67 @@ subroutine calculate_modes(this,Ef)
     ! ---------------------------------------
     ! Memoru allocations
     ! ---------------------------------------
-    allocate(MA (2*N,2*N))
-    allocate(MB (2*N,2*N))
-    allocate(Z  (2*N,2*N))
-    allocate(Mdiag(N,N))
-    allocate(blochF(2,N,N))
-    allocate(d(2*N,N))
-    allocate(c(2*N,N))
+    allocate(MA     (2*N,2*N))
+    allocate(MB     (2*N,2*N))
 
+    allocate(Z      (2*N,2*N))
+    allocate(Mdiag  (N,N))
+    allocate(blochF (2,N,N))
+    allocate(d      (2*N,N))
+    allocate(c      (2*N,N))
 
-    if(allocated(this%modes))     deallocate(this%modes)
-    if(allocated(this%lambdas))  deallocate(this%lambdas)
-    if(allocated(this%SigmaMat)) deallocate(this%SigmaMat)
-    if(allocated(this%LambdaMat)) deallocate(this%LambdaMat)
-    if(allocated(this%Tnm))      deallocate(this%Tnm)
-    if(allocated(this%currents))      deallocate(this%currents)
-    if(allocated(this%UTildeDagger)) deallocate(this%UTildeDagger)
+    if(allocated(this%modes))       deallocate(this%modes)
+    if(allocated(this%lambdas))     deallocate(this%lambdas)
+    if(allocated(this%SigmaMat))    deallocate(this%SigmaMat)
+    if(allocated(this%LambdaMat))   deallocate(this%LambdaMat)
+    if(allocated(this%Tnm))         deallocate(this%Tnm)
+    if(allocated(this%currents))    deallocate(this%currents)
+    if(allocated(this%UTildeDagger))deallocate(this%UTildeDagger)
 
-    allocate(this%modes(2,N,N))
-    allocate(this%lambdas(2,N))
-    allocate(this%SigmaMat(N,N))
-    allocate(this%LambdaMat(N,N))
-    allocate(this%currents(2,N))
+    allocate(this%modes     (2,N,N))
+    allocate(this%lambdas   (2,N))
+    allocate(this%SigmaMat  (N,N))
+    allocate(this%LambdaMat (N,N))
+    allocate(this%currents  (2,N))
     allocate(this%UTildeDagger(N,N))
-    this%currents = 0
-    this%UTildeDagger = 0
-    this%modes     = 0
-    this%lambdas  = 0
-    this%SigmaMat = 0
-    this%LambdaMat = 0
+    allocate(iselect(2*N))
+
+    this%currents       = 0
+    this%UTildeDagger   = 0
+    this%modes          = 0
+    this%lambdas        = 0
+    this%SigmaMat       = 0
+    this%LambdaMat      = 0
 
     ! Setting the parameters for LAPACK
     LWMAX = 40 * N
     LDVL  = 2  * N
     LDVR  = 2  * N
 
-    allocate(ALPHA(2*N))
-    allocate(BETA(2*N))
-    allocate(RWORK(8*N))
-    allocate(WORK(LWMAX))
+    allocate(ALPHA  (2*N))
+    allocate(BETA   (2*N))
+    allocate(RWORK  (8*N))
+    allocate(WORK   (LWMAX))
+
+
+
     ! -------------------------------------------------------
     ! Creation of the Generalized eigenvalue problem Eq. (52)
+    ! Use this method when coupling matrix is singular.
     ! -------------------------------------------------------
-!    Mdiag = -this%valsH0
-!    do i = 1 , N
-!!        print"(50f9.4)", dble(this%valsS0(i,:))
-!        Mdiag(i,i) =   Mdiag(i,i) + Ef
-!    enddo
-!    open(unit=1112,file="tau.dat")
-!    open(unit=1113,file="h0.dat")
-!    do i = 1 , N
-!        write(1112,"(500e20.8)"),this%valsTau(i,:)
-!        write(1113,"(500e20.8)"),Mdiag(i,:)
-!    enddo
-!    close(1112)
-!    close(1113)
-
-
-!    call solve_GGEV(this%valsS0*Ef - this%valsH0,this%valsTau)
-
 888 if(QSYS_USE_ZGGEV_TO_FIND_MODES) then
+    this%bUseShurDecomposition = .true.
+
+
+    allocate(Qshur      (2*N,2*N))
+    allocate(Zshur      (2*N,2*N))
+    allocate(Sshur      (2*N,2*N))
+    allocate(Pshur      (2*N,2*N))
+    allocate(Z11 (N,N))
+    allocate(Z21 (N,N))
+
+
     do i = 1 , N
-!        print"(30f7.3)",dble(this%valsTau(:,i))
     do j = 1 , N
         Mdiag(i,j) =  conjg(this%valsTau(j,i)) - Ef*conjg(this%valsS1(j,i)) ! Dag of Tau
     enddo
@@ -668,7 +675,6 @@ subroutine calculate_modes(this,Ef)
     !   (  -t^*   E-H   )
     !   (
     MA(N+1:2*N,1:N) = -Mdiag ! diag contains hermitian cojugate of Tau
-
     ! filling diag with diagonal matrix
     Mdiag = 0
     do i = 1 , N
@@ -676,30 +682,40 @@ subroutine calculate_modes(this,Ef)
     enddo
     MA(1:N,N+1:2*N)     =  Mdiag
     MA(N+1:2*N,N+1:2*N) =  this%valsS0*Ef - this%valsH0
-
     MB(1:N,1:N)         = Mdiag
     MB(N+1:2*N,N+1:2*N) = this%valsTau  - this%valsS1*Ef
 
+    Sshur = MA
+    Pshur = MB
 
-!    call try_ZGGEVX(2*N,MA,MB,Z,ALPHA,BETA)
+!   call GGEV(MA, MB, alpha, beta , vr = Z,info=info)! [, vsl] [,vsr] [,select] [,sdim] [,info])
+!   Checking solution
+!    if( INFO /= 0 ) then
+!        print*,"SYS::LEAD::Cannot solve generalized eigenvalue problem for eigenmodes: ZGGEV info:",INFO
+!        stop
+!    endif
 
-    LWORK = -1
-    ! Initalization
-    CALL ZGGEV("N","N", 2*N, MA, 2*N, MB,2*N, ALPHA,BETA, &
-                DUMMY, 1, Z, LDVR, WORK, LWORK, RWORK, INFO )
-    LWORK = MIN(LWMAX, INT( WORK(1)))
-    ! Solving GGEV problem
-    CALL ZGGEV("N","V", 2*N, MA, 2*N, MB , 2*N, ALPHA,BETA, &
-                DUMMY, 1, Z, LDVR, WORK, LWORK, RWORK, INFO )
-!     Checking solution
+    ! ---------------------------------------------------------------
+    ! Shur decompostion
+    ! ---------------------------------------------------------------
+    call gges(Sshur, Pshur, alpha, beta , vsl=Qshur,vsr=Zshur,info=info)
     if( INFO /= 0 ) then
-        print*,"SYS::LEAD::Cannot solve generalized eigenvalue problem for eigenmodes: ZGGEV info:",INFO
+        print*,"SYS::LEAD::Shur decomposition failed: gges info:",INFO
+        stop
+    endif
+
+    ! Calculate eigen vectors of translation operator
+    Z  = Zshur
+    call tgevc(Sshur, Pshur ,howmny = 'B' ,vr=Z ,info=info)
+    if( INFO /= 0 ) then
+        print*,"SYS::LEAD::Shur decomposition failed: tgevc info:",INFO
         stop
     endif
 
     ! ------------------------------------------------------------
     else ! Convert Generalized eigenvalue problem to standard one
     ! ------------------------------------------------------------
+
     do i = 1 , N
     do j = 1 , N
         Mdiag(i,j) =  conjg(this%valsTau(j,i)) - Ef*conjg(this%valsS1(j,i)) ! Dag of Tau
@@ -752,32 +768,9 @@ subroutine calculate_modes(this,Ef)
     CALL ZGEEV( 'Not Left', 'Vectors', 2*N, MA, 2*N, ALPHA, DUMMY, 1, &
                 Z, LDVR, WORK, LWORK, RWORK, INFO )
 
-   ! ------------------------------------------------------
-   ! Basis apporach
-   ! ------------------------------------------------------
-!   call ZGEMM( 'N', 'N', N, N, N, one ,blochF(1,:,:)  , N, &
-!                        Mdiag, N, zero,MA(N+1:2*N,1:N), N )
-!
-!
-!    MA(N+1:2*N,1:N) = -Mdiag
-!    ! filling diag with diagonal matrix
-!    MA(1:N,N+1:2*N)     =  blochF(1,:,:)
-!
-!    one = +1
-!    blochF(2,:,:) = this%valsS0*Ef - this%valsH0
-!    call ZGEMM( 'N', 'N', N, N, N, one ,blochF(2,:,:)  , N, &
-!                        blochF(1,:,:), N, zero,MA(N+1:2*N,N+1:2*N), N )
-!
-!    LWORK = -1
-!    CALL ZGEEV( 'Not Left', 'Vectors',2*N, MA, 2*N, ALPHA, DUMMY, 1,&
-!                Z, LDVR, WORK, LWORK, RWORK, INFO )
-!    LWORK = MIN( LWMAX, INT( WORK( 1 ) ) )
-!    CALL ZGEEV( 'Not Left', 'Vectors', 2*N, MA, 2*N, ALPHA, DUMMY, 1, &
-!                Z, LDVR, WORK, LWORK, RWORK, INFO )
-
-   ! ------------------------------------------------------
-   ! Further
-   ! ------------------------------------------------------
+    ! ------------------------------------------------------
+    ! Further
+    ! ------------------------------------------------------
     ! Checking solution
     if( INFO /= 0 ) then
         print*,"SYS::LEAD::Cannot solve generalized eigenvalue problem for eigenmodes: ZGEEV info:",INFO
@@ -785,8 +778,6 @@ subroutine calculate_modes(this,Ef)
     endif
     BETA  = 1.0
     endif ! else choose solver SGGEV
-
-
     ! -------------------------------------------------------
     ! Calculating the number of modes
     ! -------------------------------------------------------
@@ -795,27 +786,27 @@ subroutine calculate_modes(this,Ef)
     this%no_in_em     = 0
     this%no_out_em    = 0
 
-! ----------------------------------------------------------------------------
-! Solve problem using Wave function matching approach
-! ----------------------------------------------------------------------------
+    ! --------------------------------------------------------
+    ! Solve problem using Wave function matching approach
+    ! --------------------------------------------------------
     if(QSYS_SCATTERING_METHOD == QSYS_SCATTERING_WFM ) then
+    iselect = .false. ! reordeing by Shur decomposition
+
+
 
     do i = 1 , 2*N
+        lambda= (ALPHA(i)/BETA(i))
+!        print"(i,4f16.5,A,f16.6)",i,abs(BETA(i)),abs(ALPHA(i)),lambda,"abs=",abs(lambda)
+        c(i,:) =  Z(1:N,i)
+        d(i,:) =  Z(N+1:2*N,i)
+        c(i,:) = c(i,:)/sqrt(sum(abs(c(i,:))**2))
+        d(i,:) = d(i,:)/sqrt(sum(abs(d(i,:))**2))
         if(abs(Beta(i))>1e-16) then !
             lambda= (ALPHA(i)/BETA(i))
-!            print"(i,4f16.5,A,f16.6)",i,abs(BETA(i)),abs(ALPHA(i)),lambda,"abs=",abs(lambda)
-            c(i,:) =  Z(1:N,i)
-            d(i,:) =  Z(N+1:2*N,i)
-!            one = 1
-!            call ZGEMV ( 'N', N, N, one, blochF(1,:,:), N,d(i,:),1, zero,Mdiag(1,:) , 1 )
-!            d(i,:) = Mdiag(1,:)
+
             ! Normalize vectors
-            c(i,:) = c(i,:)/sqrt(sum(abs(c(i,:))**2))
-            d(i,:) = d(i,:)/sqrt(sum(abs(d(i,:))**2))
-!            print*,i,sqrt(sum(abs(c(i,:))**2)),sqrt(sum(abs(d(i,:))**2))
             if(  abs(abs(lambda) - 1.0) < 1.0E-6 ) then ! check if propagating mode
                 current = (mode_current(N,c(i,:),d(i,:),this%valsTau))
-!                current =  mode_current_lambda(N,c(i,:),lambda,this%valsTau)
                 tmpc    = current
                 ! Normalize to current = 1
                 c(i,:)  = c(i,:)/sqrt(abs(current))
@@ -827,20 +818,25 @@ subroutine calculate_modes(this,Ef)
                 else
                     this%no_out_modes = this%no_out_modes + 1
                     this%currents(M_OUT,this%no_out_modes) = tmpc
+                    iselect(i) = .true.
                 endif
             ! Evanescent modes filtering
             else if( abs(lambda) > 1.0 ) then
                 this%no_out_em = this%no_out_em + 1
+                iselect(i) = .true.
 
             else if( abs(lambda) < 1.0 .and. abs(lambda)> 1.D-16 ) then
                 this%no_in_em  = this%no_in_em + 1
             else ! Strange case when lambda = 0 "standing mode" we assume that
                  ! this case belongs to both evanescent modes
                 this%no_in_em  = this%no_in_em  + 1
-                this%no_out_em = this%no_out_em + 1
             endif ! end of filtering
+        else  ! else of beta > 0
+            this%no_out_em = this%no_out_em + 1
+            iselect(i) = .true.
         endif ! end of beta > 0
     enddo
+
     if(QSYS_DEBUG_LEVEL > 0) then
     print*,"SYS::LEAD::Lead stats:"
     print*,"           No. incoming modes:",this%no_in_modes
@@ -863,13 +859,11 @@ subroutine calculate_modes(this,Ef)
         stop -1
     endif
 
-
     ! Allocate T-Matrix
     allocate(this%Tnm(this%no_out_modes,this%no_out_modes))
     this%Tnm      = 0
-
     ! -------------------------------------------------------
-    ! Filling arrays
+    ! Filling arrays: modes, lambdas...
     ! -------------------------------------------------------
     no_in    = 0
     no_e_in  = 0
@@ -897,40 +891,49 @@ subroutine calculate_modes(this,Ef)
                     this%lambdas(M_OUT,this%no_out_modes+no_e_out)   = lambda
             else if( abs(lambda) < 1.0 .and. abs(lambda)> 1.D-16 ) then
                     no_e_in = no_e_in + 1
-                    this%modes  (M_IN,this%no_in_modes+no_e_in,:) = c(i,:)
-                    this%lambdas(M_IN,this%no_in_modes+no_e_in)   = lambda
+                    this%modes  (M_IN,this%no_in_modes+no_e_in,:)    = c(i,:)
+                    this%lambdas(M_IN,this%no_in_modes+no_e_in)      = lambda
             else
-                    no_e_out = no_e_out + 1
-                    this%modes  (M_OUT,this%no_out_modes+no_e_out,:) = c(i,:)
-                    this%lambdas(M_OUT,this%no_out_modes+no_e_out)   = 1.0D10
                     no_e_in = no_e_in + 1
                     this%modes  (M_IN,this%no_in_modes+no_e_in,:)    = c(i,:)
-                    this%lambdas(M_IN,this%no_in_modes+no_e_in)      = 1.0D10
-                    k = k +1
-!                    print*,"Problematic case! Lambda == 0 ",k
+                    this%lambdas(M_IN,this%no_in_modes+no_e_in)      = 1.0D20
             endif
+        else ! else beta > 0
+                    no_e_out = no_e_out + 1
+                    this%modes  (M_OUT,this%no_out_modes+no_e_out,:) = c(i,:)
+                    this%lambdas(M_OUT,this%no_out_modes+no_e_out)   = 1.0D20
         endif
     enddo
 
-    deallocate(ALPHA)
-    deallocate(BETA)
-    deallocate(RWORK)
-    deallocate(WORK)
-    deallocate(MA)
-    deallocate(MB)
-    deallocate(Z)
-    deallocate(d)
-    deallocate(c)
-
-!    open(unit=111,file="rho.dat")
-!    do i = 1 , N
-!        write(111,"(500e20.6)"),abs(this%modes(M_IN,1:this%no_in_modes,i))**2,abs(this%modes(M_OUT,1:this%no_out_modes,i))**2
-!    enddo
-!    close(111)
+    ! Sorting propagating modes by the current amplitde
+    ! and diagonalizing current operator for degenerated states
+    call sort_modes(this%no_in_modes ,this%modes(M_IN,:,:) ,this%lambdas(M_IN,:),this%currents(M_IN,:))
+    lambda = this%lambdas(M_IN,1)
+    j      = 1
+    do i = 2 ,this%no_in_modes
+        if( abs(lambda -this%lambdas(M_IN,i)) > 1.0D-10  ) then
+            call this%diagonalize_currents(M_IN,j,i-1)
+            j = i
+            lambda = this%lambdas(M_IN,i)
+        endif
+    enddo
+    call this%diagonalize_currents(M_IN,j,i-1)
 
     ! Sorting propagating modes by the current amplitde
-    call sort_modes(this%no_in_modes ,this%modes(M_IN,:,:) ,this%lambdas(M_IN,:),this%currents(M_IN,:))
+    ! and diagonalizing current operator for degenerated states
     call sort_modes(this%no_out_modes,this%modes(M_OUT,:,:),this%lambdas(M_OUT,:),this%currents(M_OUT,:))
+    lambda = this%lambdas(M_OUT,1)
+    j      = 1
+    do i = 2 ,this%no_in_modes
+        if( abs(lambda - this%lambdas(M_OUT,i)) > 1.0D-10  ) then
+            call this%diagonalize_currents(M_OUT,j,i-1)
+            j = i
+            lambda = this%lambdas(M_OUT,i)
+        endif
+    enddo
+    call this%diagonalize_currents(M_OUT,j,i-1)
+
+
     if(QSYS_DEBUG_LEVEL > 0) then
     print*,"-------------------------------------------------------"
     print*," K vec.  :    In     |       Out  |          Fluxes   "
@@ -939,37 +942,45 @@ subroutine calculate_modes(this,Ef)
         dval1 = log(this%lambdas(M_IN ,i))/II
         dval2 = log(this%lambdas(M_OUT,i))/II
         print"(A,i4,A,f10.4,A,1f10.4,A,2f12.8)","   K[",i,"]:",dval1," | ",dval2 ," | " , this%currents(:,i)
-!        print"(A,i4,A,2f10.4,A,2f10.4,A,2f10.4)","   K[",i,"]:",this%lambdas(M_IN ,i)," | ",this%lambdas(M_OUT ,i) ," | " , this%currents(:,i)
     enddo
     print*,"-------------------------------------------------------"
     endif
-    no_modes = N
 
-    ! Construction of the F^-1+ matrix Eq. (57)
-    blochF = 0
-    Mdiag(:,:) = this%modes(M_IN,:,:)
-    call inverse_matrix(N,Mdiag)
-    do k = 1, N
+    if(.not. this%bUseShurDecomposition) then
+        ! Construction of the F^-1+ matrix Eq. (57)
+        Mdiag(:,:) = this%modes(M_OUT,:,:)
+        call inverse_matrix(N,Mdiag)
+        this%UTildeDagger  = Mdiag
+        blochF(M_OUT,:,:)  = 0
+        do k = 1, N
+            do i = 1, N
+            do j = 1, N
+            blochF(M_OUT,i,j) = blochF(M_OUT,i,j) + this%lambdas(M_OUT,k)**(-1)  * this%modes(M_OUT,k,i) * Mdiag(j,k)
+            enddo
+            enddo
+        enddo
+    else
+        ! Reorded Shur Unitary matrix - Z
+        Z  = Zshur
+        call tgsen(a=Sshur,b=Pshur, select=iselect,z=Z ,info=info)
+        if( INFO /= 0 ) then
+            print*,"SYS::LEAD::Shur decomposition failed: tgsen info:",INFO
+            stop
+        endif
+        ! Take block elements - Michael Wimmer work
+        Z11(:,:) = Z(1:N,1:N)
+        Z21(:,:) = Z(N+1:2*N,1:N)
+        ! Try do inverse - if this will fail, use QTBM
+        call inverse_matrix(N,Z21)
+        blochF(M_OUT,:,:) = 0
         do i = 1, N
         do j = 1, N
-        blochF(M_IN,i,j) = blochF(M_IN,i,j) + this%lambdas(M_IN,k)**(-1)  * this%modes(M_IN,k,i) * Mdiag(j,k)
+            do k = 1, N
+                blochF(M_OUT,i,j) = blochF(M_OUT,i,j) +   Z11(i,k) * Z21(k,j)
+            enddo
         enddo
         enddo
-    enddo
-
-
-    ! Construction of the F^-1+ matrix Eq. (57)
-    Mdiag(:,:) = this%modes(M_OUT,:,:)
-    call inverse_matrix(N,Mdiag)
-    this%UTildeDagger = Mdiag
-    do k = 1, N
-        do i = 1, N
-        do j = 1, N
-        blochF(M_OUT,i,j) = blochF(M_OUT,i,j) + this%lambdas(M_OUT,k)**(-1)  * this%modes(M_OUT,k,i) * Mdiag(j,k)
-        enddo
-        enddo
-    enddo
-
+    endif
 
     ! Calculating of SigmaMatrix
     do i = 1 , N
@@ -979,15 +990,50 @@ subroutine calculate_modes(this,Ef)
     enddo
     one  = 1.0
     zero = 0.0
-    call ZGEMM( 'N', 'N', N, N, N, one ,Mdiag  , N, &
-                        blochF(M_OUT,:,:), N, zero,this%SigmaMat, N )
+    call ZGEMM( 'N', 'N', N, N, N, one ,Mdiag  , N, blochF(M_OUT,:,:), N, zero,this%SigmaMat, N )
     ! add to sigma H0 internal hamiltonian
     this%SigmaMat = this%SigmaMat + this%valsH0
     ! Lambda matrix calculation:
-    blochF(M_OUT,:,:) = blochF(M_IN,:,:)-blochF(M_OUT,:,:)
-    call ZGEMM( 'N', 'N', N, N, N, one ,Mdiag  , N, &
-                        blochF(M_OUT,:,:), N, zero,this%LambdaMat, N )
+    call ZGEMM( 'N', 'N', N, N, N, one ,Mdiag  , N, blochF(M_OUT,:,:), N, zero,this%LambdaMat, N )
 
+    if(this%bUseShurDecomposition) then
+        ! -------------------------------------------------
+        ! Calculate overlap matrix
+        ! -------------------------------------------------
+        no_modes = this%no_out_modes + this%no_out_em
+        deallocate(MA)
+        allocate(MA (no_modes,no_modes))
+        MA = 0
+        do i = 1 , no_modes
+        do j = 1 , no_modes
+            MA(i,j) = sum(conjg(this%modes(M_OUT,i,:))*this%modes(M_OUT,j,:))
+        enddo
+        enddo
+        if(no_modes > 0) call inverse_matrix(no_modes,MA)
+        deallocate(this%UTildeDagger)
+        allocate(this%UTildeDagger(no_modes,no_modes))
+        this%UTildeDagger = MA
+
+        deallocate(Qshur)
+        deallocate(Zshur)
+        deallocate(Sshur)
+        deallocate(Pshur)
+        deallocate(Z21)
+        deallocate(Z11)
+    endif
+
+
+    deallocate(iselect)
+    deallocate(ALPHA)
+    deallocate(BETA)
+    deallocate(RWORK)
+    deallocate(WORK)
+    deallocate(MA)
+    deallocate(MB)
+
+    deallocate(Z)
+    deallocate(d)
+    deallocate(c)
 
 ! ----------------------------------------------------------------------------
 ! Solve problem using Quantum transmissing boundary method
@@ -997,15 +1043,12 @@ subroutine calculate_modes(this,Ef)
     do i = 1 , 2*N
         if(abs(Beta(i))>1e-16) then !
             lambda= (ALPHA(i)/BETA(i))
-!            print"(i,4f16.5,A,f16.6)",i,abs(BETA(i)),abs(ALPHA(i)),lambda,"abs=",abs(lambda)
             c(i,:) =  Z(1:N,i)
             d(i,:) =  Z(N+1:2*N,i)
             ! Normalize vectors
             c(i,:) = c(i,:)/sqrt(sum(abs(c(i,:))**2))
             d(i,:) = d(i,:)/sqrt(sum(abs(d(i,:))**2))
-!            print*,i,sqrt(sum(abs(c(i,:))**2)),sqrt(sum(abs(d(i,:))**2))
             if(  abs(abs(lambda) - 1.0) < 1.0E-6 ) then ! check if propagating mode
-!                current = (mode_current(N,c(i,:),d(i,:),this%valsTau))
                 current =  mode_current_lambda(N,c(i,:),lambda,this%valsTau)
                 tmpc    = current
                 ! Normalize to current = 1
@@ -1022,13 +1065,8 @@ subroutine calculate_modes(this,Ef)
             ! Evanescent modes filtering
             else if( abs(lambda) > 1.0 ) then
                 this%no_out_em = this%no_out_em + 1
-
             else if( abs(lambda) < 1.0 .and. abs(lambda)> 1.D-16 ) then
                 this%no_in_em  = this%no_in_em + 1
-            else ! Strange case when lambda = 0 "standing mode" we assume that
-                 ! this case belongs to both evanescent modes
-                !this%no_in_em  = this%no_in_em  + 1
-                !this%no_out_em = this%no_out_em + 1
             endif ! end of filtering
         endif ! end of beta > 0
     enddo
@@ -1090,14 +1128,6 @@ subroutine calculate_modes(this,Ef)
                     no_e_in = no_e_in + 1
                     this%modes  (M_IN,this%no_in_modes+no_e_in,:) = c(i,:)
                     this%lambdas(M_IN,this%no_in_modes+no_e_in)   = lambda
-            else
-!                    no_e_out = no_e_out + 1
-!                    this%modes  (M_OUT,this%no_out_modes+no_e_out,:) = c(i,:)
-!                    this%lambdas(M_OUT,this%no_out_modes+no_e_out)   = 1.0D20
-!                    no_e_in = no_e_in + 1
-!                    this%modes  (M_IN,this%no_in_modes+no_e_in,:)    = c(i,:)
-!                    this%lambdas(M_IN,this%no_in_modes+no_e_in)      = 1.0D20
-                    !print*,"Problematic case! Lambda == 0 "
             endif
         endif
     enddo
@@ -1114,8 +1144,34 @@ subroutine calculate_modes(this,Ef)
 
 
     ! Sorting propagating modes by the current amplitde
+    ! and diagonalizing current operator for degenerated states
     call sort_modes(this%no_in_modes ,this%modes(M_IN,:,:) ,this%lambdas(M_IN,:),this%currents(M_IN,:))
+    lambda = this%lambdas(M_IN,1)
+    j      = 1
+    do i = 2 ,this%no_in_modes
+        if( abs(lambda -this%lambdas(M_IN,i)) > 1.0D-10  ) then
+            call this%diagonalize_currents(M_IN,j,i-1)
+            j = i
+            lambda = this%lambdas(M_IN,i)
+        endif
+    enddo
+    call this%diagonalize_currents(M_IN,j,i-1)
+
+    ! Sorting propagating modes by the current amplitde
+    ! and diagonalizing current operator for degenerated states
     call sort_modes(this%no_out_modes,this%modes(M_OUT,:,:),this%lambdas(M_OUT,:),this%currents(M_OUT,:))
+    lambda = this%lambdas(M_OUT,1)
+    j      = 1
+    do i = 2 ,this%no_in_modes
+        if( abs(lambda - this%lambdas(M_OUT,i)) > 1.0D-10  ) then
+            call this%diagonalize_currents(M_OUT,j,i-1)
+            j = i
+            lambda = this%lambdas(M_OUT,i)
+        endif
+    enddo
+    call this%diagonalize_currents(M_OUT,j,i-1)
+
+
     if(QSYS_DEBUG_LEVEL > 0) then
     print*,"-------------------------------------------------------"
     print*," K vec.  :    In     |       Out  |          Fluxes   "
@@ -1124,12 +1180,9 @@ subroutine calculate_modes(this,Ef)
         dval1 = log(this%lambdas(M_IN ,i))/II
         dval2 = log(this%lambdas(M_OUT,i))/II
         print"(A,i4,A,f10.4,A,1f10.4,A,2f10.4)","   K[",i,"]:",dval1," | ",dval2 ," | " , this%currents(:,i)
-!        print"(A,i4,A,2f10.4,A,2f10.4,A,2f10.4)","   K[",i,"]:",this%lambdas(M_IN ,i)," | ",this%lambdas(M_OUT ,i) ," | " , this%currents(:,i)
     enddo
     print*,"-------------------------------------------------------"
     endif
-
-
 
     ! Calculate overlap matrix
     no_modes = this%no_out_modes + QSYS_SCATTERING_QTBM_NO_EVAN
@@ -1151,18 +1204,16 @@ subroutine calculate_modes(this,Ef)
     if(no_modes > 0) call inverse_matrix(no_modes,MA)
 
     blochF(M_OUT,:,:) = 0
+    ! this can be optimalized ....
     do i = 1 , N
     do j = 1 , N
-
     do k = 1 , no_modes
     do p = 1 , no_modes
-!        MB(j,i) = MB(j,i) + (-this%lambdas(M_OUT,k)**(-1))*this%modes(M_OUT,k,j)*MA(k,p)*conjg(this%modes(M_OUT,p,i))
         MB(i,j) = MB(i,j) + (this%lambdas(M_OUT,k)-this%lambdas(M_OUT,k)**(-1)) * &
                             this%modes(M_OUT,k,i)*MA(k,p)*conjg(this%modes(M_OUT,p,j))
     enddo
     enddo
     enddo
-
     enddo
 
     blochF(M_OUT,:,:) =  MB
@@ -1232,10 +1283,24 @@ subroutine calculate_Tnm(this,all_atoms,phi)
     enddo
     this%Tnm = 0
     if(QSYS_SCATTERING_METHOD == QSYS_SCATTERING_WFM) then
-        do i = 1 , this%no_out_modes
-            tmpT = sum(this%UTildeDagger(:,i) * leadPhi(:))
-            this%Tnm(i,1) =  abs(tmpT)**2
-        enddo
+        ! Use standard equation when Schur vector are not used
+        if(this%bUseShurDecomposition) then
+            no_modes = this%no_out_modes + this%no_out_em
+            allocate(tmpVec(no_modes))
+            do i = 1 , no_modes
+                tmpVec(i) = sum(conjg(this%modes(M_OUT,i,:))*leadPhi)
+            enddo
+            do i = 1 , this%no_out_modes
+                tmpT = sum(this%UTildeDagger(i,:) * tmpVec(:))
+                this%Tnm(i,1) =  abs(tmpT)**2
+            enddo
+            deallocate(tmpVec)
+        else
+            do i = 1 , this%no_out_modes
+                tmpT = sum(this%UTildeDagger(:,i) * leadPhi(:))
+                this%Tnm(i,1) =  abs(tmpT)**2
+            enddo
+        endif
     else if(QSYS_SCATTERING_METHOD == QSYS_SCATTERING_QTBM) then
 
         no_modes = this%no_out_modes + QSYS_SCATTERING_QTBM_NO_EVAN
@@ -1565,6 +1630,222 @@ endsubroutine save_lead
 !
 !end subroutine try_ZGGEVX
 
+subroutine diagonalize_currents(this,mdir,ifrom,ito)
+    class(qlead) :: this
+
+    integer :: mdir,ifrom,ito,N,i,j,Nlead
+
+    complex*16,allocatable :: VelMat(:,:) , BaseMat(:,:) , tmpMat(:,:) , tmpVec(:)
+    complex*16 :: alpha,beta,lambda
+    doubleprecision :: current
+
+    alpha = II
+    beta  = 0.0
+
+    N     = ito-ifrom+1
+    Nlead = this%no_sites
+
+    allocate(VelMat(N,N))
+    allocate(BaseMat(N,N))
+    allocate(tmpMat(Nlead,Nlead))
+    allocate(tmpVec(Nlead))
+
+    tmpMat = 0
+    lambda = this%lambdas(mdir,ifrom)
+    do i = 1 , Nlead
+    do j = 1 , Nlead
+        tmpMat(i,j) = + ( this%valsTau(i,j)*lambda &
+                  - conjg(this%valsTau(j,i)*lambda))
+    enddo
+    enddo
+
+    do i = 0 , N-1
+    do j = 0 , N-1
+       call ZGEMV ( 'N', Nlead, Nlead, ALPHA, tmpMat, Nlead, this%modes(mdir,ifrom+j,:), 1, BETA, tmpVec, 1 )
+       VelMat(i+1,j+1) = sum(conjg(this%modes(mdir,ifrom+i,:))*tmpVec)
+    enddo
+    enddo
+
+    call alg_ZHEEV(N,VelMat,BaseMat,tmpVec(1:N))
+
+    do i = 1 , Nlead
+        beta = 0
+    do j = 1 , N
+        tmpVec(j) = sum(this%modes(mdir,ifrom:ito,i)*BaseMat(:,j))
+    enddo
+        this%modes(mdir,ifrom:ito,i) = tmpVec(1:N)
+    enddo
+
+!    print*,"Velmat2:",N,ifrom,ito
+!    do i = 0 , N-1
+!    do j = 0 , N-1
+!       call ZGEMV ( 'N', Nlead, Nlead, ALPHA, tmpMat, Nlead, this%modes(mdir,ifrom+j,:), 1, BETA, tmpVec, 1 )
+!       VelMat(i+1,j+1) = sum(conjg(this%modes(mdir,ifrom+i,:))*tmpVec)
+!    enddo
+!!       print"(20e16.4)", VelMat(i+1,:)
+!    enddo
+
+
+    do i = ifrom , ito
+        current = (mode_current_lambda(Nlead,this%modes(mdir,i,:),lambda,this%valsTau))
+        this%modes(mdir,i,:) = this%modes(mdir,i,:)/sqrt(abs(current))
+        current = (mode_current_lambda(Nlead,this%modes(mdir,i,:),lambda,this%valsTau))
+        this%currents(mdir,i) = current
+    enddo
+
+
+    deallocate(VelMat)
+    deallocate(BaseMat)
+    deallocate(tmpMat)
+    deallocate(tmpVec)
+end subroutine diagonalize_currents
+
+
+subroutine test_eigenmodes(MA,MB,Z,Lambdas)
+
+    complex*16   :: MA(:,:),MB(:,:),Z(:,:),Lambdas(:)
+    integer      :: N,i,j,m,d
+    complex*16,allocatable  :: tmpM(:,:),tmpVec(:),tmpVec2(:)
+    complex*16 :: alpha , beta
+    N = size(MA,2)
+    allocate(tmpM(N,N))
+    allocate(tmpVec(N))
+    allocate(tmpVec2(N))
+
+    alpha = 1.0
+    beta  = 0.0
+
+
+    write(111,*),"============================================="
+    do m = 1 , N
+        tmpM        = MA - lambdas(m)*MB
+        tmpVec      = Z(:,m)
+        call ZGEMV ( 'N', N, N, alpha, tmpM, N, tmpVec, 1, beta, tmpVec2, 1 )
+        write(111,"(A,i,A,f15.6,A,500f15.6)")," ",m," norm=",abs(sum(tmpVec2**2))," l=",abs(Lambdas(m)),abs(tmpVec)**2
+        write(222,"(300e20.6)"),m+0.0,abs(Z(m,1:N))**2
+    enddo
+    do m = 1 , N/2
+        write(444,"(300e20.6)"),m+0.0,abs(Z(m,1:N))**2!-abs(Z(m+N/2,1:N))
+    enddo
+
+
+!    do d = M_IN , M_OUT
+!    print*,"Dir:",d
+!    do m = 1 , this%no_sites
+!        tmpM          = MA - this%lambdas(d,m)*MB
+!        tmpVec(1:N/2)   = this%modes(d,m,:)
+!        tmpVec(N/2+1:N) = this%lambdas(d,m)*this%modes(d,m,:)
+!        call ZGEMV ( 'N', N, N, alpha, tmpM, N, tmpVec, 1, beta, tmpVec2, 1 )
+!        print*,"    ",m," norm=",sum(tmpVec2**2)
+!    enddo
+!    enddo
+
+
+    deallocate(tmpM)
+    deallocate(tmpVec)
+    deallocate(tmpVec2)
+end subroutine test_eigenmodes
+
+subroutine alg_ZHEEV(N,Mat,Vecs,Lambdas)
+    integer :: N
+    complex*16 :: Mat(:,:),Vecs(:,:),Lambdas(:)
+
+    ! -------------------------------------------------
+    !                    LAPACK
+    ! -------------------------------------------------
+    !     .. Local Scalars ..
+    INTEGER          INFO, LWORK, LWMAX
+
+    !     .. Local Arrays ..
+
+    DOUBLE PRECISION,allocatable :: RWORK( : )
+    COMPLEX*16,allocatable        :: WORK( : )
+
+
+    ! Initialize lapack and allocate arrays
+    LWMAX = N*50
+
+    allocate(RWORK ( 3*N  ))
+    allocate(WORK  ( LWMAX ))
+
+    !
+    !     Query the optimal workspace.
+    !
+    LWORK  = -1
+    call zheev("N", "L", N, Mat, N, Lambdas, work, lwork, rwork, info)
+
+
+    if( INFO /= 0 ) then
+        print*,"  alg_ZHEEV: Error during solving with info:",INFO
+        stop
+    endif
+    LWORK  = MIN( LWMAX, INT( WORK( 1 ) ) )
+
+    deallocate( WORK)
+    allocate(WORK  ( LWORK ))
+
+    Vecs = Mat
+    call zheev("V", "L", N, Vecs, N, Lambdas, work, lwork, rwork, info)
+
+    deallocate(RWORK)
+    deallocate(WORK)
+
+end subroutine alg_ZHEEV
+
+doubleprecision function cond_number(N,A) result(rval)
+  integer :: N
+  complex*16,dimension(:,:):: A
+  complex*16,allocatable,dimension(:)       :: WORK
+  doubleprecision,allocatable,dimension(:)  :: RWORK
+  integer,allocatable,dimension (:)    :: IPIV
+  complex*16,dimension(:,:),allocatable:: tmpA
+  integer info,error
+  doubleprecision :: anorm,norm
+  external zlange
+  doubleprecision zlange
+  B_SINGULAR_MATRIX = .false.
+
+  allocate(WORK(2*N),IPIV(N),RWORK(2*N),tmpA(N,N),stat=error)
+  if (error.ne.0)then
+    print *,"SYS::LEAD::ZGETRF::error:not enough memory"
+    stop
+  end if
+
+  tmpA = A
+
+  anorm = ZLANGE( '1', N, N, tmpA, N, WORK )
+
+  call ZGETRF(N,N,tmpA,N,IPIV,info)
+  call zgecon( '1', N, tmpA, N, anorm, norm, work, rwork, info )
+  rval = norm
+
+
+  deallocate(IPIV,WORK,RWORK,tmpA,stat=error)
+  if (error.ne.0)then
+    print *,"SYS::LEAD::ZGETRF::error:fail to release"
+    stop
+  end if
+end function cond_number
+
+doubleprecision function cond_number2(N,A) result(rval)
+    integer :: N
+    complex*16,dimension(:,:):: A
+    complex*16 , allocatable  :: tmpA(:,:) , VT(:,:),tU(:,:),tVT(:,:)
+    doubleprecision , allocatable  :: S(:) , tS(:)
+
+    integer :: i,j,M
+
+    allocate(tmpA(N,N))
+    tmpA = A
+    call ZSVD(N,tmpA,tU,tS,tVT)
+    M = 0
+    do i = 1 , N
+       if(abs(tS(i)) > 1.0d-20 ) M = M+1
+    enddo
+    rval = abs(tS(1)/tS(N))
+    deallocate(tmpA,tU,tS,tVT)
+end function cond_number2
+
 
 subroutine ZSVD(N,A,U,S,VT)
       integer :: N
@@ -1601,6 +1882,24 @@ subroutine ZSVD(N,A,U,S,VT)
 
 end subroutine ZSVD
 
+subroutine inverse_svd(N,A)
+    complex*16 :: A(:,:)
+    integer :: N,i,j,p
+    complex*16 ,allocatable , dimension(:,:) :: U,VT
+    doubleprecision,allocatable,dimension(:) :: S
+
+
+    call ZSVD(N,A,U,S,VT)
+
+    do i = 1, N
+    do j = 1, N
+        A(i,j) = sum( conjg(Vt(:,i))*(S(:)**(-1))*conjg(U(j,:)) )
+    enddo
+    enddo
+
+    deallocate(U,S,VT)
+end subroutine inverse_svd
+
 subroutine solve_GGEV(H0,Tau)
     complex*16 :: H0(:,:) , Tau(:,:)
     integer :: N,M
@@ -1634,7 +1933,7 @@ subroutine solve_GGEV(H0,Tau)
     enddo
     rcond = cond_number(N,tau)
 
-    eps        = 1.0D-10
+    eps        = 1.0D-16
     bStabilize = .false.
 
     if( rcond < eps  ) bStabilize = .true.
@@ -1655,444 +1954,5 @@ subroutine solve_GGEV(H0,Tau)
     endif
 
 end subroutine solve_GGEV
-
-
-doubleprecision function cond_number(N,A) result(rval)
-  integer :: N
-  complex*16,dimension(:,:):: A
-  complex*16,allocatable,dimension(:)       :: WORK
-  doubleprecision,allocatable,dimension(:)  :: RWORK
-  integer,allocatable,dimension (:)    :: IPIV
-  integer info,error
-  doubleprecision :: anorm,norm
-  external zlange
-  doubleprecision zlange
-  B_SINGULAR_MATRIX = .false.
-  allocate(WORK(2*N),IPIV(N),RWORK(2*N),stat=error)
-  if (error.ne.0)then
-    print *,"SYS::LEAD::ZGETRF::error:not enough memory"
-    stop
-  end if
-
-  anorm = ZLANGE( '1', N, N, A, N, WORK )
-
-  call ZGETRF(N,N,A,N,IPIV,info)
-  call zgecon( '1', N, A, N, anorm, norm, work, rwork, info )
-  rval = norm
-
-
-  deallocate(IPIV,WORK,RWORK,stat=error)
-  if (error.ne.0)then
-    print *,"SYS::LEAD::ZGETRF::error:fail to release"
-    stop
-  end if
-end function cond_number
-
-
-!
-!subroutine feast_dense()
-!!subroutine feast_dense(N,A,B,lambdas,Z)
-!
-!
-!
-!
-!!!!!!!!!!!!!!!!!! Feast declaration variable
-!  integer,dimension(64) :: feastparam
-!  integer :: loop
-!  character(len=1) :: UPLO='F' ! 'L' or 'U' also fine
-!
-!!!!!!!!!!!!!!!!!! Matrix declaration variable
-!  character(len=100) :: name
-!  integer :: n,nnz
-!  complex(kind=kind(1.0d0)),dimension(:,:),allocatable :: A
-!
-!!!!!!!!!!!!!!!!!! Contour
-!  integer :: ccN
-!  complex(kind=kind(1.0d0)),dimension(:),allocatable :: Zne, Wne, Zedge
-!  integer, dimension(:), allocatable :: Nedge, Tedge
-!
-!!!!!!!!!!!!!!!!!! Others
-!  integer :: t1,t2,tim
-!  integer :: i,j,k
-!  double precision :: rea,img
-!
-!!!!!!!!!!!!!!!!!! FEAST
-!  integer :: M0,M,info
-!  complex(kind=kind(1.0d0)) :: Emid
-!  double precision :: r, epsout
-!  complex(kind=kind(1.0d0)),dimension(:,:),allocatable :: XR ! eigenvectors
-!  complex(kind=kind(1.0d0)),dimension(:),allocatable :: E ! eigenvalues
-!  double precision,dimension(:),allocatable :: resr ! residual
-!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!!!!!!!!!Read Coordinate format and convert to dense format
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!  name='../../system4'
-!
-!  open(10,file=trim(name),status='old')
-!  read(10,*) n,nnz
-!  allocate(A(1:n,1:n))
-!  A(1:N,1:N)=(0.0d0,0.0d0)
-!  do k=1,nnz
-!     read(10,*) i,j,rea,img
-!     A(i,j)=rea*(1.0d0,0.0d0)+img*(0.0d0,1.0d0)
-!  enddo
-!  close(10)
-!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!!!!!!!!!!!!!!!!!!!!!! INFORMATION ABOUT MATRIX !!!!!!!!!!!!!!!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!  print *,'dense matrix -system4- size',n
-!
-!  call system_clock(t1,tim)
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!!!!!!!!!!!!!!!!!!! FEAST in dense format !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!
-!  call feastinit(feastparam)
-!  feastparam(1)=1
-!  M0=50 !! M0>=M
-!
-!  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!  ! Create Custom Contour
-!  ccN = 3     !! number of pieces that make up contour
-!  allocate(Zedge(1:ccN))
-!  allocate(Nedge(1:ccN))
-!  allocate(Tedge(1:ccN))
-!  !!! Example contour - triangle
-!  Zedge = (/(0.10d0,0.410d0),(4.2d0,0.41d0),(4.2d0,-8.3d0)/)
-!  Tedge(:) = (/0,0,0/)
-!  Nedge(:) = (/6,6,18/)
-!  !! Note: user must specify total # of contour points and edit feastparam(8)
-!  feastparam(8) = sum(Nedge(1:ccN))
-!  allocate(Zne(1:feastparam(8))) !! Contains the complex valued contour points
-!  allocate(Wne(1:feastparam(8))) !! Contains the complex valued integrations weights
-!
-!  !! Fill Zne/Wne
-!  print *, 'Enter FEAST'
-!  call zfeast_customcontour(feastparam(8),ccN,Nedge,Tedge,Zedge,Zne,Wne)
-!  print *,'---- Printing Countour Nodes ----'
-!  do i=1,feastparam(8)
-!     write(*,*)i,dble(Zne(i)),aimag(Zne(i))
-!  enddo
-!  print *,'---- Printing Contour Weights ----'
-!  do i=1,feastparam(8)
-!     write(*,*)i,dble(Wne(i)),aimag(Wne(i))
-!  enddo
-!  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!
-!!!!!!!!!!!!!! ALLOCATE VARIABLE
-!  allocate(E(1:M0))     ! Eigenvalue
-!  allocate(XR(1:n,1:M0)) ! Right Eigenvectors ( XL = CONJG(XR) )
-!  allocate(resr(1:M0))   ! Residual (if needed)
-!
-!!!!!!!!!!!!!  FEAST
-!  print *, 'Enter FEAST'
-!  call zfeast_syevx(UPLO,N,A,N,feastparam,epsout,loop,Emid,r,M0,E,XR,M,resr,info,Zne,Wne)
-!
-!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!!!!!!!!!! POST-PROCESSING !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!  call system_clock(t2,tim)
-!  print *,'FEAST OUTPUT INFO',info
-!  if (info==0) then
-!     print *,'*************************************************'
-!     print *,'************** REPORT ***************************'
-!     print *,'*************************************************'
-!     print *,'SIMULATION TIME',(t2-t1)*1.0d0/tim
-!     print *,'# mode found/subspace',M,M0
-!     print *,'# iterations',loop
-!     print *,'TRACE',sum(E(1:M))
-!     print *,'Relative error on the Trace',epsout
-!     print *,'Eigenvalues/Residuals'
-!     do i=1,M
-!        print *,i,E(i),resr(i)
-!     enddo
-!  endif
-!
-!!    complex*16,dimension(:,:) :: A,B,Z
-!!    complex*16,dimension(:)   :: lambdas
-!!    integer                   :: N
-!!
-!!
-!!    doubleprecision :: emin , emax
-!!    integer :: fpm(128),m0
-!!    doubleprecision :: epsout
-!!
-!!    emin = 0.0
-!!    emax = 1.0
-!!    call feastinit(fpm)
-!!    fpm(1)=1                 ! do not show any information
-!!    fpm(2)=8                 ! number of contours
-!!    fpm(3)=12                ! exponent of the error
-!!    fpm(4)=10                ! maximum number of iteration
-!!    fpm(5)=0                 ! we start with default vector (if 1 then with provided)
-!!    fpm(6)=0                 ! convergece criterium with value of residuum (0 albo 1)
-!!
-!!
-!!    m0 = 10
-!!
-!!
-!!    call zfeast_hegv('F', N, A, N, B, N, fpm, epsout, loop, emin, emax, m0, lambdas, Z, m, res, info)
-!
-!
-!!    class(qsys) :: sys
-!!    doubleprecision   :: pEmin, pEmax
-!!    integer           :: NoStates
-!!    integer,optional  :: no_feast_contours,print_info,pmaks_iter
-!!
-!!
-!!
-!!    integer :: i,j,info,itmp,nw,M0,loop,no_evals,ta,ts,ns1,ns2,s1,s2
-!!    integer :: no_contours,display_info,maks_iter
-!!    doubleprecision :: epsout
-!!    doubleprecision :: Emin, Emax
-!!    doubleprecision :: time_start
-!!
-!!    integer,allocatable                          :: HBROWS(:)
-!!    complex*16,dimension(:,:), allocatable       :: EVectors
-!!    complex*16,dimension(:)  , allocatable       :: MATHVALS
-!!    integer   ,dimension(:,:), allocatable       :: ROWCOLID
-!!    double precision,dimension(:), allocatable   :: Evalues,Rerrors
-!!
-!!    integer :: NO_NON_ZERO_VALUES , NO_VARIABLES
-!!
-!!    if(sys%bOverlapMatrixEnabled) then
-!!        print*,"==============================================================================="
-!!        print*,"SYS::ERROR::Eigenvalue problem not supported for system with "
-!!        print*,"            Overlap matrix different than identity matrix."
-!!        print*,"==============================================================================="
-!!        stop -1
-!!    endif
-!!    time_start = get_clock()
-!!    ! Przejscie do jednostek donorowych
-!!    Emin = pEmin
-!!    Emax = pEmax
-!!
-!!
-!!
-!!    ! setting the default parameters
-!!    if(.not. present(no_feast_contours)) then
-!!        no_contours = 8
-!!    else
-!!        no_contours = no_feast_contours
-!!    endif
-!!    if(.not. present(print_info)) then
-!!        display_info = 0
-!!    else
-!!        display_info = print_info
-!!    endif
-!!    if(.not. present(pmaks_iter)) then
-!!        maks_iter = 20
-!!    else
-!!        maks_iter = pmaks_iter
-!!    endif
-!!
-!!
-!!
-!!    call feastinit(fpm)
-!!    fpm(1)=display_info      ! do not show any information
-!!    fpm(2)=no_contours       ! number of contours
-!!    fpm(3)=12                ! exponent of the error
-!!    fpm(4)=maks_iter         ! maximum number of iteration
-!!    fpm(5)=0                 ! we start with default vector (if 1 then with provided)
-!!    fpm(6)=0                 ! convergece criterium with value of residuum (0 albo 1)
-!!
-!!    ! Calculate the number of non-zero elements in Hamiltonian matrix
-!!    itmp = 0
-!!    do i = 1, sys%no_atoms
-!!        if(sys%atoms(i)%bActive) then
-!!            do j = 1, sys%atoms(i)%no_bonds
-!!            ns1 = size(sys%atoms(i)%bonds(j)%bondMatrix,1)
-!!            ns2 = size(sys%atoms(i)%bonds(j)%bondMatrix,2)
-!!!            if( abs(sys%atoms(i)%bonds(j)%bondValue) > QSYS_COUPLING_CUTOFF ) &
-!!            itmp = itmp + ns1*ns2
-!!            enddo
-!!        endif
-!!    enddo
-!!    NO_NON_ZERO_VALUES = itmp
-!!    ! The number of unknows is taken from the last global index
-!!    NO_VARIABLES       = sys%system_size
-!!    if(QSYS_DEBUG_LEVEL > 0) then
-!!    print*,"SYS::Calulating eigenvalue problem using FEAST solver"
-!!    endif
-!!    allocate(MATHVALS(NO_NON_ZERO_VALUES))
-!!    allocate(ROWCOLID(NO_NON_ZERO_VALUES,2))
-!!
-!!    ! Filling matrix and row-col array
-!!    itmp = 0
-!!    do i = 1 ,  sys%no_atoms
-!!
-!!        if(sys%atoms(i)%bActive) then
-!!
-!!        ns1   = sys%atoms(i)%no_in_states
-!!        do s1 = 1 , ns1
-!!
-!!        do j  = 1, sys%atoms(i)%no_bonds
-!!        ns2 = size(sys%atoms(i)%bonds(j)%bondMatrix,2)
-!!
-!!
-!!        do s2 = 1 , ns2
-!!            itmp = itmp + 1
-!!            MATHVALS(itmp)   = sys%atoms(i)%bonds(j)%bondMatrix(s1,s2)
-!!            ROWCOLID(itmp,1) = sys%atoms(i)%globalIDs(s1)
-!!
-!!            ta = sys%atoms(i)%bonds(j)%toAtomID
-!!            ROWCOLID(itmp,2) = sys%atoms(ta)%globalIDs(s2)
-!!
-!!!            print"(3i4,2f10.4)",itmp,ROWCOLID(itmp,1),ROWCOLID(itmp,2),MATHVALS(itmp)
-!!
-!!        enddo
-!!
-!!        ! remove zero ellements
-!!!        if( abs(MATHVALS(itmp)) < QSYS_COUPLING_CUTOFF )  itmp = itmp - 1
-!!
-!!        enddo
-!!        enddo
-!!        endif ! end of if active atom
-!!    enddo
-!!
-!!    ! auxiliary variable
-!!    nw   = NO_NON_ZERO_VALUES
-!!
-!!    if(display_info==1) then
-!!        print*,"--------------------------------------------------"
-!!        print*,"SYS::EIGENVALUE PROBLEM INPUTS"
-!!        print*,"--------------------------------------------------"
-!!        print*,"SYS::FEAST::Number of variables   ",NO_VARIABLES
-!!        print*,"SYS::FEAST::Energy range from     ",Emin," to ",Emax
-!!        print*,"SYS::FEAST::Number of contours    ",no_contours
-!!        print*,"SYS::FEAST::Max. no. of iters     ",maks_iter
-!!        print*,"SYS::FEAST::Expected no. of states",NoStates
-!!    endif
-!!
-!!
-!!    ! -----------------------------------------------------------
-!!    allocate(HBROWS(NO_VARIABLES+1))
-!!    call convert_to_HB(NO_NON_ZERO_VALUES,ROWCOLID,MATHVALS,HBROWS)
-!!
-!!    ! zgadujemy liczbe stanow
-!!    M0  = NoStates
-!!    allocate(EVectors(NO_VARIABLES,M0))
-!!    allocate(Evalues(M0))
-!!    allocate(Rerrors(M0))
-!!
-!!
-!!
-!!    call zfeast_hcsrev('F',&               ! - 'F' oznacza ze podawana jest pelna macierz
-!!                          NO_VARIABLES,&   ! - rozmiar problemu (ile wezlow z flaga B_NORMAL)
-!!                          MATHVALS(1:nw),& ! - kolejne nie zerowe wartosci w macierzy H
-!!                          HBROWS,&         ! - numeracja wierszy (rodzaj zapisu macierzy rzakidch)
-!!                          ROWCOLID(1:nw,2),& ! - indeksy kolumn odpowiadaja tablicy wartosci CMATA
-!!                          fpm,&            ! - wektor z konfiguracja procedury
-!!                          epsout,&         ! - Residuum wyjsciowe
-!!                          loop, &          ! - Koncowa liczba iteracji
-!!                          Emin,&           ! - Minimalna energia przeszukiwania
-!!                          Emax,&           ! - Maksymalna energia
-!!                          M0,&             ! - Spodziewana liczba modow w zakresie (Emin,Emax)
-!!                          Evalues,&        ! - Wektor z otrzymanymi wartosciami wlasnymi
-!!                          EVectors,&       ! - Macierz z wektorami (kolejne kolumny odpowiadaja kolejnym wartoscia z tablicy Evalues)
-!!                          no_evals,&       ! - Liczba otrzymanych wartosci z przedziale (Emin,Emax)
-!!                          Rerrors,&        ! - Wektor z bledami dla kolejnych wartosci wlasnych
-!!                          info)            ! - Ewentualne informacje o bledach
-!!
-!!
-!!
-!!        if(display_info==1) then
-!!            print*,"SYS::FEAST::Output error       ",  epsout
-!!            print*,"SYS::FEAST::No. interations    ",  loop
-!!            print*,"SYS::FEAST::No. states         ",  no_evals
-!!            print*,"SYS::FEAST::Ouput info value   ",  info
-!!            print*,"SYS::FEAST::Calulation time [s]",  get_clock() - time_start
-!!            print*,"--------------------------------------------------"
-!!        endif
-!!
-!!
-!!
-!!        sys%no_eigenvalues = no_evals
-!!
-!!        ! ----------------------------------------------------------------------------------
-!!        ! Obsluga bledow:
-!!        ! ----------------------------------------------------------------------------------
-!!        selectcase(info)
-!!        case( 202 )
-!!            print*," Error : Problem with size of the system n (n≤0) "
-!!            stop
-!!        case( 201 )
-!!            print*," Error : Problem with size of initial subspace m0 (m0≤0 or m0>n) "
-!!            stop
-!!        case( 200 )
-!!            print*," Error : Problem with emin,emax (emin≥emax) "
-!!            stop
-!!        case(100:199)
-!!            print"(A,I4,A)"," Error : Problem with ",info-100,"-th value of the input Extended Eigensolver parameter (fpm(i)). Only the parameters in use are checked. "
-!!            sys%no_eigenvalues = 0
-!!            stop
-!!        case( 4 )
-!!            print*," Warning : Successful return of only the computed subspace after call withfpm(14) = 1 "
-!!            sys%no_eigenvalues = 0
-!!
-!!        case( 3 )
-!!            print*," Warning : Size of the subspace m0 is too small (m0<m) "
-!!            sys%no_eigenvalues = 0
-!!
-!!        case( 2 )
-!!            print*," Warning : No Convergence (number of iteration loops >fpm(4))"
-!!            sys%no_eigenvalues = 0
-!!        case( 1 )
-!!            print*," Warning : No eigenvalue found in the search interval. See remark below for further details. "
-!!            sys%no_eigenvalues = 0
-!!        case( 0 )
-!!            print*,               "---------------------------------------------"
-!!            print"(A,i12)",       " SYS::FEAST:: No. states  :",sys%no_eigenvalues
-!!            print"(A,f12.3)",     "              Time [s]    :",get_clock() - time_start
-!!            print"(A,e12.4)",     "              Error       :",epsout
-!!            print"(A,i12)",       "              No. iters   :",loop
-!!            print*,               "---------------------------------------------"
-!!        case( -1 )
-!!            print*," Error : Internal error for allocation memory. "
-!!            stop
-!!        case( -2 )
-!!            print*," Error : Internal error of the inner system solver. Possible reasons: not enough memory for inner linear system solver or inconsistent input. "
-!!            stop
-!!        case( -3 )
-!!            print*," Error : Internal error of the reduced eigenvalue solver Possible cause: matrix B may not be positive definite. It can be checked with LAPACK routines, if necessary."
-!!            stop
-!!        case(-199:-100)
-!!            print"(A,I4,A)"," Error : Problem with the ",-info-100,"-th argument of the Extended Eigensolver interface. "
-!!            stop
-!!        endselect
-!!
-!!        ! -----------------------------------------------------------------
-!!        ! Kopiowanie wynikow do odpowiednich tablic
-!!        ! -----------------------------------------------------------------
-!!
-!!
-!!        if(allocated(sys%eigenvals)) deallocate(sys%eigenvals)
-!!        if(allocated(sys%eigenvecs)) deallocate(sys%eigenvecs)
-!!
-!!
-!!        if(sys%no_eigenvalues > 0 ) then
-!!            allocate(sys%eigenvecs(NO_VARIABLES,sys%no_eigenvalues))
-!!
-!!            sys%eigenvecs(:,1:sys%no_eigenvalues) = EVectors(:,1:sys%no_eigenvalues)
-!!            allocate(sys%eigenvals(sys%no_eigenvalues))
-!!            sys%eigenvals(1:sys%no_eigenvalues) = Evalues(1:sys%no_eigenvalues)
-!!
-!!        endif
-!!
-!!
-!!        deallocate(MATHVALS)
-!!        deallocate(ROWCOLID)
-!!        deallocate(HBROWS)
-!!        deallocate(EVectors)
-!!        deallocate(Evalues)
-!!        deallocate(Rerrors)
-!!        if(QSYS_DEBUG_LEVEL > 0) then
-!!        print*,"SYS::Eigenvalues calculated. Found:",sys%no_eigenvalues
-!!        endif
-!end subroutine feast_dense
-!
 
 endmodule modlead

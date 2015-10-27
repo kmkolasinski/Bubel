@@ -86,7 +86,7 @@ FCCFLAGS= -c -O3 -I$(BASEDIR)/SuperLU_4.3/SRC
 SUPERLU_FILES=zgssv.o
 UMFPACK_FILES=
 endif
-FLIBS=   $(LIBS)  -mkl
+FLIBS=   $(LIBS)  -mkl -lmkl_lapack95_lp64 -lmkl_intel_lp64  -L${MKLROOT}/lib/intel64
 #-static-intel $(BASEDIR)/libxc.a
 
 else ifeq ($(C),ifortDEBUG)

@@ -68,7 +68,7 @@ FCCFLAGS= -c $(OPTS) -I$(BASEDIR)/SuperLU_4.3/SRC
 SUPERLU_FILES=zgssv.o
 UMFPACK_FILES=
 endif
-FLIBS=   $(LIBS)  -mkl
+FLIBS=   $(LIBS)  -mkl -lmkl_lapack95_lp64 -lmkl_intel_lp64  -L${MKLROOT}/lib/intel64
 #-static-intel $(BASEDIR)/libxc.a
 
 else ifeq ($(C),ifortDEBUG)
@@ -98,7 +98,7 @@ FCCFLAGS= -c -O0 -Wall -g -I$(BASEDIR)/SuperLU_4.3/SRC
 SUPERLU_FILES=zgssv.o
 UMFPACK_FILES=
 endif
-FLIBS=   $(LIBS)  -mkl
+FLIBS=   $(LIBS)  -mkl -lmkl_lapack95_lp64 -lmkl_intel_lp64  -L${MKLROOT}/lib/intel64
 # -static-intel  $(BASEDIR)/libxc.a
 
 else ifeq ($(C),ifortZEUS)
@@ -165,4 +165,4 @@ umfpack.o:umfpack.f90
 
 
 clean:
-	rm -f *.o *.mod *.txt *.dat *.xml *.png *.pdf 2> /dev/null
+	rm -f *.o *.mod *.txt *.dat *.xml *.png *.pdf fort.* 2> /dev/null
