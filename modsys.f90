@@ -1361,7 +1361,7 @@ end subroutine sort_col_vals
            error = 0 ! initialize error flag
           msglvl = 0 ! print statistical information
           mtype     = 3 !     ! complex struturaly symmetrix
-          mtype     = 13     ! complex unsymmetric matrix
+          !mtype     = 13     ! complex unsymmetric matrix
 
           phase     = 11      ! only reordering and symbolic factorization
           CALL pardiso (pt, maxfct, mnum, mtype, phase, n, values, rowind, colptr,&

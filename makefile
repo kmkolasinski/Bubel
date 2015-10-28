@@ -36,7 +36,7 @@ lib:
 slib:
 	ar rcs libquantulaba.a *.o
 
-OPTS= -O1
+OPTS= -O3
 
 ifeq ($(C),ifort)
 FC=ifort

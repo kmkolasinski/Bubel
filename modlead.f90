@@ -24,7 +24,10 @@ private
 complex*16,parameter :: II = cmplx(0.0D0,1.0D0)
 integer ,parameter :: M_IN = 1 , M_OUT = 2
 
-
+! create sparse version of tau matrix
+complex*16, allocatable :: sparse_tau_vals(:)
+integer,   allocatable  :: sparse_tau_rcid(:,:)
+integer                 :: sparse_tau_novals
 
 type qlead
     type(qshape) :: lead_shape                         ! contains the area/volume in which are
@@ -588,30 +591,51 @@ subroutine calculate_modes(this,Ef)
     COMPLEX*16 , dimension(:) ,     allocatable  :: ALPHA , BETA , WORK
     double precision, dimension(:), allocatable  :: RWORK
     logical, dimension(:), allocatable    :: iselect
-    integer, dimension(:,:), allocatable  :: ifrom_to
+
+
 
     doubleprecision :: tmpc,current,time,dval1,dval2,time_calc
     COMPLEX*16 :: DUMMY(1,1),lambda,one,zero
+    logical :: bShurDecompositionForStandEP
 
-    this%bUseShurDecomposition = .false.
+
+
+
+
+    bShurDecompositionForStandEP = .false.
+    this%bUseShurDecomposition   = .false.
 
     time = get_clock()
     N = this%no_sites
     if(QSYS_DEBUG_LEVEL > 0) then
     print*,"SYS::LEAD::Finding lead modes for N=",N
     endif
-    ! ---------------------------------------
-    ! Memoru allocations
-    ! ---------------------------------------
-    allocate(MA     (2*N,2*N))
-    allocate(MB     (2*N,2*N))
 
-    allocate(Z      (2*N,2*N))
-    allocate(Mdiag  (N,N))
-    allocate(blochF (2,N,N))
-    allocate(d      (2*N,N))
-    allocate(c      (2*N,N))
 
+    ! Create sparse version of tau matrix: since current has to
+    ! be counted many times it is good to use the fact that tau
+    ! is usually very sparse matrix
+    if(allocated(sparse_tau_vals))deallocate(sparse_tau_vals)
+    if(allocated(sparse_tau_rcid))deallocate(sparse_tau_rcid)
+    allocate(sparse_tau_vals(N))
+    allocate(sparse_tau_rcid(N,2))
+    sparse_tau_novals = 0
+    do i = 1 , N
+    do j = 1 , N
+        lambda = this%valsTau(i,j)
+        if(abs(lambda) > qsys_double_error ) then
+            sparse_tau_novals = sparse_tau_novals + 1
+            k = sparse_tau_novals
+            sparse_tau_vals(k)   = lambda
+            sparse_tau_rcid(k,1) = i
+            sparse_tau_rcid(k,2) = j
+        endif
+    enddo
+    enddo
+
+    ! ---------------------------------------
+    ! Memory allocations
+    ! ---------------------------------------
     if(allocated(this%modes))       deallocate(this%modes)
     if(allocated(this%lambdas))     deallocate(this%lambdas)
     if(allocated(this%SigmaMat))    deallocate(this%SigmaMat)
@@ -626,9 +650,6 @@ subroutine calculate_modes(this,Ef)
     allocate(this%LambdaMat (N,N))
     allocate(this%currents  (2,N))
     allocate(this%UTildeDagger(N,N))
-    allocate(iselect(2*N))
-    allocate(ifrom_to(2*N,2))
-    ifrom_to = -1
 
     this%currents       = 0
     this%UTildeDagger   = 0
@@ -646,8 +667,16 @@ subroutine calculate_modes(this,Ef)
     allocate(BETA   (2*N))
     allocate(RWORK  (8*N))
     allocate(WORK   (LWMAX))
-
-
+    allocate(MA     (2*N,2*N))
+    allocate(MB     (2*N,2*N))
+    allocate(Z      (2*N,2*N))
+    allocate(Mdiag  (N,N))
+    allocate(blochF (2,N,N))
+    allocate(d      (2*N,N))
+    allocate(c      (2*N,N))
+    allocate(Z11 (N,N))
+    allocate(Z21 (N,N))
+    allocate(iselect(2*N))
 
     ! -------------------------------------------------------
     ! Creation of the Generalized eigenvalue problem Eq. (52)
@@ -661,8 +690,6 @@ subroutine calculate_modes(this,Ef)
     allocate(Zshur      (2*N,2*N))
     allocate(Sshur      (2*N,2*N))
     allocate(Pshur      (2*N,2*N))
-    allocate(Z11 (N,N))
-    allocate(Z21 (N,N))
 
 
     do i = 1 , N
@@ -683,8 +710,8 @@ subroutine calculate_modes(this,Ef)
     do i = 1 , N
         Mdiag(i,i) =  1
     enddo
-    MA(1:N,N+1:2*N)     =  Mdiag
-    MA(N+1:2*N,N+1:2*N) =  this%valsS0*Ef - this%valsH0
+    MA(1:N,N+1:2*N)     = Mdiag
+    MA(N+1:2*N,N+1:2*N) = this%valsS0*Ef - this%valsH0
     MB(1:N,1:N)         = Mdiag
     MB(N+1:2*N,N+1:2*N) = this%valsTau  - this%valsS1*Ef
 
@@ -731,8 +758,6 @@ subroutine calculate_modes(this,Ef)
     blochF(1,:,:) = this%valsTau  - this%valsS1*Ef
     call inverse_matrix(N,blochF(1,:,:))
 
-    print*,"Ta=",get_clock()-time
-
     if(B_SINGULAR_MATRIX) then
         print*,"==============================================================================="
         print*,"SYS::ERROR::Lead B matrix is singular, trying to find eigen modes "
@@ -764,21 +789,41 @@ subroutine calculate_modes(this,Ef)
     call ZGEMM( 'N', 'N', N, N, N, one ,blochF(1,:,:)  , N, &
                         blochF(2,:,:), N, zero,MA(N+1:2*N,N+1:2*N), N )
 
-    LWORK = -1
-    CALL ZGEEV( 'Not Left', 'Vectors',2*N, MA, 2*N, ALPHA, DUMMY, 1,&
-                Z, LDVR, WORK, LWORK, RWORK, INFO )
-    LWORK = MIN( LWMAX, INT( WORK( 1 ) ) )
-    CALL ZGEEV( 'Not Left', 'Vectors', 2*N, MA, 2*N, ALPHA, DUMMY, 1, &
-                Z, LDVR, WORK, LWORK, RWORK, INFO )
 
-    ! ------------------------------------------------------
-    ! Further
-    ! ------------------------------------------------------
-    ! Checking solution
-    if( INFO /= 0 ) then
-        print*,"SYS::LEAD::Cannot solve generalized eigenvalue problem for eigenmodes: ZGEEV info:",INFO
-        stop
-    endif
+    if(cond_number(N,blochF(1,:,:))*qsys_double_error < 1.0D-6 ) then
+        LWORK = -1
+        CALL ZGEEV( 'Not Left', 'Vectors',2*N, MA, 2*N, ALPHA, DUMMY, 1,&
+                    Z, LDVR, WORK, LWORK, RWORK, INFO )
+        LWORK = MIN( LWMAX, INT( WORK( 1 ) ) )
+        CALL ZGEEV( 'Not Left', 'Vectors', 2*N, MA, 2*N, ALPHA, DUMMY, 1, &
+                    Z, LDVR, WORK, LWORK, RWORK, INFO )
+        ! Checking solution
+        if( INFO /= 0 ) then
+            print*,"SYS::LEAD::Cannot solve generalized eigenvalue problem for eigenmodes: ZGEEV info:",INFO
+            stop
+        endif
+
+    else ! use shur factorization to calculate lead self energy
+        this%bUseShurDecomposition   = .true.
+        bShurDecompositionForStandEP = .true.
+        allocate(Zshur      (2*N,2*N))
+        allocate(Sshur      (2*N,2*N))
+        Sshur = MA
+        call gees(Sshur, ALPHA ,vs=Zshur,info=info)
+        ! Checking solution
+        if( INFO /= 0 ) then
+            print*,"SYS::LEAD::Shur decomposition failed: gees info:",INFO
+            stop
+        endif
+        Z      = Zshur
+        call trevc(Sshur, howmny='B',vr=Z ,info=info)
+        if( INFO /= 0 ) then
+            print*,"SYS::LEAD::Shur decomposition failed: trevc info:",INFO
+            stop
+        endif
+    ! ---------------------------------------------------
+    endif ! choose between shur or normal diagonalization
+
     BETA  = 1.0
     endif ! else choose solver SGGEV
     ! -------------------------------------------------------
@@ -795,7 +840,7 @@ subroutine calculate_modes(this,Ef)
     if(QSYS_SCATTERING_METHOD == QSYS_SCATTERING_WFM ) then
     iselect = .false. ! reordeing by Shur decomposition
 
-
+    print*,"Tbb=",get_clock()-time
 
     do i = 1 , 2*N
         lambda= (ALPHA(i)/BETA(i))
@@ -809,7 +854,8 @@ subroutine calculate_modes(this,Ef)
 
             ! Normalize vectors
             if(  abs(abs(lambda) - 1.0) < 1.0E-6 ) then ! check if propagating mode
-                current = (mode_current(N,c(i,:),d(i,:),this%valsTau))
+                !current = (mode_current(N,c(i,:),d(i,:),this%valsTau))
+                current = (mode_current_sparse(N,c(i,:),lambda,sparse_tau_vals,sparse_tau_rcid,sparse_tau_novals))
                 tmpc    = current
                 ! Normalize to current = 1
                 c(i,:)  = c(i,:)/sqrt(abs(current))
@@ -842,7 +888,7 @@ subroutine calculate_modes(this,Ef)
 
         endif ! end of beta > 0
     enddo
-
+    print*,"Tbbb=",get_clock()-time
     if(QSYS_DEBUG_LEVEL > 0) then
     print*,"SYS::LEAD::Lead stats:"
     print*,"           No. incoming modes:",this%no_in_modes
@@ -881,7 +927,8 @@ subroutine calculate_modes(this,Ef)
             lambda= (ALPHA(i)/BETA(i))
             if(  abs(abs(lambda) - 1.0) < 1.0E-6 ) then
 !                current = mode_current(N,c(i,:),d(i,:),this%valsTau)
-                current =  mode_current_lambda(N,c(i,:),lambda,this%valsTau)
+!                current =  mode_current_lambda(N,c(i,:),lambda,this%valsTau)
+                current = (mode_current_sparse(N,c(i,:),lambda,sparse_tau_vals,sparse_tau_rcid,sparse_tau_novals))
                 if(current > 0) then
                     no_in  = no_in + 1
                     this%modes   (M_IN,no_in,:)  = c(i,:)
@@ -939,7 +986,7 @@ subroutine calculate_modes(this,Ef)
     enddo
     call this%diagonalize_currents(M_OUT,j,i-1)
 
-
+    print*,"Tc2=",get_clock()-time
 
     if(QSYS_DEBUG_LEVEL > 0) then
     print*,"-------------------------------------------------------"
@@ -952,29 +999,42 @@ subroutine calculate_modes(this,Ef)
     enddo
     print*,"-------------------------------------------------------"
     endif
+
     print*,"Tsort=",get_clock()-time
 
     if(.not. this%bUseShurDecomposition) then
         ! Construction of the F^-1+ matrix Eq. (57)
         Mdiag(:,:) = this%modes(M_OUT,:,:)
         call inverse_matrix(N,Mdiag)
+        print*,"Td3i=",get_clock()-time
         this%UTildeDagger  = Mdiag
         blochF(M_OUT,:,:)  = 0
-        do k = 1, N
-            do i = 1, N
-            do j = 1, N
-            blochF(M_OUT,i,j) = blochF(M_OUT,i,j) + this%lambdas(M_OUT,k)**(-1)  * this%modes(M_OUT,k,i) * Mdiag(j,k)
-            enddo
-            enddo
+        ! Calculate inverse of lambda once
+        do k = 1 , N
+            Z11(1,k) = this%lambdas(M_OUT,k)**(-1)
         enddo
+        do i = 1, N
+        do j = 1, N
+             Mdiag(i,j) = Mdiag(i,j)*Z11(1,j)
+        enddo
+        enddo
+
+        one  = 1.0
+        zero = 0.0
+        ! Use blas for matrix multiplication
+        call ZGEMM('T','T',N,N,N,one,this%modes(M_OUT,:,:),N,Mdiag,N,zero,blochF(M_OUT,:,:),N)
+
     else
         ! Reorded Shur Unitary matrix - Z
         Z  = Zshur
-        call tgsen(a=Sshur,b=Pshur, select=iselect,z=Z ,info=info)
-
+        if(bShurDecompositionForStandEP) then
+            call trsen(Sshur, select=iselect,q=Z ,info=info)
+        else
+            call tgsen(a=Sshur,b=Pshur, select=iselect,z=Z ,info=info)
+        endif
 
         if( INFO /= 0 ) then
-            print*,"SYS::LEAD::Shur decomposition failed: tgsen info:",INFO
+            print*,"SYS::LEAD::Shur decomposition failed: tgsen/trsen info:",INFO
             stop
         endif
         print*,"Td1=",get_clock()-time
@@ -993,7 +1053,7 @@ subroutine calculate_modes(this,Ef)
         enddo
         print*,"Td2=",get_clock()-time
     endif
-
+    print*,"Td3a=",get_clock()-time
     ! Calculating of SigmaMatrix
     do i = 1 , N
     do j = 1 , N
@@ -1018,12 +1078,6 @@ subroutine calculate_modes(this,Ef)
         deallocate(this%UTildeDagger)
         allocate(this%UTildeDagger(no_modes,no_modes))
 
-!        MA = 0
-!        do i = 1 , no_modes
-!        do j = 1 , no_modes
-!            MA(i,j) = sum(conjg(this%modes(M_OUT,i,:))*this%modes(M_OUT,j,:))
-!        enddo
-!        enddo
 
         MA = transpose(this%modes(M_OUT,:,:))
         call ZGEMM( 'C', 'T', no_modes,no_modes,no_modes, one , &
@@ -1031,27 +1085,14 @@ subroutine calculate_modes(this,Ef)
         if(no_modes > 0) call inverse_matrix(no_modes,this%UTildeDagger)
 
 
-        deallocate(Qshur)
-        deallocate(Zshur)
-        deallocate(Sshur)
-        deallocate(Pshur)
-        deallocate(Z21)
-        deallocate(Z11)
+        if(allocated(Qshur))deallocate(Qshur)
+        if(allocated(Zshur))deallocate(Zshur)
+        if(allocated(Sshur))deallocate(Sshur)
+        if(allocated(Pshur))deallocate(Pshur)
+
     endif
     print*,"Te=",get_clock()-time
 
-    deallocate(iselect)
-    deallocate(ifrom_to)
-    deallocate(ALPHA)
-    deallocate(BETA)
-    deallocate(RWORK)
-    deallocate(WORK)
-    deallocate(MA)
-    deallocate(MB)
-
-    deallocate(Z)
-    deallocate(d)
-    deallocate(c)
 
 ! ----------------------------------------------------------------------------
 ! Solve problem using Quantum transmissing boundary method
@@ -1150,17 +1191,6 @@ subroutine calculate_modes(this,Ef)
         endif
     enddo
 
-    deallocate(ALPHA)
-    deallocate(BETA)
-    deallocate(RWORK)
-    deallocate(WORK)
-    deallocate(MA)
-    deallocate(MB)
-    deallocate(Z)
-    deallocate(d)
-    deallocate(c)
-
-
     ! Sorting propagating modes by the current amplitde
     ! and diagonalizing current operator for degenerated states
     call sort_modes(this%no_in_modes ,this%modes(M_IN,:,:) ,this%lambdas(M_IN,:),this%currents(M_IN,:))
@@ -1255,8 +1285,7 @@ subroutine calculate_modes(this,Ef)
     allocate(this%UTildeDagger(no_modes,no_modes))
     this%UTildeDagger = MA
 
-    deallocate(MA)
-    deallocate(MB)
+
 
     ! ----------------------------------------------------------------------------
     ! Other possibilities ?
@@ -1267,13 +1296,27 @@ subroutine calculate_modes(this,Ef)
         stop
     endif
 
+    if(allocated(iselect))        deallocate(iselect)
+    if(allocated(ALPHA))          deallocate(ALPHA)
+    if(allocated(BETA))           deallocate(BETA)
+    if(allocated(RWORK))          deallocate(RWORK)
+    if(allocated(WORK))           deallocate(WORK)
+    if(allocated(MA))             deallocate(MA)
+    if(allocated(MB))             deallocate(MB)
+    if(allocated(Z21))            deallocate(Z21)
+    if(allocated(Z11))            deallocate(Z11)
+    if(allocated(Z))              deallocate(Z)
+    if(allocated(d))              deallocate(d)
+    if(allocated(c))              deallocate(c)
+    if(allocated(Mdiag))          deallocate(Mdiag)
+    if(allocated(blochF))         deallocate(blochF)
+    if(allocated(sparse_tau_vals))deallocate(sparse_tau_vals)
+    if(allocated(sparse_tau_rcid))deallocate(sparse_tau_rcid)
+
+
     if(QSYS_DEBUG_LEVEL > 0) then
     print*,"SYS::LEAD::Modes calculated in time:", get_clock() - time , "[s]"
     endif
-    deallocate(Mdiag)
-    deallocate(blochF)
-
-
 end subroutine calculate_modes
 
 ! ------------------------------------------------------------------------
@@ -1379,6 +1422,25 @@ doubleprecision function mode_current_lambda(N,c,lambda,tau)
     mode_current_lambda = -2 * IMAG(current)
 
 end function mode_current_lambda
+
+doubleprecision function mode_current_sparse(N,c,lambda,svals,rowcols,nvals)
+    integer :: N
+    complex*16 , dimension(:)   :: c
+    complex*16                  :: lambda
+    complex*16 , dimension(:)   :: svals
+    integer    , dimension(:,:) :: rowcols
+    integer                     :: nvals
+    integer :: k,i,j
+    complex*16 :: current
+    current=0
+    do k = 1 , nvals
+        i = rowcols(k,1)
+        j = rowcols(k,2)
+        current = current + conjg(c(i)) * svals(k) * c(j)
+    enddo
+    mode_current_sparse = -2 * IMAG(lambda*current)
+end function mode_current_sparse
+
 
 subroutine inverse_matrix(N,A)
   integer :: N
@@ -1661,6 +1723,10 @@ subroutine diagonalize_currents(this,mdir,ifrom,ito)
     beta  = 0.0
 
     N     = ito-ifrom+1
+
+    ! There is no need to diagonalize the non degenerate states
+    if(N == 1) return
+
     Nlead = this%no_sites
 
     allocate(VelMat(N,N))
@@ -1693,22 +1759,12 @@ subroutine diagonalize_currents(this,mdir,ifrom,ito)
     enddo
         this%modes(mdir,ifrom:ito,i) = tmpVec(1:N)
     enddo
-
-!    print*,"Velmat2:",N,ifrom,ito
-!    do i = 0 , N-1
-!    do j = 0 , N-1
-!       call ZGEMV ( 'N', Nlead, Nlead, ALPHA, tmpMat, Nlead, this%modes(mdir,ifrom+j,:), 1, BETA, tmpVec, 1 )
-!       VelMat(i+1,j+1) = sum(conjg(this%modes(mdir,ifrom+i,:))*tmpVec)
-!    enddo
-!!       print"(20e16.4)", VelMat(i+1,:)
-!    enddo
-
-
+    ! normalize currents
     do i = ifrom , ito
-        current = (mode_current_lambda(Nlead,this%modes(mdir,i,:),lambda,this%valsTau))
-        this%modes(mdir,i,:) = this%modes(mdir,i,:)/sqrt(abs(current))
-        current = (mode_current_lambda(Nlead,this%modes(mdir,i,:),lambda,this%valsTau))
-        this%currents(mdir,i) = current
+        current = (mode_current_sparse(Nlead,this%modes(mdir,i,:),lambda,sparse_tau_vals,sparse_tau_rcid,sparse_tau_novals))
+        this%modes(mdir,i,:)  = this%modes(mdir,i,:)/sqrt(abs(current))
+        this%currents(mdir,i) =-1.0
+        if(current > 0) this%currents(mdir,i) = 1.0
     enddo
 
 
