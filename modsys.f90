@@ -1176,8 +1176,6 @@ subroutine convert_to_HB(no_vals,rows_cols,matA,out_rows)
       iterator = 0
       irow     = 0
 
-     print*,"converting to HB"
-
       do i = 1 , n
           if( rows_cols(i,1) /= irow ) then
             iterator = iterator + 1
