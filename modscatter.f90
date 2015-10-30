@@ -333,18 +333,17 @@ subroutine solve(this,leadID,Ef)
         do j = 1 , this%leads(leadID)%no_sites
             ! Choosing between available method
             if(QSYS_SCATTERING_METHOD == QSYS_SCATTERING_QTBM) then
-            cval = this%leads(leadID)%lambdas(M_IN,modin) - this%leads(leadID)%lambdas(M_IN,modin)**(-1)
+            cval    = this%leads(leadID)%lambdas(M_IN,modin) - this%leads(leadID)%lambdas(M_IN,modin)**(-1)
             phi(lg) = phi(lg) + (this%leads(leadID)%LambdaMat(i,j) - &
-                                cval*conjg(this%leads(leadID)%valsTau(j,i)) ) &
+                                cval*(conjg(this%leads(leadID)%valsTau(j,i)) - Ef*conjg(this%leads(leadID)%valsS1(j,i)) ) ) &
                                 *this%leads(leadID)%modes(M_IN,modin,j)
 
             else if(QSYS_SCATTERING_METHOD == QSYS_SCATTERING_WFM) then
-            cval = this%leads(leadID)%lambdas(M_IN,modin)**(-1)
+            cval    = this%leads(leadID)%lambdas(M_IN,modin)**(-1)
             phi(lg) = phi(lg) + (-this%leads(leadID)%LambdaMat(i,j) + &
-                                cval*conjg(this%leads(leadID)%valsTau(j,i)) ) &
+                                cval*(conjg(this%leads(leadID)%valsTau(j,i)) - Ef*conjg(this%leads(leadID)%valsS1(j,i)) ) ) &
                                 *this%leads(leadID)%modes(M_IN,modin,j)
 
-!            phi(lg) = phi(lg) + this%leads(leadID)%LambdaMat(i,j)*this%leads(leadID)%modes(1,modin,j)
 
             endif
         enddo

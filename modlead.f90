@@ -617,8 +617,8 @@ subroutine calculate_modes(this,Ef)
     ! is usually very sparse matrix
     if(allocated(sparse_tau_vals))deallocate(sparse_tau_vals)
     if(allocated(sparse_tau_rcid))deallocate(sparse_tau_rcid)
-    allocate(sparse_tau_vals(N))
-    allocate(sparse_tau_rcid(N,2))
+    allocate(sparse_tau_vals(N*N))
+    allocate(sparse_tau_rcid(N*N,2))
     sparse_tau_novals = 0
     do i = 1 , N
     do j = 1 , N

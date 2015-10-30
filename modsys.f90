@@ -1170,11 +1170,13 @@ subroutine convert_to_HB(no_vals,rows_cols,matA,out_rows)
       complex*16,intent(inout),dimension(:) :: matA
       integer,intent(inout),dimension(:)   :: out_rows
       integer :: iterator, irow ,  from , to
-      integer :: i, n
-
+      integer :: i, n , j
+!      doubleprecision :: mat(25,25)
       n        = no_vals
       iterator = 0
       irow     = 0
+
+     print*,"converting to HB"
 
       do i = 1 , n
           if( rows_cols(i,1) /= irow ) then
@@ -1189,7 +1191,7 @@ subroutine convert_to_HB(no_vals,rows_cols,matA,out_rows)
 !DEC$ IF DEFINED  (USE_UMF_PACK)
   irow = size(out_rows)-1
     ! sortowanie  kolumn
-  do i = 1 , irow-1
+  do i = 1 , irow
   from = out_rows(i)
   to   = out_rows(i+1)-1
       call sort_col_vals(rows_cols(from:to,2),matA(from:to))
@@ -1201,15 +1203,12 @@ subroutine convert_to_HB(no_vals,rows_cols,matA,out_rows)
 !DEC$ ENDIF
 
 !DEC$ IF DEFINED  (USE_PARDISO)
-
   irow = size(out_rows)-1
-    ! sortowanie  kolumn
-  do i = 1 , irow-1
-  from = out_rows(i)
-  to   = out_rows(i+1)-1
+  do i = 1 , irow
+      from = out_rows(i)
+      to   = out_rows(i+1)-1
       call sort_col_vals(rows_cols(from:to,2),matA(from:to))
   enddo
-
 !DEC$ ENDIF
 end subroutine convert_to_HB
 
@@ -1346,7 +1345,7 @@ end subroutine sort_col_vals
           iparm(7) = 0 ! not in use
           iparm(8) = 2 ! numbers of iterative refinement steps
           iparm(9) = 0 ! not in use
-          iparm(10) = 13 ! perturbe the pivot elements with 1E-13
+          iparm(10) = 10 ! perturbe the pivot elements with 1E-13
           iparm(11) = 1 ! use nonsymmetric permutation and scaling MPS
           iparm(12) = 0 ! not in use
           iparm(13) = 1 ! maximum weighted matching algorithm is switched-on (default for non-symmetric).
@@ -1357,13 +1356,18 @@ end subroutine sort_col_vals
           iparm(18) = -1 ! Output: number of nonzeros in the factor LU
           iparm(19) = -1 ! Output: Mflops for LU factorization
           iparm(20) = 0 ! Output: Numbers of CG Iterations
+          iparm(27) = 0 ! perform matrix check
           iparm(32) = 0 ! if 1 use multirecursive iterative algorithm
+
            error = 0 ! initialize error flag
           msglvl = 0 ! print statistical information
-          mtype     = 3 !     ! complex struturaly symmetrix
-          !mtype     = 13     ! complex unsymmetric matrix
+!          mtype     = 3 !     ! complex struturaly symmetrix
+          mtype     = 13     ! complex unsymmetric matrix
 
           phase     = 11      ! only reordering and symbolic factorization
+
+
+
           CALL pardiso (pt, maxfct, mnum, mtype, phase, n, values, rowind, colptr,&
                        idum, nrhs, iparm, msglvl, ddum, ddum, error)
 

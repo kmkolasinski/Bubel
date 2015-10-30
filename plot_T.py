@@ -20,3 +20,4 @@ plt.xlabel("Ef [energy units]")
 plt.ylabel("Transmission")   
 plt.savefig("T.png")
 #plt.show()        
+
