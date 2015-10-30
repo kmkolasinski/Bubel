@@ -24,7 +24,7 @@ program graphene2
  integer,parameter :: nx = 50  , ny = 10
 
  call qt%init_system()
-
+QSYS_FORCE_SCHUR_DECOMPOSITION = .true.
 ! --------------------------------------------------------------------------
 ! Graphene test
 ! 1. Generate atoms positions:

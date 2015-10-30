@@ -360,18 +360,20 @@ subroutine make_lattice(sys,nnbparams,c_simple,c_matrix,o_simple,o_matrix)
             ! loop over nnb verlet boxes
             do vp = 1 , verlet_counter(vx,vy,vz)
                 j        = verlet_box(vx,vy,vz,vp)
+!                if(j<i .and. .not. QSYS_DISABLE_HERMICITY_CHECK) cycle
                 if(sys%atoms(j)%bActive == .true.) then
                 ! loop around spin states
-
                 if(nnbparams%NNB_FILTER == QSYS_NNB_FILTER_BOX) then
                     ! if they are nnb one may create a qbond between them
                     if(c_simple(sys%atoms(i),sys%atoms(j),cpl_value)) then
                          cpl_1x1 = cpl_value
                          call sys%atoms(i)%add_bond(j,cpl_1x1)
+!                         if(i/=j .and. .not. QSYS_DISABLE_HERMICITY_CHECK) call sys%atoms(j)%add_bond(i,conjg(cpl_1x1))
                     else if(i==j ) then ! Force diagonal term for transport
                          cpl_value = cmplx(0.0D0,0.0D0)
                          cpl_1x1   = cpl_value
                          call sys%atoms(i)%add_bond(j,cpl_1x1)
+
                     endif
                 else if(nnbparams%NNB_FILTER == QSYS_NNB_FILTER_DISTANCE) then
                     ! check distance before asking
@@ -380,6 +382,7 @@ subroutine make_lattice(sys,nnbparams,c_simple,c_matrix,o_simple,o_matrix)
                     if(c_simple(sys%atoms(i),sys%atoms(j),cpl_value)) then
                          cpl_1x1 = cpl_value
                          call sys%atoms(i)%add_bond(j,cpl_1x1)
+!                         if(i/=j .and. .not. QSYS_DISABLE_HERMICITY_CHECK)call sys%atoms(j)%add_bond(i,conjg(cpl_1x1))
                     else if(i==j) then ! Force diagonal term for transport
                          cpl_value = cmplx(0.0D0,0.0D0)
                          cpl_1x1   = cpl_value
@@ -409,6 +412,8 @@ subroutine make_lattice(sys,nnbparams,c_simple,c_matrix,o_simple,o_matrix)
             ! loop over nnb verlet boxes
             do vp = 1 , verlet_counter(vx,vy,vz)
                 j        = verlet_box(vx,vy,vz,vp)
+!                if(j<i .and. .not. QSYS_DISABLE_HERMICITY_CHECK) cycle
+
                 if(sys%atoms(j)%bActive == .true.) then
                 ! loop around spin states
 
@@ -422,6 +427,8 @@ subroutine make_lattice(sys,nnbparams,c_simple,c_matrix,o_simple,o_matrix)
                 if(nnbparams%NNB_FILTER == QSYS_NNB_FILTER_BOX) then
                     if(c_matrix(sys%atoms(i),sys%atoms(j),cpl_matrix)) then
                         call sys%atoms(i)%add_bond(j,cpl_matrix)
+!                        if(i/=j .and. .not. QSYS_DISABLE_HERMICITY_CHECK) &
+!                            call sys%atoms(j)%add_bond(i,transpose(conjg(cpl_matrix)))
                     else if( i == j) then
                         cpl_matrix = 0
                         call sys%atoms(i)%add_bond(j,cpl_matrix)
@@ -432,6 +439,8 @@ subroutine make_lattice(sys,nnbparams,c_simple,c_matrix,o_simple,o_matrix)
                     if( sqrt(sum((sys%atoms(i)%atom_pos-sys%atoms(j)%atom_pos)**2)) < nnbparams%distance) then
                     if(c_matrix(sys%atoms(i),sys%atoms(j),cpl_matrix)) then
                         call sys%atoms(i)%add_bond(j,cpl_matrix)
+!                        if(i/=j .and. .not. QSYS_DISABLE_HERMICITY_CHECK) &
+!                            call sys%atoms(j)%add_bond(i,transpose(conjg(cpl_matrix)))
                     else if( i == j) then
                         cpl_matrix = 0
                         call sys%atoms(i)%add_bond(j,cpl_matrix)
@@ -477,11 +486,8 @@ subroutine make_lattice(sys,nnbparams,c_simple,c_matrix,o_simple,o_matrix)
                      exit
                     endif
                 enddo
-
                 ns1 = size(sys%atoms(i)%bonds(j)%bondMatrix,1)
                 ns2 = size(sys%atoms(i)%bonds(j)%bondMatrix,2)
-
-
                 cpl_delta = 0.0
                 do s1 = 1 , ns1
                 do s2 = 1 , ns2
@@ -998,12 +1004,8 @@ subroutine calc_eigenproblem(sys,pEmin,pEmax,NoStates,no_feast_contours,print_in
             itmp = itmp + 1
             MATHVALS(itmp)   = sys%atoms(i)%bonds(j)%bondMatrix(s1,s2)
             ROWCOLID(itmp,1) = sys%atoms(i)%globalIDs(s1)
-
             ta = sys%atoms(i)%bonds(j)%toAtomID
             ROWCOLID(itmp,2) = sys%atoms(ta)%globalIDs(s2)
-
-!            print"(3i4,2f10.4)",itmp,ROWCOLID(itmp,1),ROWCOLID(itmp,2),MATHVALS(itmp)
-
         enddo
 
         ! remove zero ellements
@@ -1171,11 +1173,10 @@ subroutine convert_to_HB(no_vals,rows_cols,matA,out_rows)
       integer,intent(inout),dimension(:)   :: out_rows
       integer :: iterator, irow ,  from , to
       integer :: i, n , j
-!      doubleprecision :: mat(25,25)
+
       n        = no_vals
       iterator = 0
       irow     = 0
-
       do i = 1 , n
           if( rows_cols(i,1) /= irow ) then
             iterator = iterator + 1
@@ -1359,9 +1360,7 @@ end subroutine sort_col_vals
 
            error = 0 ! initialize error flag
           msglvl = 0 ! print statistical information
-!          mtype     = 3 !     ! complex struturaly symmetrix
           mtype     = 13     ! complex unsymmetric matrix
-
           phase     = 11      ! only reordering and symbolic factorization
 
 

@@ -1,10 +1,12 @@
 module modcommons
 implicit none
 doubleprecision,public :: CONDA
+
 integer,parameter,public  :: QSYS_NO_BONDS_INC_VALUE      = 10     ! For sparse structures
 integer,parameter,public  :: QSYS_NO_ATOMS_INC_VALUE      = 10000  !
 logical,public            :: QSYS_USE_ZGGEV_TO_FIND_MODES = .false. ! When finding modes use generalied eigenvalue problem, can be more stable
 logical,public            :: QSYS_DISABLE_HERMICITY_CHECK = .false.
+logical,public            :: QSYS_FORCE_SCHUR_DECOMPOSITION = .false. ! Maybe more stable but slower
 integer,public            :: QSYS_DEBUG_LEVEL = 0   ! 0 - less messages, 1-more, 2-even more
 doubleprecision,parameter :: qsys_double_error = 1.0D-16 ! approximated error of double presicion numerical error
 

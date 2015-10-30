@@ -717,32 +717,32 @@ subroutine calculate_modes(this,Ef)
 
     Sshur = MA
     Pshur = MB
-
-!   call GGEV(MA, MB, alpha, beta , vr = Z,info=info)! [, vsl] [,vsr] [,select] [,sdim] [,info])
-!!   Checking solution
-!    if( INFO /= 0 ) then
-!        print*,"SYS::LEAD::Cannot solve generalized eigenvalue problem for eigenmodes: ZGGEV info:",INFO
-!        stop
-!    endif
-
     ! ---------------------------------------------------------------
     ! Shur decompostion
     ! ---------------------------------------------------------------
     this%bUseShurDecomposition = .true.
-    call gges(Sshur, Pshur, alpha, beta , vsl=Qshur,vsr=Zshur,info=info)
-    if( INFO /= 0 ) then
-        print*,"SYS::LEAD::Shur decomposition failed: gges info:",INFO
-        stop
+    if(QSYS_FORCE_SCHUR_DECOMPOSITION) then
+        call gges(Sshur, Pshur, alpha, beta , vsl=Qshur,vsr=Zshur,info=info)
+        if( INFO /= 0 ) then
+            print*,"SYS::LEAD::Shur decomposition failed: gges info:",INFO
+            stop
+        endif
+
+        ! Calculate eigen vectors of translation operator
+        Z  = Zshur
+        call tgevc(Sshur, Pshur ,howmny = 'B' ,vr=Z ,info=info)
+        if( INFO /= 0 ) then
+            print*,"SYS::LEAD::Shur decomposition failed: tgevc info:",INFO
+            stop
+        endif
+    else
+        call GGEV(MA, MB, alpha, beta , vr = Z,info=info)
+        if( INFO /= 0 ) then
+            print*,"SYS::LEAD::Cannot solve generalized eigenvalue problem for eigenmodes: ZGGEV info:",INFO
+            stop
+        endif
     endif
-    print*,"Tb0=",get_clock()-time
-    ! Calculate eigen vectors of translation operator
-    Z  = Zshur
-    call tgevc(Sshur, Pshur ,howmny = 'B' ,vr=Z ,info=info)
-    if( INFO /= 0 ) then
-        print*,"SYS::LEAD::Shur decomposition failed: tgevc info:",INFO
-        stop
-    endif
-    print*,"Tb=",get_clock()-time
+
     ! ------------------------------------------------------------
     else ! Convert Generalized eigenvalue problem to standard one
     ! ------------------------------------------------------------
@@ -841,30 +841,20 @@ subroutine calculate_modes(this,Ef)
     if(QSYS_SCATTERING_METHOD == QSYS_SCATTERING_WFM ) then
     iselect = .false. ! reordeing by Shur decomposition
 
-    print*,"Tbb=",get_clock()-time
+
     no_inf_modes = 0
     do i = 1 , 2*N
 
-
-        lambda= (ALPHA(i)/BETA(i))
-!        write(333,"(500f10.4)"),abs(lambda),abs(Z(N+1:2*N,i))
-!        print"(i,4f16.5,A,f16.8)",i,abs(BETA(i)),abs(ALPHA(i)),lambda,"abs=",abs(lambda)
-        c(i,:) =  Z(1:N,i)
-        d(i,:) =  Z(N+1:2*N,i)
-!        print*,sqrt(sum(abs(c(i,:))**2)),sqrt(sum(abs(d(i,:))**2))
+        lambda = (ALPHA(i)/BETA(i))
+        c(i,:) = Z(1:N,i)
+        d(i,:) = Z(N+1:2*N,i)
         c(i,:) = c(i,:)/sqrt(sum(abs(c(i,:))**2))
         d(i,:) = d(i,:)/sqrt(sum(abs(d(i,:))**2))
-
-!        write(334,"(500f10.4)"),abs(lambda),abs(c(i,:))**2
-
-
-
         if(abs(Beta(i))>1e-16) then !
-            lambda= (ALPHA(i)/BETA(i))
+
 
             ! Normalize vectors
             if(  abs(abs(lambda) - 1.0) < 1.0E-6 ) then ! check if propagating mode
-                !current = (mode_current(N,c(i,:),d(i,:),this%valsTau))
                 current = (mode_current_sparse(N,c(i,:),lambda,sparse_tau_vals,sparse_tau_rcid,sparse_tau_novals))
                 tmpc    = current
                 ! Normalize to current = 1
@@ -878,7 +868,6 @@ subroutine calculate_modes(this,Ef)
                     this%no_out_modes = this%no_out_modes + 1
                     this%currents(M_OUT,this%no_out_modes) = tmpc
                     iselect(i) = .true.
-
                 endif
             ! Evanescent modes filtering
             else if( abs(lambda) > 1.0 ) then
@@ -894,17 +883,15 @@ subroutine calculate_modes(this,Ef)
             this%no_out_em = this%no_out_em + 1
             iselect(i) = .true.
             no_inf_modes = no_inf_modes + 1
-
         endif ! end of beta > 0
     enddo
-    print*,"Tbbb=",get_clock()-time
     if(QSYS_DEBUG_LEVEL > 0) then
-    print*,"SYS::LEAD::Lead stats:"
-    print*,"           No. incoming modes:",this%no_in_modes
-    print*,"           No. outgoing modes:",this%no_out_modes
-    print*,"           No. in. evan.modes:",this%no_in_em
-    print*,"           No. out.evan.modes:",this%no_out_em
-    print*,"           No. inf modes     :",no_inf_modes
+        print*,"SYS::LEAD::Lead stats:"
+        print*,"           No. incoming modes:",this%no_in_modes
+        print*,"           No. outgoing modes:",this%no_out_modes
+        print*,"           No. in. evan.modes:",this%no_in_em
+        print*,"           No. out.evan.modes:",this%no_out_em
+        print*,"           No. inf modes     :",no_inf_modes
     endif
 
     ! checksum
@@ -936,8 +923,6 @@ subroutine calculate_modes(this,Ef)
         if(abs(Beta(i))>1e-16) then
             lambda= (ALPHA(i)/BETA(i))
             if(  abs(abs(lambda) - 1.0) < 1.0E-6 ) then
-!                current = mode_current(N,c(i,:),d(i,:),this%valsTau)
-!                current =  mode_current_lambda(N,c(i,:),lambda,this%valsTau)
                 current = (mode_current_sparse(N,c(i,:),lambda,sparse_tau_vals,sparse_tau_rcid,sparse_tau_novals))
                 if(current > 0) then
                     no_in  = no_in + 1
@@ -947,22 +932,16 @@ subroutine calculate_modes(this,Ef)
                     no_out = no_out + 1
                     this%modes   (M_OUT,no_out,:) = c(i,:)
                     this%lambdas (M_OUT,no_out)   = lambda
-                    write(310,"(3000e)"),lambda
-                    write(311,"(3000e)"),Z(1:N,i)
-                    write(313,"(3000e)"),Z(1+N:2*N,i)
-!                    print*,"i=",i," l=",no_out
-                    Z11(:,no_out) = Z(1:N,i)
-                    Z21(:,no_out) = Z(1+N:2*N,i)
+
+                    Z11(:,no_out)         = Z(1:N,i)
+                    Z21(:,no_out)         = Z(1+N:2*N,i)
                     blochF(M_IN,1,no_out) = lambda
                 endif
             else if( abs(lambda) > 1.0 ) then
                     no_e_out = no_e_out + 1
                     this%modes  (M_OUT,this%no_out_modes+no_e_out,:) = c(i,:)
                     this%lambdas(M_OUT,this%no_out_modes+no_e_out)   = lambda
-                    write(310,"(3000e)"),lambda
-                    write(311,"(3000e)"),Z(1:N,i)
-                    write(313,"(3000e)"),Z(1+N:2*N,i)
-!                    print*,"i=",i," l=",this%no_out_modes+no_e_out
+
                     Z11(:,this%no_out_modes+no_e_out) = Z(1:N,i)
                     Z21(:,this%no_out_modes+no_e_out) = Z(1+N:2*N,i)
                     blochF(M_IN,1,this%no_out_modes+no_e_out) = lambda
@@ -974,23 +953,19 @@ subroutine calculate_modes(this,Ef)
             else
                     no_e_in = no_e_in + 1
                     this%modes  (M_IN,this%no_in_modes+no_e_in,:)    = c(i,:)
-                    this%lambdas(M_IN,this%no_in_modes+no_e_in)      = 0.0D20
+                    this%lambdas(M_IN,this%no_in_modes+no_e_in)      = 0.0D0
             endif
         else ! else beta > 0
-                    write(310,"(30000e)"),1.0D30*cmplx(1.0,0.0)
-                    write(311,"(30000e)"),Z(1:N,i)
-                    write(313,"(30000e)"),Z(1+N:2*N,i)
                     no_e_out = no_e_out + 1
-!                    print*,"i=",i," l=",this%no_out_modes+no_e_out
-                    Z11(:,this%no_out_modes+no_e_out) = Z(1:N,i)
-                    Z21(:,this%no_out_modes+no_e_out) = Z(1+N:2*N,i)
-                    blochF(M_IN,1,this%no_out_modes+no_e_out) = 1.0D50
+                    this%modes  (M_OUT,this%no_out_modes+no_e_out,:) = c(i,:)
+                    this%lambdas(M_OUT,this%no_out_modes+no_e_out)   = 1.0D50
 
-                    this%modes  (M_OUT,this%no_out_modes+no_e_out,:) = c(i,:)*0
-                    this%lambdas(M_OUT,this%no_out_modes+no_e_out)   = 1.0D20
+                    Z11(:,this%no_out_modes+no_e_out)         = Z(1:N,i)
+                    Z21(:,this%no_out_modes+no_e_out)         = Z(1+N:2*N,i)
+                    blochF(M_IN,1,this%no_out_modes+no_e_out) = 1.0D50
         endif
     enddo
-    print*,"Tc=",get_clock()-time
+
     ! Sorting propagating modes by the current amplitde
     ! and diagonalizing current operator for degenerated states
     call sort_modes(this%no_in_modes ,this%modes(M_IN,:,:) ,this%lambdas(M_IN,:),this%currents(M_IN,:))
@@ -1019,7 +994,7 @@ subroutine calculate_modes(this,Ef)
     enddo
     call this%diagonalize_currents(M_OUT,j,i-1)
 
-    print*,"Tc2=",get_clock()-time
+
 
     if(QSYS_DEBUG_LEVEL > 0) then
     print*,"-------------------------------------------------------"
@@ -1033,13 +1008,12 @@ subroutine calculate_modes(this,Ef)
     print*,"-------------------------------------------------------"
     endif
 
-    print*,"Tsort=",get_clock()-time
+
 
     if(.not. this%bUseShurDecomposition) then
         ! Construction of the F^-1+ matrix Eq. (57)
         Mdiag(:,:) = this%modes(M_OUT,:,:)
         call inverse_matrix(N,Mdiag)
-        print*,"Td3i=",get_clock()-time,cond_number(N,Mdiag)
         this%UTildeDagger  = Mdiag
         blochF(M_OUT,:,:)  = 0
         ! Calculate inverse of lambda once
@@ -1051,133 +1025,70 @@ subroutine calculate_modes(this,Ef)
              Mdiag(i,j) = Mdiag(i,j)*Z11(1,j)
         enddo
         enddo
-
         one  = 1.0
         zero = 0.0
         ! Use blas for matrix multiplication
         call ZGEMM('T','T',N,N,N,one,this%modes(M_OUT,:,:),N,Mdiag,N,zero,blochF(M_OUT,:,:),N)
-
-
     else
         ! Reorded Shur Unitary matrix - Z
 
-!        ! Try to inverse - if this will fail, use QTBM
-!        call inverse_matrix(N,Z21)
-!        blochF(M_OUT,:,:) = 0
-!        do i = 1, N
-!        do j = 1, N
-!            do k = 1, N
-!                blochF(M_OUT,i,j) = blochF(M_OUT,i,j) +   Z11(i,k) * Z21(k,j)
-!            enddo
-!        enddo
-!        enddo
-        ! Z21   - U
-        ! RWORK - S
-        ! Mdiag - VT
+        if(.not. QSYS_FORCE_SCHUR_DECOMPOSITION) then
+            ! Use singular value decomposition to inverse matrices
+            ! and remove vectors with lambda = infty
+            ! Z21   - U
+            ! RWORK - S
+            ! Mdiag - VT
 
-!        print*,"z1=",sum(z11)
-        ALPHA(1:N) = blochF(M_IN,1,:)
-        blochF(M_OUT,:,:) = z11
-        call ZSVD(N,blochF(M_OUT,:,:),Z21,RWORK,Mdiag)
+            ALPHA(1:N)        = blochF(M_IN,1,:)
+            blochF(M_OUT,:,:) = z11
+            call ZSVD(N,blochF(M_OUT,:,:),Z21,RWORK,Mdiag)
 
-!        print*,"z1=",sum(z11)
-        blochF(M_OUT,:,:) = 0
-!        open(unit=510,file="fort.510")
-!        open(unit=511,file="fort.511")
-        do i = 1, N
-!            write(510,"(3000e)"),Z11(1:N,i)
-!            write(511,"(3000e)"),ALPHA(i)
-!            print*,i,abs(ALPHA(i)),RWORK(i)
-        do j = 1, N
-            do p = 1 , N - no_inf_modes
-                blochF(M_OUT,i,j) = blochF(M_OUT,i,j) + Mdiag(i,p)*conjg(Mdiag(j,p))/ALPHA(p)
+            blochF(M_OUT,:,:) = 0
+            do i = 1, N
+            do j = 1, N
+                do p = 1 , N - no_inf_modes
+                    blochF(M_OUT,i,j) = blochF(M_OUT,i,j) + Mdiag(i,p)*conjg(Mdiag(j,p))/ALPHA(p)
+                enddo
             enddo
-        enddo
-        enddo
-!        close(510)
-!        close(511)
-
-!        print*,"U=",sum(Z21)
-!        print*,"Vt=",sum(Mdiag)
-!!        print*,"S=",RWORK
-!        print*,"inf=",no_inf_modes
-!        print*,"V*Lambda*V=",sum(blochF(M_OUT,:,:) )
-
-        do i = 1, N - no_inf_modes
-        do j = 1, N - no_inf_modes
-            blochF(M_OUT,i,j) = blochF(M_OUT,i,j)*RWORK(i)/RWORK(j)
-        enddo
-        enddo
-
-!        blochF(M_IN,:,:) = 0
-!        do i = 1, N
-!        do j = 1, N
-!!        do j = 1,  N - no_inf_modes
-!!            blochF(M_IN,i,j) = 0
-!!            do p = 1 , N - no_inf_modes
-!!               blochF(M_IN,i,j) = blochF(M_IN,i,j) + Z21(i,p)*blochF(M_OUT,p,j)
-!!            enddo
-!            do p = 1 , N - no_inf_modes
-!            do q = 1 , N - no_inf_modes
-!               blochF(M_IN,i,j) = blochF(M_IN,i,j) + Z21(i,p)*blochF(M_OUT,p,q)*conjg(Z21(j,q))
-!            enddo
-!            enddo
-!        enddo
-!        enddo
-
-!        print*,"z1=",sum(blochF(M_IN,:,:))
-        one  = 1.0
-        zero = 0.0
-        Z11 = 0
-        call ZGEMM( 'N', 'N', N,N - no_inf_modes,N - no_inf_modes, one , &
-                    Z21,N, blochF(M_OUT,:,:), N, zero,Z11,N)
-
-        blochF(M_OUT,:,:) = 0
-
-        call ZGEMM( 'N', 'C', N,N,N - no_inf_modes, one , &
-                    Z11,N,Z21,N, zero,blochF(M_OUT,:,:),N)
-
-!        print*,"z2=",sum(Z11)
-
-!        print*,"E=",sum(blochF(M_OUT,:,:) )
-
-
-
-!        Z  = Zshur
-!        if(bShurDecompositionForStandEP) then
-!            call trsen(Sshur, select=iselect,q=Z ,info=info)
-!        else
-!            call tgsen(a=Sshur,b=Pshur, select=iselect,z=Z ,info=info)
-!        endif
-!
-!        if( INFO /= 0 ) then
-!            print*,"SYS::LEAD::Shur decomposition failed: tgsen/trsen info:",INFO
-!            stop
-!        endif
-!        print*,"Td1=",get_clock()-time
-!
-!        ! Take block elements - Michael Wimmer work
-!        Z11(:,:) = Z(1:N,1:N)
-!        Z21(:,:) = Z(N+1:2*N,1:N)
-!        ! Try to inverse - if this will fail, use QTBM
-!        call inverse_matrix(N,Z21)
-!        blochF(M_OUT,:,:) = 0
-!        do i = 1, N
-!        do j = 1, N
-!            do k = 1, N
-!                blochF(M_OUT,i,j) = blochF(M_OUT,i,j) +   Z11(i,k) * Z21(k,j)
-!            enddo
-!        enddo
-!        enddo
-!
-!        do i = 1, N
-!            print*,i,abs(this%lambdas(M_OUT,i))
-!            write(312,"(30000e)"),blochF(M_OUT,i,:)
-!        enddo
-!        stop
-        print*,"Td2=",get_clock()-time
+            enddo
+            do i = 1, N - no_inf_modes
+            do j = 1, N - no_inf_modes
+                blochF(M_OUT,i,j) = blochF(M_OUT,i,j)*RWORK(i)/RWORK(j)
+            enddo
+            enddo
+            one  = 1.0
+            zero = 0.0
+            Z11  = 0.0
+            call ZGEMM( 'N', 'N', N,N - no_inf_modes,N - no_inf_modes, one , Z21,N, blochF(M_OUT,:,:), N, zero,Z11,N)
+            blochF(M_OUT,:,:) = 0
+            call ZGEMM( 'N', 'C', N,N,N - no_inf_modes, one , Z11,N,Z21,N, zero,blochF(M_OUT,:,:),N)
+        else ! force shur method
+            Z  = Zshur
+            if(bShurDecompositionForStandEP) then
+                call trsen(Sshur, select=iselect,q=Z ,info=info)
+            else
+                call tgsen(a=Sshur,b=Pshur, select=iselect,z=Z ,info=info)
+            endif
+            if( INFO /= 0 ) then
+                print*,"SYS::LEAD::Shur decomposition failed: tgsen/trsen info:",INFO
+                stop
+            endif
+            ! Take block elements - Michael Wimmer work
+            Z11(:,:) = Z(1:N,1:N)
+            Z21(:,:) = Z(N+1:2*N,1:N)
+            ! Try to inverse - if this will fail, use QTBM
+            call inverse_matrix(N,Z21)
+            blochF(M_OUT,:,:) = 0
+            do i = 1, N
+            do j = 1, N
+                do k = 1, N
+                    blochF(M_OUT,i,j) = blochF(M_OUT,i,j) +   Z11(i,k) * Z21(k,j)
+                enddo
+            enddo
+            enddo
+        endif
     endif
-    print*,"Td3a=",get_clock()-time
+
     ! Calculating of SigmaMatrix
     do i = 1 , N
     do j = 1 , N
@@ -1191,27 +1102,28 @@ subroutine calculate_modes(this,Ef)
     this%SigmaMat = this%SigmaMat + this%valsH0
     ! Lambda matrix calculation:
     call ZGEMM( 'N', 'N', N, N, N, one ,Mdiag  , N, blochF(M_OUT,:,:), N, zero,this%LambdaMat, N )
-    print*,"Td3=",get_clock()-time
+
+
     if(this%bUseShurDecomposition) then
         ! -------------------------------------------------
         ! Calculate overlap matrix
         ! -------------------------------------------------
-        no_modes = this%no_out_modes + this%no_out_em  - no_inf_modes
+        no_modes = this%no_out_modes + this%no_out_em - no_inf_modes
+
         deallocate(MA)
-        allocate(MA (no_modes,no_modes))
+        allocate(MA (no_modes,N))
         deallocate(this%UTildeDagger)
         allocate(this%UTildeDagger(no_modes,no_modes))
+
+
+        MA = conjg((this%modes(M_OUT,1:no_modes,:)))
+        call ZGEMM( 'N', 'T', no_modes,no_modes,N,one, &
+                    MA, no_modes, this%modes(M_OUT,:,:), N, zero,this%UTildeDagger, no_modes )
 
 
 !        MA = transpose(this%modes(M_OUT,:,:))
 !        call ZGEMM( 'C', 'T', no_modes,no_modes,no_modes, one , &
 !                    MA, no_modes, this%modes(M_OUT,:,:), no_modes, zero,this%UTildeDagger, no_modes )
-        ! just checking
-        do i = 1 , no_modes
-        do j = 1 , no_modes
-            this%UTildeDagger(i,j) = sum(conjg(this%modes(M_OUT,i,:))*this%modes(M_OUT,j,:))
-        enddo
-        enddo
         if(no_modes > 0) call inverse_matrix(no_modes,this%UTildeDagger)
 
 
@@ -1221,7 +1133,6 @@ subroutine calculate_modes(this,Ef)
         if(allocated(Pshur))deallocate(Pshur)
 
     endif
-    print*,"Te=",get_clock()-time
 
 
 ! ----------------------------------------------------------------------------
