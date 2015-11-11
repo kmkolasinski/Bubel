@@ -19,7 +19,7 @@ for i in range(no_lines-1):
 x = np.array(x)
 #plt.plot(x,0.2+x*0)    
 #plt.xlim([-0.5,0.5])
-#plt.ylim([0,0.2])
+#plt.ylim([0,0.001])
 plt.xlabel("k [1/unit size]")    
 plt.ylabel("Energy [some units]")   
 plt.savefig("bands.png")

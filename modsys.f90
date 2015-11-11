@@ -897,11 +897,11 @@ subroutine save_lattice(sys,filename,ofunit)
             do s1 = 1 , ns1
             do s2 = 1 , ns2
             cpl_value = sys%atoms(i)%bonds(j)%bondMatrix(s1,s2)
-            if( abs(cpl_value) > 1.0D-10 )then
+!            if( abs(cpl_value) > 1.0D-10 )then
             write(funit,"(A,4i10,2e16.6,A)"),"<d>",i,&
                         sys%atoms(i)%bonds(j)%toAtomID,s1,s2,&
                         DBLE(cpl_value),IMAG(cpl_value),"</d>"
-            endif
+!            endif
             enddo
             enddo
         enddo
