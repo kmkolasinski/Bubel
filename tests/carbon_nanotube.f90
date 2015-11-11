@@ -43,9 +43,7 @@ do i=1,17*2
     call tmpsystem%qatom%init(posA,flag=1)
     call tmpsystem%add_atom(tmpsystem%qatom)
     call tmpsystem%qatom%init(posB,flag=2)
-
     call tmpsystem%add_atom(tmpsystem%qatom)
-
 enddo
 close(3)
 

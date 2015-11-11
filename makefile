@@ -132,7 +132,7 @@ endif
 
 
 
-quantulaba: main.f90 modcommons.o modunits.o modutils.o $(UMFPACK_FILES) modsys.o modshape.o modlead.o modscatter.o $(SUPERLU_FILES)
+quantulaba: main.f90 modcommons.o modinip.o modunits.o modutils.o $(UMFPACK_FILES) modsys.o modshape.o modlead.o modscatter.o $(SUPERLU_FILES)
 	$(FC) $(FBFLAGS)  main.f90 *.o $(FLIBS)   -o $@
 
 modcommons.o: modcommons.f90
@@ -140,6 +140,9 @@ modcommons.o: modcommons.f90
 
 modutils.o: modutils.f90
 	$(FC) $(FCFLAGS) modutils.f90 -o $@
+
+modinip.o: modinip.f90
+	$(FC) $(FCFLAGS) modinip.f90 -o $@
 
 modsys.o: modsys.f90
 	$(FC) $(FCFLAGS) modsys.f90 -o $@

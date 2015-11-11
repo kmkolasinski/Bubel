@@ -22,7 +22,7 @@ x = np.array(x)
 #plt.ylim([0,0.2])
 plt.xlabel("k [1/unit size]")    
 plt.ylabel("Energy [some units]")   
-plt.savefig("bands.pdf")
+plt.savefig("bands.png")
 #plt.show()        
 
 #data = np.loadtxt("fort.2")

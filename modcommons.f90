@@ -6,7 +6,11 @@ integer,parameter,public  :: QSYS_NO_BONDS_INC_VALUE      = 10     ! For sparse 
 integer,parameter,public  :: QSYS_NO_ATOMS_INC_VALUE      = 10000  !
 logical,public            :: QSYS_USE_ZGGEV_TO_FIND_MODES = .false. ! When finding modes use generalied eigenvalue problem, can be more stable
 logical,public            :: QSYS_DISABLE_HERMICITY_CHECK = .false.
-logical,public            :: QSYS_FORCE_SCHUR_DECOMPOSITION = .false. ! Maybe more stable but slower
+logical,public            :: QSYS_FORCE_HERMITIAN_MATRIX = .true. ! by default creates hermitian matrix, so connect
+                                                                  ! function may take care only for the nnb with greater ID number
+
+
+logical,public            :: QSYS_FORCE_SCHUR_DECOMPOSITION = .false. ! Maybe more stable but slower only for WFM
 integer,public            :: QSYS_DEBUG_LEVEL = 0   ! 0 - less messages, 1-more, 2-even more
 doubleprecision,parameter :: qsys_double_error = 1.0D-16 ! approximated error of double presicion numerical error
 
@@ -15,8 +19,18 @@ ENUM, BIND(C)
   ENUMERATOR :: QSYS_SCATTERING_WFM    = 2 ! solve with WFM
   ENUMERATOR :: QSYS_SCATTERING_QTBM_TAKE_ALL_EVAN = -1 ! force QTBM to take all evanescent modes (may be not stable)
 END ENUM
+
+
+
 public :: QSYS_SCATTERING_QTBM, QSYS_SCATTERING_WFM , QSYS_SCATTERING_QTBM_TAKE_ALL_EVAN
 public :: qsys_double_error
+
+
+ENUM, BIND(C)
+  ENUMERATOR :: QSYS_LEAD_TYPE_NORMAL = 0
+  ENUMERATOR :: QSYS_LEAD_TYPE_PSEUDO_TRANSPARENT = 1
+END ENUM
+public :: QSYS_LEAD_TYPE_NORMAL,QSYS_LEAD_TYPE_PSEUDO_TRANSPARENT
 
 integer,public :: QSYS_SCATTERING_METHOD       = QSYS_SCATTERING_WFM ! choose approach
 integer,public :: QSYS_SCATTERING_QTBM_NO_EVAN = QSYS_SCATTERING_QTBM_TAKE_ALL_EVAN ! force number of evanescent modes in calculation
@@ -29,6 +43,7 @@ private
 ! -----------------------------------------------
 type qbond
     integer     :: toAtomID        ! ID of atom B
+    integer     :: fromBondID      ! id of bond in atom B to A
     complex*16,allocatable,dimension(:,:)  :: bondMatrix
     complex*16,allocatable,dimension(:,:)  :: overlapMatrix ! overlap matrix in case of LCAO orbitals
     contains
@@ -187,6 +202,7 @@ subroutine add_bond(site,toAtomID,bondMatrix,overlapMatrix)
 
     site%bonds(site%no_bonds)%bondMatrix    = bondMatrix
     site%bonds(site%no_bonds)%toAtomID      = toAtomID
+    site%bonds(site%no_bonds)%fromBondID    = 0
 
     site%bonds(site%no_bonds)%overlapMatrix = 0.0
     if(present(overlapMatrix)) site%bonds(site%no_bonds)%overlapMatrix = overlapMatrix;
@@ -195,7 +211,8 @@ endsubroutine add_bond
 
 subroutine destroy_bond(this)
     class(qbond)  :: this
-    this%toAtomID = -1
+    this%toAtomID   = -1
+    this%fromBondID = -1
     if(allocated(this%overlapMatrix)) deallocate(this%overlapMatrix)
     if(allocated(this%bondMatrix))    deallocate(this%bondMatrix)
 
@@ -214,6 +231,7 @@ subroutine copy_bond(this,source)
     allocate(this%overlapMatrix(ns1,ns2))
 
     this%toAtomID      = source%toAtomID
+    this%fromBondID    = source%fromBondID
     this%bondMatrix    = source%bondMatrix
     this%overlapMatrix = source%overlapMatrix
 

@@ -56,9 +56,11 @@
 			<Add option="-warn all" />
 			<Add option="-I$(BASEDIR)/SuperLU_4.3/SRC" />
 		</Compiler>
+		<Unit filename="config.ini" />
 		<Unit filename="main.f90" />
 		<Unit filename="makefile" />
 		<Unit filename="modcommons.f90" />
+		<Unit filename="modinip.f90" />
 		<Unit filename="modlead.f90" />
 		<Unit filename="modscatter.f90" />
 		<Unit filename="modshape.f90" />

@@ -227,12 +227,23 @@ subroutine make_lattice(sys,nnbparams,c_simple,c_matrix,o_simple,o_matrix)
         ! -----------------------------------------------
         if(present(c_simple)) then
         do j = 1 , sys%no_atoms
+            if(j<i .and. QSYS_FORCE_HERMITIAN_MATRIX) cycle
             ! both sites have to be active
             if(sys%atoms(j)%bActive == .true.) then
                 ! if they are nnb one may create a bond between them
                 if(c_simple(sys%atoms(i),sys%atoms(j),cpl_value)) then
                     cpl_1x1 = cpl_value
                     call sys%atoms(i)%add_bond(j,cpl_1x1)
+
+                    if(i/=j .and. QSYS_FORCE_HERMITIAN_MATRIX) then
+                        call sys%atoms(j)%add_bond(i,conjg(cpl_1x1))
+                        k = sys%atoms(i)%no_bonds
+                        p = sys%atoms(j)%no_bonds
+                        ! generate ping pong reference
+                        sys%atoms(i)%bonds(k)%fromBondID = p
+                        sys%atoms(j)%bonds(p)%fromBondID = k
+                    endif
+
                 else if(i==j) then ! Force diagonal term for transport
                     cpl_value = cmplx(0.0D0,0.0D0)
                     cpl_1x1   = cpl_value
@@ -248,6 +259,8 @@ subroutine make_lattice(sys,nnbparams,c_simple,c_matrix,o_simple,o_matrix)
 
 
         do j = 1 , sys%no_atoms
+            if(j<i .and. QSYS_FORCE_HERMITIAN_MATRIX) cycle
+
             if(sys%atoms(j)%bActive == .true.) then
             if(.not. allocated(cpl_matrix)) allocate(cpl_matrix(sys%atoms(i)%no_in_states,sys%atoms(j)%no_in_states))
             if(size(cpl_matrix,1) /= sys%atoms(i)%no_in_states .or. &
@@ -259,6 +272,16 @@ subroutine make_lattice(sys,nnbparams,c_simple,c_matrix,o_simple,o_matrix)
             if(c_matrix(sys%atoms(i),sys%atoms(j),cpl_matrix)) then
                 ! both sites have to be active
                 call sys%atoms(i)%add_bond(j,cpl_matrix)
+
+                if(i/=j .and. QSYS_FORCE_HERMITIAN_MATRIX) then
+                    call sys%atoms(j)%add_bond(i,transpose(conjg(cpl_matrix)))
+                    k = sys%atoms(i)%no_bonds
+                    p = sys%atoms(j)%no_bonds
+                    ! generate ping pong reference
+                    sys%atoms(i)%bonds(k)%fromBondID = p
+                    sys%atoms(j)%bonds(p)%fromBondID = k
+                endif
+
             else if(i==j) then ! Force diagonal term for transport
                 cpl_matrix = 0
                 call sys%atoms(i)%add_bond(j,cpl_matrix)
@@ -360,29 +383,46 @@ subroutine make_lattice(sys,nnbparams,c_simple,c_matrix,o_simple,o_matrix)
             ! loop over nnb verlet boxes
             do vp = 1 , verlet_counter(vx,vy,vz)
                 j        = verlet_box(vx,vy,vz,vp)
-!                if(j<i .and. .not. QSYS_DISABLE_HERMICITY_CHECK) cycle
+                if(j<i .and. QSYS_FORCE_HERMITIAN_MATRIX) cycle
+
+
                 if(sys%atoms(j)%bActive == .true.) then
                 ! loop around spin states
                 if(nnbparams%NNB_FILTER == QSYS_NNB_FILTER_BOX) then
                     ! if they are nnb one may create a qbond between them
                     if(c_simple(sys%atoms(i),sys%atoms(j),cpl_value)) then
-                         cpl_1x1 = cpl_value
-                         call sys%atoms(i)%add_bond(j,cpl_1x1)
-!                         if(i/=j .and. .not. QSYS_DISABLE_HERMICITY_CHECK) call sys%atoms(j)%add_bond(i,conjg(cpl_1x1))
+                        cpl_1x1 = cpl_value
+                        call sys%atoms(i)%add_bond(j,cpl_1x1)
+
+                        if(i/=j .and. QSYS_FORCE_HERMITIAN_MATRIX) then
+                            call sys%atoms(j)%add_bond(i,conjg(cpl_1x1))
+                            k = sys%atoms(i)%no_bonds
+                            p = sys%atoms(j)%no_bonds
+                            ! generate ping pong reference
+                            sys%atoms(i)%bonds(k)%fromBondID = p
+                            sys%atoms(j)%bonds(p)%fromBondID = k
+                        endif
                     else if(i==j ) then ! Force diagonal term for transport
                          cpl_value = cmplx(0.0D0,0.0D0)
                          cpl_1x1   = cpl_value
                          call sys%atoms(i)%add_bond(j,cpl_1x1)
-
                     endif
                 else if(nnbparams%NNB_FILTER == QSYS_NNB_FILTER_DISTANCE) then
                     ! check distance before asking
                     if( sqrt(sum((sys%atoms(i)%atom_pos-sys%atoms(j)%atom_pos)**2)) < nnbparams%distance) then
                     ! if they are nnb one may create a qbond between them
                     if(c_simple(sys%atoms(i),sys%atoms(j),cpl_value)) then
-                         cpl_1x1 = cpl_value
-                         call sys%atoms(i)%add_bond(j,cpl_1x1)
-!                         if(i/=j .and. .not. QSYS_DISABLE_HERMICITY_CHECK)call sys%atoms(j)%add_bond(i,conjg(cpl_1x1))
+                        cpl_1x1 = cpl_value
+                        call sys%atoms(i)%add_bond(j,cpl_1x1)
+
+                        if(i/=j .and. QSYS_FORCE_HERMITIAN_MATRIX) then
+                            call sys%atoms(j)%add_bond(i,conjg(cpl_1x1))
+                            k = sys%atoms(i)%no_bonds
+                            p = sys%atoms(j)%no_bonds
+                            ! generate ping pong reference
+                            sys%atoms(i)%bonds(k)%fromBondID = p
+                            sys%atoms(j)%bonds(p)%fromBondID = k
+                        endif
                     else if(i==j) then ! Force diagonal term for transport
                          cpl_value = cmplx(0.0D0,0.0D0)
                          cpl_1x1   = cpl_value
@@ -412,7 +452,7 @@ subroutine make_lattice(sys,nnbparams,c_simple,c_matrix,o_simple,o_matrix)
             ! loop over nnb verlet boxes
             do vp = 1 , verlet_counter(vx,vy,vz)
                 j        = verlet_box(vx,vy,vz,vp)
-!                if(j<i .and. .not. QSYS_DISABLE_HERMICITY_CHECK) cycle
+                if(j<i .and. QSYS_FORCE_HERMITIAN_MATRIX) cycle
 
                 if(sys%atoms(j)%bActive == .true.) then
                 ! loop around spin states
@@ -427,8 +467,15 @@ subroutine make_lattice(sys,nnbparams,c_simple,c_matrix,o_simple,o_matrix)
                 if(nnbparams%NNB_FILTER == QSYS_NNB_FILTER_BOX) then
                     if(c_matrix(sys%atoms(i),sys%atoms(j),cpl_matrix)) then
                         call sys%atoms(i)%add_bond(j,cpl_matrix)
-!                        if(i/=j .and. .not. QSYS_DISABLE_HERMICITY_CHECK) &
-!                            call sys%atoms(j)%add_bond(i,transpose(conjg(cpl_matrix)))
+                        ! create hermitian system automatically
+                        if(i/=j .and. QSYS_FORCE_HERMITIAN_MATRIX) then
+                            call sys%atoms(j)%add_bond(i,transpose(conjg(cpl_matrix)))
+                            k = sys%atoms(i)%no_bonds
+                            p = sys%atoms(j)%no_bonds
+                            ! generate ping pong reference
+                            sys%atoms(i)%bonds(k)%fromBondID = p
+                            sys%atoms(j)%bonds(p)%fromBondID = k
+                        endif
                     else if( i == j) then
                         cpl_matrix = 0
                         call sys%atoms(i)%add_bond(j,cpl_matrix)
@@ -439,8 +486,17 @@ subroutine make_lattice(sys,nnbparams,c_simple,c_matrix,o_simple,o_matrix)
                     if( sqrt(sum((sys%atoms(i)%atom_pos-sys%atoms(j)%atom_pos)**2)) < nnbparams%distance) then
                     if(c_matrix(sys%atoms(i),sys%atoms(j),cpl_matrix)) then
                         call sys%atoms(i)%add_bond(j,cpl_matrix)
-!                        if(i/=j .and. .not. QSYS_DISABLE_HERMICITY_CHECK) &
-!                            call sys%atoms(j)%add_bond(i,transpose(conjg(cpl_matrix)))
+                        ! create hermitian system automatically
+
+                       if(i/=j .and. QSYS_FORCE_HERMITIAN_MATRIX) then
+                            call sys%atoms(j)%add_bond(i,transpose(conjg(cpl_matrix)))
+                            k = sys%atoms(i)%no_bonds
+                            p = sys%atoms(j)%no_bonds
+                            ! generate ping pong reference
+                            sys%atoms(i)%bonds(k)%fromBondID = p
+                            sys%atoms(j)%bonds(p)%fromBondID = k
+                        endif
+
                     else if( i == j) then
                         cpl_matrix = 0
                         call sys%atoms(i)%add_bond(j,cpl_matrix)
@@ -558,12 +614,18 @@ subroutine update_lattice(sys,c_simple,c_matrix,o_simple,o_matrix)
         do b = 1 , sys%atoms(i)%no_bonds
             fa = i
             ta = sys%atoms(i)%bonds(b)%toAtomID
-
+            if(ta<fa .and. QSYS_FORCE_HERMITIAN_MATRIX) cycle
             cpl_value = 0.0
             if(present(c_simple)) then
                 bondTest = c_simple(sys%atoms(fa),sys%atoms(ta),cpl_value)
                 cpl_1x1  = cpl_value
+
                 sys%atoms(fa)%bonds(b)%bondMatrix = cpl_1x1
+
+                if(ta/=fa .and. QSYS_FORCE_HERMITIAN_MATRIX) then
+                    k = sys%atoms(fa)%bonds(b)%fromBondID
+                    sys%atoms(ta)%bonds(k)%bondMatrix = (conjg(cpl_1x1))
+                endif
             else if(present(c_matrix)) then
                 if(.not. allocated(cpl_matrix)) allocate(cpl_matrix(sys%atoms(fa)%no_in_states,sys%atoms(ta)%no_in_states))
                 if(size(cpl_matrix,1) /= sys%atoms(fa)%no_in_states .or. &
@@ -573,6 +635,11 @@ subroutine update_lattice(sys,c_simple,c_matrix,o_simple,o_matrix)
                 endif
                 bondTest = c_matrix(sys%atoms(fa),sys%atoms(ta),cpl_matrix)
                 sys%atoms(fa)%bonds(b)%bondMatrix = cpl_matrix
+
+                if(ta/=fa .and. QSYS_FORCE_HERMITIAN_MATRIX) then
+                    k = sys%atoms(fa)%bonds(b)%fromBondID
+                    sys%atoms(ta)%bonds(k)%bondMatrix = transpose(conjg(cpl_matrix))
+                endif
             endif
         enddo
         endif ! end of if active atome i
@@ -661,19 +728,22 @@ subroutine update_overlaps(sys,o_simple,o_matrix)
 
     do i = 1 , sys%no_atoms
         if(sys%atoms(i)%bActive == .true.)then
-
         ns1 = sys%atoms(i)%no_in_states
-
-
         do b = 1 , sys%atoms(i)%no_bonds
             fa = i
             ta = sys%atoms(i)%bonds(b)%toAtomID
+            if(ta<fa .and. QSYS_FORCE_HERMITIAN_MATRIX) cycle
 
             sys%atoms(fa)%bonds(b)%overlapMatrix = 0.0
             if(present(o_simple)) then
                 if(o_simple(sys%atoms(fa),sys%atoms(ta),cpl_value)) then
                     cpl_1x1 = cpl_value
                     sys%atoms(fa)%bonds(b)%overlapMatrix = cpl_1x1
+                    ! update lower part of the matrix
+                    if(ta/=fa .and. QSYS_FORCE_HERMITIAN_MATRIX) then
+                        k = sys%atoms(fa)%bonds(b)%fromBondID
+                        sys%atoms(ta)%bonds(k)%overlapMatrix = (conjg(cpl_1x1))
+                    endif
                 endif
             else if(present(o_matrix)) then
                 if(.not. allocated(cpl_matrix)) allocate(cpl_matrix(sys%atoms(fa)%no_in_states,sys%atoms(ta)%no_in_states))
@@ -684,6 +754,10 @@ subroutine update_overlaps(sys,o_simple,o_matrix)
                 endif
                 if(o_matrix(sys%atoms(fa),sys%atoms(ta),cpl_matrix)) then
                     sys%atoms(fa)%bonds(b)%overlapMatrix = cpl_matrix
+                    if(ta/=fa .and. QSYS_FORCE_HERMITIAN_MATRIX) then
+                        k = sys%atoms(fa)%bonds(b)%fromBondID
+                        sys%atoms(ta)%bonds(k)%overlapMatrix = transpose(conjg(cpl_matrix))
+                    endif
                 endif
             else if( fa == ta ) then
                 do s1 = 1 , ns1

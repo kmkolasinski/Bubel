@@ -6,7 +6,7 @@ MODULE modunits
     double precision,parameter  :: M_PI      = 3.1415926
     double precision,parameter  :: A0        = 0.0529177249 ! Bohr radius in [nm]
     double precision,parameter  :: E0        = 27.211384523 ! Atomic unit of energy in [eV]
-    complex*16 ,parameter        :: II       = CMPLX(0.0D0,1.0D0)
+    complex*16 ,parameter       :: II        = CMPLX(0.0D0,1.0D0)
 
     double precision  :: KbT
     double precision  :: Rd    ! For donors units
@@ -20,11 +20,6 @@ MODULE modunits
     double precision  :: so_alpha3D  ! SO rashba constant [nm^2]
     double precision  :: so_Fz       ! gradient of electric field in z plane [meV/nm ]
     double precision  :: so_rashba   ! rashba coeficient [nm*meV ]
-!    ENUM,BIND(C)
-!        ENUMERATOR :: USING_SUPER_LU      = 0
-!        ENUMERATOR :: USING_UMFPACK       = 1
-!        ENUMERATOR :: USING_PARDISO       = 2
-!    END ENUM
 
     complex*16 ,parameter :: MAT_SX  (2,2) = (/ (/ 0.0  , 1.0 /) , (/ 1.0 , 0.0  /) /)
     complex*16 ,parameter :: MAT_SY  (2,2) = (/ (/ 0*II , -II /) , (/ II  , 0*II /) /)

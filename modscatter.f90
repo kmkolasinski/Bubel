@@ -5,6 +5,8 @@
 ! Solution for the scattergin wave function is founded with the Wave
 ! Function Matching approach well described in this paper:
 ! Scattering Matrices by Wave Function Matching: G. Brocks, V. M. Karpan et. al.
+! There is also a posibility to use QTBM to evaluate tranmission probability
+! However it may be less stable.
 ! ---------------------------------------------------------------------------------------
 module modscatter
 use modutils
@@ -16,18 +18,18 @@ use modshape
 implicit none
 
 private
-integer ,parameter :: QSCATTER_MAX_LEADS = 50
+integer ,parameter :: QSCATTER_MAX_LEADS = 50 ! hard coded maximum number of leads in system
 type qscatter
     type(qatom)       :: qatom
     type(nnb_params)  :: qnnbparam  ! auxiliary variable, can be used by user
-    type(qsys)   :: qsystem
+    type(qsys)        :: qsystem
     type(qlead) , dimension(QSCATTER_MAX_LEADS) :: leads
-    integer      :: no_leads
+    integer           :: no_leads
 
     complex*16,dimension(:)  , allocatable       :: MATHVALS
     integer   ,dimension(:,:), allocatable       :: ROWCOLID
     doubleprecision,allocatable                  :: densities(:,:),qauxvec(:)
-    doubleprecision,allocatable                  :: Tn(:)
+    doubleprecision,allocatable                  :: Tn(:),Rn(:)
 
     integer   :: NO_NON_ZERO_VALUES,NO_VARIABLES
 
@@ -65,6 +67,7 @@ subroutine destroy_system(this)
     if(allocated(this%densities))   deallocate(this%densities)
     if(allocated(this%qauxvec))     deallocate(this%qauxvec)
     if(allocated(this%Tn))          deallocate(this%Tn)
+    if(allocated(this%Rn))          deallocate(this%Rn)
 
 end subroutine destroy_system
 
@@ -90,6 +93,7 @@ subroutine calculate_modes(this,Ef)
         print*,"SYS::LEAD:",i
         print*,"-----------------------------------------"
         endif
+        call this%leads(i)%update_lead(this%qsystem%atoms)
         call this%leads(i)%calculate_modes(Ef)
     enddo
 end subroutine calculate_modes
@@ -129,15 +133,12 @@ subroutine construct_matrix(this,Ef)
     ! fill leads array with flags
     do l = 1 , no_leads
         do i = 1 , this%leads(l)%no_sites
-
             ta = this%leads(l)%l2g(i,1) ! get atom
             ts = this%leads(l)%l2g(i,2) ! get spin
             leadFlags(ta) = l
             leadIds(this%qsystem%atoms(ta)%globalIDs(ts)) = i
         enddo
     enddo
-
-
 
     ! Calculate the number of non-zero elements in Hamiltonian matrix
     itmp = 0
@@ -187,16 +188,10 @@ subroutine construct_matrix(this,Ef)
                     ta = this%leads(lid)%l2g(lc,1)
                     ts = this%leads(lid)%l2g(lc,2)
                     itmp = itmp + 1
-!                    if(lr == lc) then
-!                    this%MATHVALS(itmp)   = Ef - this%leads(lid)%SigmaMat(lr,lc)
-!!                    print*,"asd"
-!                    else
-                    this%MATHVALS(itmp)   = Ef*this%leads(lid)%valsS0(lr,lc)-this%leads(lid)%SigmaMat(lr,lc)
-!                    endif
 
+                    this%MATHVALS(itmp)   = Ef*this%leads(lid)%valsS0(lr,lc)-this%leads(lid)%SigmaMat(lr,lc)
                     this%ROWCOLID(itmp,1) = this%qsystem%atoms(fa)%globalIDs(fs)
                     this%ROWCOLID(itmp,2) = this%qsystem%atoms(ta)%globalIDs(ts)
-!                    print*,itmp,ta,ts,abs(this%leads(lid)%SigmaMat(lr,lc))
 
                     if(abs(this%MATHVALS(itmp)) < 1.0D-20) then
                     itmp = itmp - 1
@@ -226,26 +221,19 @@ subroutine construct_matrix(this,Ef)
                     if(abs(this%MATHVALS(itmp)) < 1.0D-20) then
                     itmp = itmp - 1
                     endif
-                enddo
+                enddo ! end of lc
 
             enddo
-        else
+        else ! end of else is lead
 
         ns1   = this%qsystem%atoms(i)%no_in_states
         do s1 = 1 , ns1
         do j = 1, this%qsystem%atoms(i)%no_bonds
-
             ns2 = size(this%qsystem%atoms(i)%bonds(j)%bondMatrix,2)
-
-
             do s2 = 1 , ns2
-
-            itmp = itmp + 1
-
+            itmp  = itmp + 1
             this%ROWCOLID(itmp,1) = this%qsystem%atoms(i)%globalIDs(s1)
-
             ta = this%qsystem%atoms(i)%bonds(j)%toAtomID
-
             this%ROWCOLID(itmp,2) = this%qsystem%atoms(ta)%globalIDs(s2)
             this%MATHVALS(itmp)   = this%qsystem%atoms(i)%bonds(j)%overlapMatrix(s1,s2)*Ef &
                                   - this%qsystem%atoms(i)%bonds(j)%bondMatrix(s1,s2)
@@ -263,10 +251,6 @@ subroutine construct_matrix(this,Ef)
     enddo
     this%NO_NON_ZERO_VALUES = itmp
 
-!    do i = 1, itmp
-!        print"(3i,2f10.4)",i,this%ROWCOLID(i,1),this%ROWCOLID(i,2),this%MATHVALS(i)
-!    enddo
-
     deallocate(leadFlags)
     deallocate(leadIds)
 end subroutine construct_matrix
@@ -280,7 +264,7 @@ subroutine solve(this,leadID,Ef)
     class(qscatter) :: this
     integer,intent(in)  :: leadID
     doubleprecision :: Ef
-    doubleprecision :: timer_factorization,total_Tn
+    doubleprecision :: timer_factorization,total_Tn,total_Rn
     integer ,allocatable   :: HBROWS(:)
     complex*16,allocatable :: phi(:)
     complex*16 :: cval
@@ -295,16 +279,19 @@ subroutine solve(this,leadID,Ef)
     if(allocated(this%densities)) deallocate(this%densities)
     if(allocated(this%qauxvec))   deallocate(this%qauxvec)
     if(allocated(this%Tn))        deallocate(this%Tn)
+    if(allocated(this%Rn))        deallocate(this%Rn)
 
     allocate(this%densities(this%leads(leadID)%no_in_modes,this%NO_VARIABLES))
     allocate(this%qauxvec  (this%NO_VARIABLES))
     allocate(this%Tn(this%leads(leadID)%no_in_modes))
+    allocate(this%Rn(this%leads(leadID)%no_in_modes))
 
     allocate(phi(this%NO_VARIABLES))
     allocate(HBROWS(this%NO_VARIABLES+1))
 
     this%densities = 0
     this%Tn        = 0
+    this%Rn        = 0
 
     call convert_to_HB(this%NO_NON_ZERO_VALUES,this%ROWCOLID,this%MATHVALS,HBROWS)
 
@@ -319,6 +306,10 @@ subroutine solve(this,leadID,Ef)
     print*,"SYS::SCATTERING::Factorization time:",timer_factorization
     endif
     this%Tn = 0
+    this%Rn = 0
+    do i = 1 , this%no_leads
+        this%leads(i)%totalT = 0
+    enddo
 
     ! ---------------------------------------------------------
     ! Loop over all modes
@@ -343,8 +334,6 @@ subroutine solve(this,leadID,Ef)
             phi(lg) = phi(lg) + (-this%leads(leadID)%LambdaMat(i,j) + &
                                 cval*(conjg(this%leads(leadID)%valsTau(j,i)) - Ef*conjg(this%leads(leadID)%valsS1(j,i)) ) ) &
                                 *this%leads(leadID)%modes(M_IN,modin,j)
-
-
             endif
         enddo
     enddo
@@ -357,20 +346,30 @@ subroutine solve(this,leadID,Ef)
     this%densities(modin,:) = abs(phi(:))**2
 
     total_Tn = 0
+    total_Rn = 0
     do i = 1 , this%no_leads
-        call this%leads(i)%calculate_Tnm(this%qsystem%atoms,phi)
+
         ! Skip tranmission from input lead
         if( i /= leadID) then
+            call this%leads(i)%calculate_Tnm(this%qsystem%atoms,phi)
             total_Tn = total_Tn + this%leads(i)%Tnm(1,1)
+            this%leads(i)%totalT = this%leads(i)%totalT + this%leads(i)%Tnm(1,1)
+        else
+            call this%leads(i)%calculate_Tnm(this%qsystem%atoms,phi,modin)
+            total_Rn = total_Rn + this%leads(i)%Tnm(1,1)
+            this%leads(i)%totalT = this%leads(i)%totalT + this%leads(i)%Tnm(1,1)
         endif
     enddo
     this%Tn(modin) = total_Tn
+    this%Rn(modin) = total_Rn
+
     enddo ! end of loop over modes
     if(QSYS_DEBUG_LEVEL > 0) then
     print*,"-----------------------------------------"
     print*,"SYS::SCATTERING problem solved:"
     print*,"        T=",sum(this%Tn)
-    print*,"        R=", this%leads(leadID)%no_in_modes-sum(this%Tn)
+    print*,"        R=",sum(this%Rn)
+    print*,"      T+R=",sum(this%Tn)+sum(this%Rn)," M=",this%leads(leadID)%no_in_modes
     print*,"-----------------------------------------"
     endif
     ! Free memory
@@ -383,8 +382,6 @@ subroutine solve(this,leadID,Ef)
     deallocate(HBROWS)
 
 end subroutine solve
-
-
 
 
 endmodule modscatter
