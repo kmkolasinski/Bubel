@@ -45,8 +45,8 @@ win  = 25
 wout = 100
 
 
-QSYS_FORCE_SCHUR_DECOMPOSITION = .true.
-QSYS_USE_ZGGEV_TO_FIND_MODES = .true.
+!QSYS_FORCE_SCHUR_DECOMPOSITION = .true.
+!QSYS_USE_ZGGEV_TO_FIND_MODES   = .true.
 call read_config()
 allocate(Apot  (nx,ny,2)) ! components of A = {Ax(x,y),Ay(x,y)}
 allocate(Ugates(nx,ny))
@@ -67,35 +67,34 @@ call qt%calculate_modes(a_Ef)
 
 
 !! Save lattice to file to see if constructed system is OK!
-!call qt%save_system(output_folder//"system.xml")
+call qt%save_system(output_folder//"system.xml")
 
 QSYS_DEBUG_LEVEL = 0 ! See more
 open(unit=4321,file="T.txt")
 !write(4321,"(A)"),"#Vqpc1 [meV]     Bz [T]     Rqpc1      Tqpc2        Ttotal (fake if used pseudo transparent gates)"
 !do si_a3D = 0.0 , 1.0 , 0.01
 
-do xtip = 500.0 , 700.0 , 4.0
+!do xtip = 500.0 , 700.0 , 4.0
 
     call convert_units()
     call calc_vector_potential()
     call add_gates()
     call add_tip(xtip,400.0D0,50.0D0,50.0D0,1.5*a_EF)
 
-
     call qt%qsystem%update_lattice(c_matrix=coupling)
-!    call qt%calculate_modes(a_Ef)
+    call qt%calculate_modes(a_Ef)
     call qt%solve(1,a_Ef)
 
     print("(10e)"),si_Vqpc1,si_Bz,sum(qt%Rn(:)),qt%leads(1)%no_in_modes+0.0
     write(4321,"(10e)"),si_Vqpc1,si_Bz,xtip,sum(qt%Rn(:)),qt%leads(1)%no_in_modes+0.0
-enddo
+!enddo
 close(4321)
 
 ! Save calculated electron density to file
-!do i = 1 , size(qt%qauxvec)
-!    qt%qauxvec(i) = sum(qt%densities(:,i))
-!enddo
-!call qt%qsystem%save_data(output_folder//"densities.xml",array2d=qt%densities,array1d=qt%qauxvec)
+do i = 1 , size(qt%qauxvec)
+    qt%qauxvec(i) = sum(qt%densities(:,i))
+enddo
+call qt%qsystem%save_data(output_folder//"densities.xml",array2d=qt%densities,array1d=qt%qauxvec)
 ! Perform scan in function of Energy
 ! ----------------------------------------------------------
 ! X. Clean memory...
@@ -144,7 +143,7 @@ logical function coupling(atomA,atomB,coupling_mat)
     if( xdiff == 0 .and. ydiff == 0 ) then
         coupling      = .true.
         coupling_mat = (4*t0 + Ugates(ix,iy) )* MAT_DIAG+ &
-                    0.25*(a_Bx * MAT_SX + a_By * MAT_SY + a_Bz * MAT_SZ)
+                    0.25*G_LAN*(a_Bx * MAT_SX + a_By * MAT_SY + a_Bz * MAT_SZ)
     else if( abs(xdiff) ==  1 .and. ydiff == 0 ) then
         coupling = .true.
         coupling_mat = -t0*Cx*MAT_DIAG + II*tR*Cx*MAT_SY - II*tD*Cx*MAT_SX
@@ -179,8 +178,8 @@ do i = 1 , nx
 do j = 1 , ny
     bSkip = .false.
     call qt%qatom%init((/ (i-1) * dx , (j-1) * dx + (i-1) * dx * 0.0 , 0.0 * dx /),no_in_states=2)
-    if(i <     xin .and. abs(j-ny/2)  > win ) bSkip = .true.
-    if(i >= nx-xout .and. abs(j-ny/2) > wout ) bSkip = .true.
+    !if(i <     xin .and. abs(j-ny/2)  > win ) bSkip = .true.
+    !if(i >= nx-xout .and. abs(j-ny/2) > wout ) bSkip = .true.
 !    if(i == nx-xout-1 .and. j == 1 )  bSkip = .true.
 !    if(i == nx-xout-1 .and. j == ny ) bSkip = .true.
 !
@@ -208,16 +207,16 @@ call qt%add_lead(lead_shape,lead_translation_vec)
 !call lead_shape%init_rect(SHAPE_RECTANGLE_XY,(xin-1.5)*dx,(-2.5+nx-xout)*dx,(-0.5)*dx,(+0.5)*dx)
 call lead_shape%init_rect(SHAPE_RECTANGLE_XY,(xin-1.5)*dx,(-2.5+nx)*dx,(-0.5)*dx,(+0.5)*dx)
 lead_translation_vec = (/  0.0D0, dx , 0.0D0 /)
-call qt%add_lead(lead_shape,lead_translation_vec)
-qt%leads(2)%lead_type         = QSYS_LEAD_TYPE_PSEUDO_TRANSPARENT
-qt%leads(2)%pseudo_lead_phase = exp(II*sqrt(2*a_Ef*M_EFF)*a_DX)
+!call qt%add_lead(lead_shape,lead_translation_vec)
+!qt%leads(2)%lead_type         = QSYS_LEAD_TYPE_PSEUDO_TRANSPARENT
+!qt%leads(2)%pseudo_lead_phase = exp(II*sqrt(2*a_Ef*M_EFF)*a_DX)
 
 call lead_shape%init_rect(SHAPE_RECTANGLE_XY,(xin-1.5)*dx,(-2.5+nx)*dx,(ny-1.5)*dx,(ny-0.5)*dx)
 !call lead_shape%init_rect(SHAPE_RECTANGLE_XY,(xin-1.5)*dx,(-2.5+nx-xout)*dx,(ny-1.5)*dx,(ny-0.5)*dx)
 lead_translation_vec = (/  0.0D0, -dx , 0.0D0 /)
-call qt%add_lead(lead_shape,lead_translation_vec)
-qt%leads(3)%lead_type         = QSYS_LEAD_TYPE_PSEUDO_TRANSPARENT
-qt%leads(3)%pseudo_lead_phase = exp(II*sqrt(2*a_Ef*M_EFF)*a_DX)
+!call qt%add_lead(lead_shape,lead_translation_vec)
+!qt%leads(3)%lead_type         = QSYS_LEAD_TYPE_PSEUDO_TRANSPARENT
+!qt%leads(3)%pseudo_lead_phase = exp(II*sqrt(2*a_Ef*M_EFF)*a_DX)
 
 call lead_shape%init_rect(SHAPE_RECTANGLE_XY,(nx-xout-2.5)*dx,(-1.5+nx-xout)*dx,(0.5)*dx,(ny/2-wout-1.5)*dx)
 lead_translation_vec = (/  -dx , 0.0D0 , 0.0D0 /)
@@ -252,8 +251,8 @@ subroutine add_gates()
         x = dx * i
         y = dx * j
         Ugates(i,j) = &
-                    + finite_rect(x,y,(xin-qpcw/2.0-qpcw/2.0)*dx,(xin+qpcw/2.0-qpcw/2.0)*dx,-100*dx,(ny/2-15)*dx,90.0D0,a_Vqpc1) &
-                    + finite_rect(x,y,(xin-qpcw/2.0-qpcw/2.0)*dx,(xin+qpcw/2.0-qpcw/2.0)*dx,(ny/2+15)*dx,(ny+100)*dx,90.0D0,a_Vqpc1)
+                    + finite_rect(x,y,(xin-qpcw/2.0-qpcw/2.0)*dx,(xin+qpcw/2.0-qpcw/2.0)*dx,-100*dx,(ny/2-15)*dx,10.0D0,a_Vqpc1) &
+                    + finite_rect(x,y,(xin-qpcw/2.0-qpcw/2.0)*dx,(xin+qpcw/2.0-qpcw/2.0)*dx,(ny/2+15)*dx,(ny+100)*dx,10.0D0,a_Vqpc1)
 !        write(444,*),i,j,Ugates(i,j)*E0*1000.0
     enddo
 !        write(444,*),""
