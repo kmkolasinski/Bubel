@@ -36,6 +36,7 @@ integer                    :: i,j,k
 integer                    :: xin,xout,win,wout,qpcw
 integer                    :: DETECTOR_ID
 doubleprecision            :: lead_translation_vec(3),dx,xtip
+doubleprecision,allocatable:: spins(:,:),spinsIN(:,:),spinsOUT(:,:)
 character(300) :: line
 
 ! system definition 'hardcoded'
@@ -53,18 +54,40 @@ allocate(Ugates(nx,ny))
 Apot = 0
 dx   = si_dx
 qpcw = 100.0/dx
+
+QSYS_DEBUG_LEVEL = 1
 call convert_units()
 call qt%init_system()
 call calc_vector_potential()
 call add_gates()
 call create_system()
 
-call qt%calculate_modes(a_Ef)
+!call qt%calculate_modes(a_Ef)
 
-!a_Emin =-0.01 / E0 / 1000.0 ! converting from [meV] to atomic units
-!a_Emax =1000.00 / E0 / 1000.0
-!call qt%leads(1)%bands(output_folder//"bands.dat",-M_PI,+M_PI,M_PI/100.0,a_Emin,a_Emax)
+!call qt%save_system(output_folder//"system.xml")
+a_Emin = -100.01 / E0 / 1000.0 ! converting from [meV] to atomic units
+a_Emax = 1000.00 / E0 / 1000.0
+call qt%leads(1)%bands(output_folder//"bands.dat",-M_PI/5,+M_PI/5,M_PI/200.0,a_Emin,a_Emax)
 
+open(unit=333,file=output_folder//"polarizations.dat")
+do si_Ef = 0.0 , 7.0 , 0.1
+    call convert_units()
+    call qt%leads(1)%calculate_modes(a_Ef)
+    call qt%leads(1)%calc_average_spins(1,spinsIN)
+    call qt%leads(1)%calc_average_spins(2,spinsOUT)
+    allocate(spins(size(spinsIN,1)+size(spinsOUT,1),3))
+    spins(1:qt%leads(1)%no_in_modes,:) = spinsIN
+    spins(1+qt%leads(1)%no_in_modes:size(spins,1),:) = spinsOUT
+    print*,shape(spinsIN)
+    write(333,"(200e)"),qt%leads(1)%no_in_modes+qt%leads(1)%no_out_modes+0.0,si_Ef,&
+                DBLE(log(qt%leads(1)%lambdas(1,1:qt%leads(1)%no_in_modes))/II),&
+                DBLE(log(qt%leads(1)%lambdas(2,1:qt%leads(1)%no_out_modes))/II),spins(:,1:3)
+    deallocate(spins)
+enddo
+close(333)
+
+
+stop
 
 !! Save lattice to file to see if constructed system is OK!
 call qt%save_system(output_folder//"system.xml")
@@ -162,7 +185,7 @@ subroutine calc_vector_potential()
     do j = 1 , ny
         x = a_DX * i
         y = a_DX * j
-        Apot(i,j,1) = -a_Bz*y
+        Apot(i,j,1) = -a_Bz*(y-ny*a_DX/2)
     enddo
     enddo
 end subroutine calc_vector_potential

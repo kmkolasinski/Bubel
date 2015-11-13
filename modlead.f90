@@ -80,6 +80,7 @@ type qlead
     procedure,pass(this) :: calculate_modes!(this,Ef)
     procedure,pass(this) :: calculate_Tnm!(this,all_atoms,n,phi)
     procedure,pass(this) :: diagonalize_currents!(this,all_atoms,n,phi)
+    procedure,pass(this) :: calc_average_spins !(this,dir,spins) - calculate averago polariaztions in XYZ for systems with s=1/2
 
 endtype qlead
 
@@ -1494,6 +1495,13 @@ subroutine calculate_Tnm(this,all_atoms,phi,inputmode)
     deallocate(leadPhi)
 endsubroutine calculate_Tnm
 
+! ------------------------------------------------------------------------
+! Calculate flux current for a givem mode c with lambda using the fact
+! that the coupling matrix is usually sparse. Performs sparse multiplication.
+! Returns the value of the current carried by this mode.
+! The current is calculated with general formula:
+! j =  - 2 * Imag( lambda c(:)^dag * Tau * c(:) )
+! ------------------------------------------------------------------------
 doubleprecision function mode_current_sparse(c,lambda,svals,rowcols,nvals)
 
     complex*16 , dimension(:)   :: c
@@ -1512,7 +1520,9 @@ doubleprecision function mode_current_sparse(c,lambda,svals,rowcols,nvals)
     mode_current_sparse = -2 * IMAG(lambda*current)
 end function mode_current_sparse
 
-
+! ------------------------------------------------------------------------
+! Sort propagating modes in ascending order of the current amplitude
+! ------------------------------------------------------------------------
 subroutine sort_modes(N,vectors,lambdas,currents,bInverse)
     complex*16,dimension(:,:) :: vectors
     complex*16,dimension(:)   :: lambdas
@@ -1566,6 +1576,9 @@ subroutine sort_modes(N,vectors,lambdas,currents,bInverse)
     deallocate(tmpvec)
 end subroutine sort_modes
 
+! ------------------------------------------------------------------------
+! Save lead data for further debuging with the Viewer.
+! ------------------------------------------------------------------------
 subroutine save_lead(this,filename,ofunit)
     class(qlead) :: this
     character(*) :: filename
@@ -1577,7 +1590,6 @@ subroutine save_lead(this,filename,ofunit)
     doubleprecision :: max_abs_matrix_element,normalized_value
     doubleprecision :: CUTOFF_LEVEL
 
-
     CUTOFF_LEVEL = 1.0D-10
     print*,"SYS::LEAD::Writing lead data to file:",filename
 
@@ -1587,7 +1599,6 @@ subroutine save_lead(this,filename,ofunit)
     else
         open(unit=funit,file=filename)
     endif
-
 
     write(funit,"(A)"),"<lead>"
     call this%lead_shape%flush_shape_data_to_file(funit)
@@ -1669,7 +1680,10 @@ subroutine save_lead(this,filename,ofunit)
 
 
 endsubroutine save_lead
-
+! -------------------------------------------------
+! Diagonalize current operator for degenerate states
+! for more details see Micheal Wimmer book.
+! -------------------------------------------------
 subroutine diagonalize_currents(this,mdir,ifrom,ito)
     class(qlead) :: this
 
@@ -1740,14 +1754,80 @@ subroutine diagonalize_currents(this,mdir,ifrom,ito)
 
 end subroutine diagonalize_currents
 
-subroutine modes_average_spins(this,all_atoms,spins)
+
+
+! ------------------------------------------------------------------------
+! Calculate average spins for incoming modes. This function can be
+! used for modes with two orbitals per atom, other wise it will not work,
+! since Paulli matrices are involved here.
+! dir - M_IN=1 or M_OUT=2 - determine the input or output propagating modes
+! spins(no_incoming_modes,{1-x,2-y,3-z}) returns the values of spin
+!       polarization for {x,y,z} directions.
+! ------------------------------------------------------------------------
+subroutine calc_average_spins(this,dir,spins)
     class(qlead) :: this
-    type(qatom),dimension(:) :: all_atoms
+    integer :: dir
     doubleprecision,allocatable :: spins(:,:)
+    ! local variables
+    complex*16,allocatable :: Chi_up(:),Chi_down(:)
+    complex*16 :: YA,YB
+    integer :: no_modes,i,m,spin,iter1,iter2
+
+    print*,"SYS::LEAD::Calculation of the average spin polarization"
+
+    if(dir == M_IN ) no_modes = this%no_in_modes
+    if(dir == M_OUT) no_modes = this%no_out_modes
 
 
 
-end subroutine modes_average_spins
+    if(allocated(spins)) deallocate(spins)
+    allocate(spins   (no_modes,3)) ! (modes,{x,y,z})
+    allocate(Chi_up  (this%no_sites))
+    allocate(Chi_down(this%no_sites))
+
+    do m = 1 , no_modes
+        Chi_up    = 0
+        Chi_down  = 0
+        iter1     = 0
+        iter2     = 0
+        do i = 1, this%no_sites
+            spin = this%l2g(i,2)
+            ! Filling the spinors
+            if(spin == 1) then ! up
+                iter1 = iter1 + 1
+                Chi_up  (iter1) = this%modes(dir,m,i)
+            else if(spin == 2) then ! down
+                iter2 = iter2 + 1
+                Chi_down(iter2) = this%modes(dir,m,i)
+            else if(spin > 2) then ! not supported
+                print*,"SYS::LEAD::Calc_average_spin works only with the systems with the s=1/2."
+                print*,"           So it cannot be used for systems with s>1/2. Finded spin states:",spin
+                stop -1
+            endif
+        enddo ! end of loop over sites in the lead
+
+
+            ! Direction Z
+            YA = sum(abs(Chi_up)**2)
+            YB = sum(abs(Chi_down)**2)
+            spins(m,3) = (YA-YB)/(YA+YB) ! kierunek z
+
+            ! Direction X
+            YA = sum(abs(Chi_up+Chi_down)**2) ! up
+            YB = sum(abs(Chi_up-Chi_down)**2) ! down
+            spins(m,1) = (YA-YB)/(YA+YB) ! kierunek x
+
+            ! Direction Y
+            YA = sum(abs(Chi_up+II*Chi_down)**2)
+            YB = sum(abs(Chi_up-II*Chi_down)**2)
+            spins(m,2) = (YA-YB)/(YA+YB) ! kierunek y
+
+    enddo
+
+
+
+    deallocate(Chi_up,Chi_down)
+end subroutine calc_average_spins
 
 subroutine inverse_matrix(N,A)
   integer :: N
