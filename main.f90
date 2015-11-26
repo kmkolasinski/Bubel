@@ -35,7 +35,7 @@ integer                    :: ny = 100
 integer                    :: i,j,k
 integer                    :: xin,xout,win,wout,qpcw
 integer                    :: DETECTOR_ID
-doubleprecision            :: lead_translation_vec(3),dx,xtip
+doubleprecision            :: lead_translation_vec(3),dx,xtip,x,xh
 doubleprecision,allocatable:: spins(:,:),spinsIN(:,:),spinsOUT(:,:)
 character(300) :: line
 
@@ -64,30 +64,30 @@ call create_system()
 
 !call qt%calculate_modes(a_Ef)
 
-!call qt%save_system(output_folder//"system.xml")
+!!call qt%save_system(output_folder//"system.xml")
 a_Emin = -100.01 / E0 / 1000.0 ! converting from [meV] to atomic units
 a_Emax = 1000.00 / E0 / 1000.0
-call qt%leads(1)%bands(output_folder//"bands.dat",-M_PI/5,+M_PI/5,M_PI/200.0,a_Emin,a_Emax)
-
-open(unit=333,file=output_folder//"polarizations.dat")
-do si_Ef = 0.0 , 7.0 , 0.1
-    call convert_units()
-    call qt%leads(1)%calculate_modes(a_Ef)
-    call qt%leads(1)%calc_average_spins(1,spinsIN)
-    call qt%leads(1)%calc_average_spins(2,spinsOUT)
-    allocate(spins(size(spinsIN,1)+size(spinsOUT,1),3))
-    spins(1:qt%leads(1)%no_in_modes,:) = spinsIN
-    spins(1+qt%leads(1)%no_in_modes:size(spins,1),:) = spinsOUT
-    print*,shape(spinsIN)
-    write(333,"(200e)"),qt%leads(1)%no_in_modes+qt%leads(1)%no_out_modes+0.0,si_Ef,&
-                DBLE(log(qt%leads(1)%lambdas(1,1:qt%leads(1)%no_in_modes))/II),&
-                DBLE(log(qt%leads(1)%lambdas(2,1:qt%leads(1)%no_out_modes))/II),spins(:,1:3)
-    deallocate(spins)
-enddo
-close(333)
-
-
-stop
+call qt%leads(1)%bands(output_folder//"bands.dat",-M_PI,+M_PI,M_PI/200.0,a_Emin,a_Emax)
+!
+!open(unit=333,file=output_folder//"polarizations.dat")
+!do si_Ef = 0.0 , 7.0 , 0.1
+!    call convert_units()
+!    call qt%leads(1)%calculate_modes(a_Ef)
+!    call qt%leads(1)%calc_average_spins(1,spinsIN)
+!    call qt%leads(1)%calc_average_spins(2,spinsOUT)
+!    allocate(spins(size(spinsIN,1)+size(spinsOUT,1),3))
+!    spins(1:qt%leads(1)%no_in_modes,:) = spinsIN
+!    spins(1+qt%leads(1)%no_in_modes:size(spins,1),:) = spinsOUT
+!    print*,shape(spinsIN)
+!    write(333,"(200e)"),qt%leads(1)%no_in_modes+qt%leads(1)%no_out_modes+0.0,si_Ef,&
+!                DBLE(log(qt%leads(1)%lambdas(1,1:qt%leads(1)%no_in_modes))/II),&
+!                DBLE(log(qt%leads(1)%lambdas(2,1:qt%leads(1)%no_out_modes))/II),spins(:,1:3)
+!    deallocate(spins)
+!enddo
+!close(333)
+!
+!
+!stop
 
 !! Save lattice to file to see if constructed system is OK!
 call qt%save_system(output_folder//"system.xml")
@@ -97,20 +97,23 @@ open(unit=4321,file="T.txt")
 !write(4321,"(A)"),"#Vqpc1 [meV]     Bz [T]     Rqpc1      Tqpc2        Ttotal (fake if used pseudo transparent gates)"
 !do si_a3D = 0.0 , 1.0 , 0.01
 
-!do xtip = 500.0 , 700.0 , 4.0
+!do i = 1 , nx
+!    x  = i*dx
+!    xh = (nx/2)*dx
+!    write(543,*),x,1/(exp(-1.1*(x-xh))+1)
+!enddo
+
+do si_Ef = .9 , 1.5 , 0.0025
 
     call convert_units()
     call calc_vector_potential()
-    call add_gates()
-    call add_tip(xtip,400.0D0,50.0D0,50.0D0,1.5*a_EF)
-
     call qt%qsystem%update_lattice(c_matrix=coupling)
     call qt%calculate_modes(a_Ef)
     call qt%solve(1,a_Ef)
 
-    print("(10e)"),si_Vqpc1,si_Bz,sum(qt%Rn(:)),qt%leads(1)%no_in_modes+0.0
-    write(4321,"(10e)"),si_Vqpc1,si_Bz,xtip,sum(qt%Rn(:)),qt%leads(1)%no_in_modes+0.0
-!enddo
+    print("(10f)"),si_Ef,sum(qt%Tn(:)),sum(qt%Rn(:)),qt%leads(1)%no_in_modes+0.0
+    write(4321,"(10e)"),si_Ef,sum(qt%Tn(:)),sum(qt%Rn(:)),qt%leads(1)%no_in_modes+0.0
+enddo
 close(4321)
 
 ! Save calculated electron density to file
@@ -145,6 +148,7 @@ logical function coupling(atomA,atomB,coupling_mat)
     ! local variables
     integer         :: xdiff,ydiff,ix,iy
     doubleprecision :: dydiff,dxdiff,y
+    doubleprecision :: omega
     complex*16      :: Cx,Cy
 
     ! Calculate distance between atoms in units of dx.
@@ -162,6 +166,15 @@ logical function coupling(atomA,atomB,coupling_mat)
 
     Cx = EXP(II*a_DX*Apot(ix,iy,1))
     Cy = EXP(II*a_DX*Apot(ix,iy,2))
+
+
+    x  = ix*dx
+    xh = (nx/2)*dx
+
+    omega = 1/(exp(-0.1*(x-xh))+1)
+
+    tR = a_Rsb/(2.0*a_DX) * omega
+    tD = a_Drs/(2.0*a_DX) * (1-omega)
 
     if( xdiff == 0 .and. ydiff == 0 ) then
         coupling      = .true.

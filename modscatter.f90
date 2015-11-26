@@ -286,12 +286,19 @@ subroutine solve(this,leadID,Ef)
     allocate(this%Tn(this%leads(leadID)%no_in_modes))
     allocate(this%Rn(this%leads(leadID)%no_in_modes))
 
-    allocate(phi(this%NO_VARIABLES))
-    allocate(HBROWS(this%NO_VARIABLES+1))
 
     this%densities = 0
     this%Tn        = 0
     this%Rn        = 0
+
+
+    ! Skip calculation for case when there is no modes in the input lead
+    if(this%leads(leadID)%no_out_modes == 0 ) return;
+
+
+    allocate(phi(this%NO_VARIABLES))
+    allocate(HBROWS(this%NO_VARIABLES+1))
+
 
     call convert_to_HB(this%NO_NON_ZERO_VALUES,this%ROWCOLID,this%MATHVALS,HBROWS)
 
@@ -352,12 +359,12 @@ subroutine solve(this,leadID,Ef)
         ! Skip tranmission from input lead
         if( i /= leadID) then
             call this%leads(i)%calculate_Tnm(this%qsystem%atoms,phi)
-            total_Tn = total_Tn + this%leads(i)%Tnm(1,1)
-            this%leads(i)%totalT = this%leads(i)%totalT + this%leads(i)%Tnm(1,1)
+            total_Tn = total_Tn  + this%leads(i)%totalT
+            this%leads(i)%totalT = this%leads(i)%totalT + this%leads(i)%totalT
         else
             call this%leads(i)%calculate_Tnm(this%qsystem%atoms,phi,modin)
-            total_Rn = total_Rn + this%leads(i)%Tnm(1,1)
-            this%leads(i)%totalT = this%leads(i)%totalT + this%leads(i)%Tnm(1,1)
+            total_Rn = total_Rn  + this%leads(i)%totalT
+            this%leads(i)%totalT = this%leads(i)%totalT + this%leads(i)%totalT
         endif
     enddo
     this%Tn(modin) = total_Tn

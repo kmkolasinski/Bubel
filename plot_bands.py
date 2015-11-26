@@ -14,7 +14,7 @@ data = np.loadtxt(file)
 no_lines = np.size(data[0,:])
 x = data[:,0]
 for i in range(no_lines-1):
-    plt.plot(x,data[:,i+1],c='k',ls='-')     
+    plt.plot(x,data[:,i+1]*27211.384523,c='k',ls='-')     
     
 x = np.array(x)
 #plt.plot(x,0.2+x*0)    

@@ -1489,9 +1489,8 @@ subroutine calculate_Tnm(this,all_atoms,phi,inputmode)
         deallocate(tmpVec)
     endif
 
-    tmpT = sum(this%Tnm(:,1))
-    this%Tnm(1,1) = tmpT
-
+    this%totalT = 0
+    if(this%no_out_modes > 0) this%totalT = sum(this%Tnm(:,1))
     deallocate(leadPhi)
 endsubroutine calculate_Tnm
 
