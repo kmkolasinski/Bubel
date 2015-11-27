@@ -48,7 +48,9 @@ type qlead
     integer :: no_out_em
     integer :: lead_type
     complex*16      :: pseudo_lead_phase
-    doubleprecision :: totalT ! total transmission as a sum for different incoming modes
+    doubleprecision :: modeT  ! total transmission for a given incoming mode
+    doubleprecision :: totalT ! total transmission summed over all incoming modes. For input lead this variable
+                              ! contains the reflection probability
     ! ----------------------------------------------------------------------
     ! Modes parameters:
     ! According to this paper:http://www.psi-k.org/newsletters/News_80/Highlight_80.pdf
@@ -1489,8 +1491,8 @@ subroutine calculate_Tnm(this,all_atoms,phi,inputmode)
         deallocate(tmpVec)
     endif
 
-    this%totalT = 0
-    if(this%no_out_modes > 0) this%totalT = sum(this%Tnm(:,1))
+    this%modeT = 0
+    if(this%no_out_modes > 0) this%modeT = sum(this%Tnm(:,1))
     deallocate(leadPhi)
 endsubroutine calculate_Tnm
 

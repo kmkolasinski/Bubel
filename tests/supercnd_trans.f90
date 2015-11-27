@@ -14,7 +14,7 @@ use modscatter   ! eigen values and transport
 use modshape
 use modsys
 implicit none
-character(*),parameter :: output_folder = "./"
+character(*),parameter :: output_folder = "supercnd_trans_output/"
 type(qscatter)             :: qt
 type(qshape)               :: lead_shape
 type(qsys)                 :: lead_e,lead_h ! storage for atoms in the electron and hole leads

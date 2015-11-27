@@ -5,6 +5,7 @@ all: build_simple_sqlat \
 	 build_carbon_nanotube \
 	 build_strange_graphene \
 	 build_superconductor \
+	 build_supercnd_trans \
 	 build_simple_galerkin1d
 
 run:
@@ -40,6 +41,9 @@ build_strange_graphene:
 
 build_superconductor:
 	make superconductor C=$(COMPILATION_TYPE) P=superconductor
+
+build_supercnd_trans:
+	make supercnd_trans C=$(COMPILATION_TYPE) P=supercnd_trans
 
 build_simple_galerkin1d:
 	make simple_galerkin1d C=$(COMPILATION_TYPE) P=simple_galerkin1d
@@ -134,4 +138,5 @@ clean:
 		  rashba_2deg \
 		  strange_graphene \
 		  superconductor \
+		  supercnd_trans \
 		  simple_galerkin1d 2> /dev/null

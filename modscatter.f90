@@ -355,18 +355,18 @@ subroutine solve(this,leadID,Ef)
     total_Tn = 0
     total_Rn = 0
     do i = 1 , this%no_leads
-
         ! Skip tranmission from input lead
         if( i /= leadID) then
             call this%leads(i)%calculate_Tnm(this%qsystem%atoms,phi)
-            total_Tn = total_Tn  + this%leads(i)%totalT
-            this%leads(i)%totalT = this%leads(i)%totalT + this%leads(i)%totalT
+            total_Tn = total_Tn  + this%leads(i)%modeT
         else
             call this%leads(i)%calculate_Tnm(this%qsystem%atoms,phi,modin)
-            total_Rn = total_Rn  + this%leads(i)%totalT
-            this%leads(i)%totalT = this%leads(i)%totalT + this%leads(i)%totalT
+            total_Rn = total_Rn  + this%leads(i)%modeT
         endif
+        this%leads(i)%totalT = this%leads(i)%totalT + this%leads(i)%modeT
     enddo
+
+
     this%Tn(modin) = total_Tn
     this%Rn(modin) = total_Rn
 
