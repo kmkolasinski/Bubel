@@ -1236,9 +1236,14 @@ end subroutine calc_eigenproblem
 
 
 ! ------------------------------------------------------------------------
-! Solve eigen problem for generated lattice. Eigen values and eigen vectors
-! are saved to sys%eigenvals and sys%eigenvecs arrays.
+! Solve sparse system of linear equations based on created system.
 ! Params:
+! dvec,zvec [optional] - vector b of size of number of variables: Ax=b
+!           dvec - double precision vector
+!           zvec - complex vector
+! calc_step [def=4,optional] - divide solver on steps. 1 - factorize, 2- solve, 3-free memory, 4-all steps
+! pardiso_mtype [optional] - default QSYS_LINSYS_PARDISO_REAL_NON_SYM for real numbers,
+!           and QSYS_LINSYS_PARDISO_CMPLX_NON_SYM for complex numbers. This is used when PARDISO solver is used.
 ! ------------------------------------------------------------------------
 subroutine calc_linsys(sys,dvec,zvec,calc_step,pardiso_mtype)
     class(qsys) :: sys
