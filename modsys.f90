@@ -11,6 +11,7 @@
 module modsys
 use modcommons
 use modutils
+use modalgs
 implicit none
 interface
     logical function func_simple(atomA,atomB,coupling_val)
@@ -61,6 +62,7 @@ type qsys
     procedure, public, pass(sys) :: save_lattice!(filename,innerA,innerB)
     procedure, public, pass(sys) :: save_data!(filename,array2d,array1d,ofunit)
     procedure, public, pass(sys) :: calc_eigenproblem!(sys,pEmin,pEmax,NoStates,no_feast_contours,print_info,pmaks_iter)
+    procedure, public, pass(sys) :: calc_linsys!(sys,dvec,zvec,calc_step,pardiso_mtype)
 
 
 endtype qsys
@@ -1234,297 +1236,198 @@ end subroutine calc_eigenproblem
 
 
 ! ------------------------------------------------------------------------
-!                             Helper functions
+! Solve eigen problem for generated lattice. Eigen values and eigen vectors
+! are saved to sys%eigenvals and sys%eigenvecs arrays.
+! Params:
 ! ------------------------------------------------------------------------
+subroutine calc_linsys(sys,dvec,zvec,calc_step,pardiso_mtype)
+    class(qsys) :: sys
+    doubleprecision,optional,dimension(:),intent(inout) :: dvec
+    complex*16,optional,dimension(:),intent(inout)      :: zvec
+
+    integer,optional :: calc_step, pardiso_mtype
+
+    integer :: step,mtype
+
+    integer,save :: NO_NON_ZERO_VALUES , NO_VARIABLES
+    integer :: i,j,itmp,ns1,ns2,s1,s2,ta
+
+    logical :: bUseComplex,bTestVecSize
+
+    doubleprecision :: time_start,timer_factorization
+
+    complex*16     ,dimension(:)  , allocatable,save  :: ZMATHVALS
+    doubleprecision,dimension(:)  , allocatable,save  :: DMATHVALS
+    integer   ,dimension(:,:), allocatable,save       :: ROWCOLID
+    integer,allocatable,save                          :: HBROWS(:)
+
+    if( .not. present(dvec) .and. .not. present(zvec) ) then
+        print*,"SYS::Linear system solver cannot be initialized, vector b is not defined in the calc_linsys call"
+        return
+    endif
+
+    ! Choose type of numerics
+    bUseComplex = .false.
+    bTestVecSize= .true.
+    if(present( zvec )) bUseComplex = .true.
+
+    step = QSYS_LINSYS_ALL_STEPS
+    if(present(calc_step)) step = calc_step
+
+    mtype = QSYS_LINSYS_PARDISO_REAL_NON_SYM
+    if(bUseComplex) then
+        mtype = QSYS_LINSYS_PARDISO_CMPLX_NON_SYM
+    endif
+    if(present(pardiso_mtype)) mtype = pardiso_mtype
+
+    if(bUseComplex) then
+        if(size(zvec) /= sys%system_size ) bTestVecSize = .false.
+        ta = size(zvec)
+    else
+        if(size(dvec) /= sys%system_size ) bTestVecSize = .false.
+        ta = size(dvec)
+    endif
+
+    if(.not. bTestVecSize) then
+        print*,"SYS::The size of the vector b in linear solver is different than number of variables."
+        print*,"     System cannot be solved."
+        print*,"     Num. variables:",sys%system_size
+        print*,"     Vector b size :",ta
+        return
+    endif
+
+    time_start = get_clock()
 
 
-! Conversion from row-col-value sparse matrix storage to
-! HB compressed format.
-subroutine convert_to_HB(no_vals,rows_cols,matA,out_rows)
-      integer,intent(in)                  :: no_vals
-      integer   ,intent(inout),dimension(:,:) :: rows_cols
-      complex*16,intent(inout),dimension(:) :: matA
-      integer,intent(inout),dimension(:)   :: out_rows
-      integer :: iterator, irow ,  from , to
-      integer :: i, n , j
+    if(step == QSYS_LINSYS_STEP_FACTORIZE .or. step == QSYS_LINSYS_ALL_STEPS) then
+    ! Calculate the number of non-zero elements in matrix
+    itmp = 0
+    do i = 1, sys%no_atoms
+        if(sys%atoms(i)%bActive) then
+            do j = 1, sys%atoms(i)%no_bonds
+                ns1 = size(sys%atoms(i)%bonds(j)%bondMatrix,1)
+                ns2 = size(sys%atoms(i)%bonds(j)%bondMatrix,2)
+                itmp = itmp + ns1*ns2
+            enddo
+        endif
+    enddo
+    NO_NON_ZERO_VALUES = itmp
+    ! The number of unknows is taken from the last global index
+    NO_VARIABLES       = sys%system_size
 
-      n        = no_vals
-      iterator = 0
-      irow     = 0
-      do i = 1 , n
-          if( rows_cols(i,1) /= irow ) then
-            iterator = iterator + 1
-            out_rows(iterator) = i
-            irow = rows_cols(i,1)
-          endif
-      enddo
-      out_rows(iterator+1) = n + 1
+    if(QSYS_DEBUG_LEVEL > 0) then
+        print*,"SYS::Solving system of linear equations"
+    endif
 
-
-!DEC$ IF DEFINED  (USE_UMF_PACK)
-  irow = size(out_rows)-1
-    ! sortowanie  kolumn
-  do i = 1 , irow
-  from = out_rows(i)
-  to   = out_rows(i+1)-1
-      call sort_col_vals(rows_cols(from:to,2),matA(from:to))
-  enddo
-
-  ! przesuwanie indeksow do zera
-  out_rows       = out_rows -1
-  rows_cols(:,2) = rows_cols(:,2) -1
-!DEC$ ENDIF
-
-!DEC$ IF DEFINED  (USE_PARDISO)
-  irow = size(out_rows)-1
-  do i = 1 , irow
-      from = out_rows(i)
-      to   = out_rows(i+1)-1
-      call sort_col_vals(rows_cols(from:to,2),matA(from:to))
-  enddo
-!DEC$ ENDIF
-end subroutine convert_to_HB
-
-subroutine sort_col_vals(cols,vals)
-        integer,intent(inout),dimension(:)    :: cols
-        complex*16,intent(inout),dimension(:) :: vals
-        integer :: tmp_col
-        complex*16 :: tmp_val
-        integer :: i  , n
-        logical :: test
-        n = size(cols)
-
-        test = .true.
-
-        ! sortowanie bombelkowe
-        do while(test)
-          test = .false.
-          do i = 1 , n-1
-            if( cols(i) > cols(i+1)  ) then
-            tmp_col   = cols(i)
-            cols(i)   = cols(i+1)
-            cols(i+1) = tmp_col
-
-            tmp_val   = vals(i)
-            vals(i)   = vals(i+1)
-            vals(i+1) = tmp_val
-
-            test = .true.
-            exit
-            endif
-          enddo
-        enddo
-end subroutine sort_col_vals
-
-
-  subroutine solve_SSOLEQ(no_rows,no_vals,colptr,rowind,values,b,iopt)
-        use modutils
-        implicit none
-        integer,intent(in)                 :: no_rows
-        integer,intent(in)                 :: no_vals
-        integer,intent(in),dimension(:)    :: colptr,rowind
-        complex*16,intent(in),dimension(:) :: values
-        complex*16,intent(inout),dimension(:) :: b
-        integer :: iopt
-        integer n, nnz, nrhs, ldb
-
-        integer, save    ::  info = 0
-        integer*8 , save :: factors = 0
-
-        doubleprecision,save :: total_time
-!DEC$ IF DEFINED  (USE_UMF_PACK)
-        ! UMFPACK constants
-        type(c_ptr),save :: symbolic,numeric
-        ! zero-based arrays
-        real(8),save :: control(0:UMFPACK_CONTROL-1),umf_info(0:UMFPACK_INFO-1)
-        complex*16,allocatable,dimension(:),save :: b_sol
-
-!DEC$ ENDIF
-
-!DEC$ IF DEFINED  (USE_PARDISO)
-
-        INTEGER*8,save  :: pt(64)
-        INTEGER,save    :: phase
-        INTEGER,save    :: maxfct, mnum, mtype, error, msglvl
-        INTEGER,save    :: iparm(64)
-        complex*16,allocatable,dimension(:),save :: b_sol
-
-        INTEGER    ,save::  idum(1)
-        COMPLEX*16 ,save::  ddum(1)
-
-!DEC$ ENDIF
-
-        n    = no_rows
-        nnz  = no_vals
-        ldb  = n
-        nrhs = 1
-
-
-!DEC$ IF DEFINED  (USE_UMF_PACK)
-      selectcase (iopt)
-      case (1)
-            total_time = get_clock();
-            allocate(b_sol(size(b)))
-
-            call umf4cdef (control)
-            call umf4csym (n,n, rowind, colptr, values, symbolic, control, umf_info)
-            call umf4cnum (rowind, colptr, values, symbolic, numeric, control, umf_info)
-            call umf4cfsym (symbolic)
-            !total_time =  umf_info(UMFPACK_NUMERIC_TIME)+umf_info(UMFPACK_SYMBOLIC_TIME)
-            if (umf_info(UMFPACK_STATUS) .eq. 0) then
-                if(TRANS_DEBUG) then
-                     write (*,*) 'Factorization succeeded. Mem needed:', umf_info(UMFPACK_PEAK_MEMORY)/8.0/1024/1024 , "[MB]"
-                endif
+    allocate(ROWCOLID(NO_NON_ZERO_VALUES,2))
+    if(bUseComplex) then
+        allocate(ZMATHVALS(NO_NON_ZERO_VALUES))
+    else
+        allocate(DMATHVALS(NO_NON_ZERO_VALUES))
+    endif
+    ! Filling matrix and row-col array
+    itmp = 0
+    do i = 1 ,  sys%no_atoms
+        if(sys%atoms(i)%bActive) then
+        ns1   = sys%atoms(i)%no_in_states
+        do s1 = 1 , ns1
+        do j  = 1, sys%atoms(i)%no_bonds
+        ns2 = size(sys%atoms(i)%bonds(j)%bondMatrix,2)
+        do s2 = 1 , ns2
+            itmp = itmp + 1
+            if(bUseComplex) then
+                ZMATHVALS(itmp) = sys%atoms(i)%bonds(j)%bondMatrix(s1,s2)
             else
-                 write(*,*) 'SYS::UMF ERROR:: INFO from factorization step:', umf_info(UMFPACK_STATUS)
+                DMATHVALS(itmp) = DBLE(sys%atoms(i)%bonds(j)%bondMatrix(s1,s2))
             endif
-
-      case(2)
-            b_sol = 0
-            call umf4csolr (UMFPACK_Aat, rowind, colptr, values, b_sol, b, numeric, control, umf_info)
-            b  = b_sol;
-
-            if (umf_info(UMFPACK_STATUS) .eq. 0) then
-                if(TRANS_DEBUG) then
-                    write (*,*) 'Solve succeeded. Time needed:',umf_info(UMFPACK_SOLVE_WALLTIME)
-                endif
-            else
-                 write(*,*) 'SYS::UMF ERROR: INFO from solve:', umf_info(UMFPACK_STATUS)
-            endif
-
-      case(3)
-            print*,"UMFPACK Solved:"
-            print*,"Solve time needed:",get_clock()-total_time,"[s]"
-            call umf4cfnum (numeric)
-            deallocate(b_sol)
-      endselect
-
-!DEC$ ELSE IF DEFINED  (USE_PARDISO)
+            ROWCOLID(itmp,1) = sys%atoms(i)%globalIDs(s1)
+            ta = sys%atoms(i)%bonds(j)%toAtomID
+            ROWCOLID(itmp,2) = sys%atoms(ta)%globalIDs(s2)
+        enddo ! end of do s2
+        enddo ! end of do j
+        enddo ! end of do s1
+        endif ! end of if active atom
+    enddo ! end of do i atoms
 
 
- selectcase (iopt)
-      case (1)
-      allocate(b_sol(size(b)))
-          total_time = get_clock();
-          maxfct = 1 ! in many application this is 1
-          mnum   = 1 ! same here
-          iparm = 0
-          iparm(1) = 1 ! no solver default
-          iparm(2) = 2 ! fill-in reordering from METIS
-          iparm(3) = 1 ! numbers of processors, value of OMP_NUM_THREADS
-          iparm(4) = 0 ! 0 - no iterative-direct algorithm, if 1 multirecursive iterative algorithm 61, 31 para me
-          iparm(5) = 0 ! no user fill-in reducing permutation
-          iparm(6) = 0 ! =0 solution on the first n compoments of x
-          iparm(7) = 0 ! not in use
-          iparm(8) = 2 ! numbers of iterative refinement steps
-          iparm(9) = 0 ! not in use
-          iparm(10) = 10 ! perturbe the pivot elements with 1E-13
-          iparm(11) = 1 ! use nonsymmetric permutation and scaling MPS
-          iparm(12) = 0 ! not in use
-          iparm(13) = 1 ! maximum weighted matching algorithm is switched-on (default for non-symmetric).
-          iparm(14) = 0 ! Output: number of perturbed pivots
-          iparm(15) = 0 ! not in use
-          iparm(16) = 0 ! not in use
-          iparm(17) = 0 ! not in use
-          iparm(18) = -1 ! Output: number of nonzeros in the factor LU
-          iparm(19) = -1 ! Output: Mflops for LU factorization
-          iparm(20) = 0 ! Output: Numbers of CG Iterations
-          iparm(27) = 0 ! perform matrix check
-          iparm(32) = 0 ! if 1 use multirecursive iterative algorithm
-
-           error = 0 ! initialize error flag
-          msglvl = 0 ! print statistical information
-          mtype     = 13     ! complex unsymmetric matrix
-          phase     = 11      ! only reordering and symbolic factorization
+    if(QSYS_DEBUG_LEVEL>0) then
+        print*,"--------------------------------------------------"
+        print*,"SYS::LINEAR SYSTEM"
+        print*,"--------------------------------------------------"
+        print*,"SYS::Number of variables            :",NO_VARIABLES
+        print*,"SYS::Total number of non-zero values:",NO_NON_ZERO_VALUES
+    endif
 
 
+    allocate(HBROWS(NO_VARIABLES+1))
+    if(bUseComplex) then
+        call convert_to_HB(NO_NON_ZERO_VALUES,ROWCOLID,ZMATHVALS,HBROWS)
+    else ! other wise use double precision equivalent
+        call dalg_convert2HB(NO_NON_ZERO_VALUES,ROWCOLID,DMATHVALS,HBROWS)
+    endif
 
-          CALL pardiso (pt, maxfct, mnum, mtype, phase, n, values, rowind, colptr,&
-                       idum, nrhs, iparm, msglvl, ddum, ddum, error)
+    timer_factorization  = get_clock()
+    if(bUseComplex) then
+    call solve_SSOLEQ(NO_VARIABLES, &
+                      NO_NON_ZERO_VALUES,&
+                      ROWCOLID(:,2),HBROWS,&
+                      ZMATHVALS(:),zvec,1,mtype)
 
-!          WRITE(*,*) 'Reordering completed ... '
+    else
+    call dalg_SSOLEQ(NO_VARIABLES, &
+                      NO_NON_ZERO_VALUES,&
+                      ROWCOLID(:,2),HBROWS,&
+                      DMATHVALS(:),dvec,1,mtype)
 
-          IF (error .NE. 0) THEN
-            WRITE(*,*) 'SYS::PARDISO::The following ERROR was detected during the reordeing step:', error
-            STOP 1
-          END IF
+    endif
+    timer_factorization = get_clock() - timer_factorization
+    if(QSYS_DEBUG_LEVEL > 0) then
+        print*,"SYS::Linear solver::Factorization time:",timer_factorization
+    endif
 
-
-!          WRITE(*,*) 'Number of factorization MFLOPS  = ',iparm(19)
-
-    !C.. Factorization.
-          phase     = 22  ! only factorization
-          CALL pardiso (pt, maxfct, mnum, mtype, phase, n, values, rowind, colptr,&
-                       idum, nrhs, iparm, msglvl, ddum, ddum, error)
-
-!          WRITE(*,*) 'Factorization completed ...  '
-          IF (error .NE. 0) THEN
-             WRITE(*,*) 'SYS::PARDISO::The following ERROR was detected during the factorization step:', error
-            STOP 1
-          ENDIF
-          if(QSYS_DEBUG_LEVEL > 0) then
-          WRITE(*,*) 'Peak memory usage   = ',max (IPARM(15), IPARM(16)+IPARM(17))/1024.0,"[MB]"
-          endif
-      case(2)
-          b_sol = 0
-    !C.. Back substitution and iterative refinement
-          phase     = 33  ! only factorization
-          iparm(8)  = 3   ! max numbers of iterative refinement steps
-          CALL pardiso (pt, maxfct, mnum, mtype, phase, n, values, rowind, colptr,&
-                       idum, nrhs, iparm, msglvl, b, b_sol, error)
-
-          b  = b_sol;
-          !WRITE(*,*) 'Solve completed ... '
-          IF (error .NE. 0) THEN
-             WRITE(*,*) 'SYS::PARDISO::The following ERROR was detected: ', error
-          ENDIF
-
-      case(3)
-    !C.. Termination and release of memory
-            phase     = -1           ! release internal memory
-            CALL pardiso (pt, maxfct, mnum, mtype, phase, n, ddum, idum, idum,&
-                       idum, nrhs, iparm, msglvl, ddum, ddum, error)
-            if(QSYS_DEBUG_LEVEL > 0) then
-            print*,"SYS::PARDISO::Solve time needed:",get_clock()-total_time,"[s]"
-            endif
-            deallocate(b_sol)
-      endselect
+    endif ! end of if system factorize
 
 
-!DEC$ ELSE
-      selectcase (iopt)
-      case (1)
-      total_time = get_clock();
-! First, factorize the matrix. The factors are stored in *factors* handle.
-      !iopt = 1
-      call c_fortran_zgssv( iopt, n, nnz, nrhs, values, colptr , rowind , b, ldb,factors, info )
-!
-      if (info .eq. 0) then
-!         write (*,*) 'Factorization succeeded'
-      else
-         write(*,*) 'SYS::c_fortran_zgssv::SuperLU INFO from factorization step:', info
-      endif
-      case(2)
-! Second, solve the system using the existing factors.
-!      iopt = 2
-      call c_fortran_zgssv( iopt, n, nnz, nrhs, values, colptr,rowind ,  b, ldb,factors, info )
-!
-      if (info .eq. 0) then
-!         write (*,*) 'Solve succeeded'
-!         write (*,*) (b(i), i=1, n)
-      else
-         write(*,*) 'SYS::c_fortran_zgssv::SuperLU ERROR from triangular solver:', info
-      endif
-      case(3)
-! Last, free the storage allocated inside SuperLU
-!      iopt = 3
-      call c_fortran_zgssv( iopt, n, nnz, nrhs, values, colptr,rowind, b, ldb,factors, info )
-      if(QSYS_DEBUG_LEVEL > 0) then
-      print*,"SYS::SuperLU::Computations time:",get_clock()-total_time,"[s]"
-      endif
-      endselect
-!DEC$ ENDIF
+    if(step == QSYS_LINSYS_STEP_SOLVE .or. step == QSYS_LINSYS_ALL_STEPS) then
+        timer_factorization  = get_clock()
+        if(bUseComplex) then
+        call solve_SSOLEQ(NO_VARIABLES, &
+                          NO_NON_ZERO_VALUES,&
+                          ROWCOLID(:,2),HBROWS,&
+                          ZMATHVALS(:),zvec,2,mtype)
 
-      endsubroutine solve_SSOLEQ
+        else
+        call dalg_SSOLEQ(NO_VARIABLES, &
+                          NO_NON_ZERO_VALUES,&
+                          ROWCOLID(:,2),HBROWS,&
+                          DMATHVALS(:),dvec,2,mtype)
+
+        endif
+        timer_factorization = get_clock() - timer_factorization
+        if(QSYS_DEBUG_LEVEL > 0) then
+            print*,"SYS::Linear solver::Solve time:",timer_factorization
+        endif
+    endif ! end of if solve system
+
+
+    if(step == QSYS_LINSYS_STEP_FREE_MEMORY .or. step == QSYS_LINSYS_ALL_STEPS) then
+        if(bUseComplex) then
+        call solve_SSOLEQ(NO_VARIABLES, &
+                          NO_NON_ZERO_VALUES,&
+                          ROWCOLID(:,2),HBROWS,&
+                          ZMATHVALS(:),zvec,3,mtype)
+        deallocate(ZMATHVALS)
+        else
+        call dalg_SSOLEQ(NO_VARIABLES, &
+                          NO_NON_ZERO_VALUES,&
+                          ROWCOLID(:,2),HBROWS,&
+                          DMATHVALS(:),dvec,3,mtype)
+        deallocate(DMATHVALS)
+        endif
+        deallocate(ROWCOLID)
+        deallocate(HBROWS)
+    endif ! end of if free memory
+
+end subroutine calc_linsys
 
 end module modsys

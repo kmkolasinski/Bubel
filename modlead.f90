@@ -11,18 +11,17 @@
 ! Those information can be used to generate the
 ! band structure and for scattering problems.
 ! -----------------------------------------------
-include 'lapack.f90'
+
 module modlead
 use modshape
 use modsys
 use modcommons
 use modutils
-use mkl95_lapack
+use modalgs
 
 implicit none
 private
-complex*16,parameter :: II = cmplx(0.0D0,1.0D0)
-integer ,parameter :: M_IN = 1 , M_OUT = 2
+
 
 ! create sparse version of tau matrix
 complex*16, allocatable :: sparse_tau_vals(:)
@@ -86,7 +85,7 @@ type qlead
 
 endtype qlead
 
-public :: qlead , M_IN , M_OUT
+public :: qlead
 contains
 
 
@@ -1830,249 +1829,6 @@ subroutine calc_average_spins(this,dir,spins)
     deallocate(Chi_up,Chi_down)
 end subroutine calc_average_spins
 
-subroutine inverse_matrix(N,A)
-  integer :: N
-  complex*16,dimension(:,:):: A
-  complex*16,allocatable,dimension(:)  :: WORK
-  integer,allocatable,dimension (:)    :: IPIV
-  integer info,error
 
-
-  B_SINGULAR_MATRIX = .false.
-  allocate(WORK(N),IPIV(N),stat=error)
-  if (error.ne.0)then
-    print *,"SYS::LEAD::ZGETRF::error:not enough memory"
-    stop
-  end if
-  call ZGETRF(N,N,A,N,IPIV,info)
-  if(info .eq. 0) then
-!    write(*,*)"succeded"
-  else
-    write(*,*)"SYS::LEAD::ZGETRF::failed with info:",info
-    write(*,*)"           It seems your matrix is singular check your code"
-    B_SINGULAR_MATRIX = .true.
-  end if
-  call ZGETRI(N,A,N,IPIV,WORK,N,info)
-  if(info .eq. 0) then
-!    write(*,*)"succeded"
-  else
-   write(*,*)"SYS::LEAD::ZGETRI::failed with info:",info
-  end if
-  deallocate(IPIV,WORK,stat=error)
-  if (error.ne.0)then
-    print *,"SYS::LEAD::ZGETRF::error:fail to release"
-    stop
-  end if
-end subroutine inverse_matrix
-
-subroutine alg_ZHEEV(N,Mat,Vecs,Lambdas)
-    integer :: N
-    complex*16 :: Mat(:,:),Vecs(:,:),Lambdas(:)
-
-    ! -------------------------------------------------
-    !                    LAPACK
-    ! -------------------------------------------------
-    !     .. Local Scalars ..
-    INTEGER          INFO, LWORK, LWMAX
-
-    !     .. Local Arrays ..
-
-    DOUBLE PRECISION,allocatable :: RWORK( : )
-    COMPLEX*16,allocatable        :: WORK( : )
-
-
-    ! Initialize lapack and allocate arrays
-    LWMAX = N*50
-
-    allocate(RWORK ( 3*N  ))
-    allocate(WORK  ( LWMAX ))
-
-    !
-    !     Query the optimal workspace.
-    !
-    LWORK  = -1
-    call zheev("N", "L", N, Mat, N, Lambdas, work, lwork, rwork, info)
-
-
-    if( INFO /= 0 ) then
-        print*,"  alg_ZHEEV: Error during solving with info:",INFO
-        stop
-    endif
-    LWORK  = MIN( LWMAX, INT( WORK( 1 ) ) )
-
-    deallocate( WORK)
-    allocate(WORK  ( LWORK ))
-
-    Vecs = Mat
-    call zheev("V", "L", N, Vecs, N, Lambdas, work, lwork, rwork, info)
-
-    deallocate(RWORK)
-    deallocate(WORK)
-
-end subroutine alg_ZHEEV
-
-doubleprecision function cond_number(N,A) result(rval)
-  integer :: N
-  complex*16,dimension(:,:):: A
-  complex*16,allocatable,dimension(:)       :: WORK
-  doubleprecision,allocatable,dimension(:)  :: RWORK
-  integer,allocatable,dimension (:)    :: IPIV
-  complex*16,dimension(:,:),allocatable:: tmpA
-  integer info,error
-  doubleprecision :: anorm,norm
-  external zlange
-  doubleprecision zlange
-  B_SINGULAR_MATRIX = .false.
-
-  allocate(WORK(2*N),IPIV(N),RWORK(2*N),tmpA(N,N),stat=error)
-  if (error.ne.0)then
-    print *,"SYS::LEAD::ZGETRF::error:not enough memory"
-    stop
-  end if
-
-  tmpA = A
-
-  anorm = ZLANGE( '1', N, N, tmpA, N, WORK )
-
-  call ZGETRF(N,N,tmpA,N,IPIV,info)
-  call zgecon( '1', N, tmpA, N, anorm, norm, work, rwork, info )
-  rval = norm
-
-
-  deallocate(IPIV,WORK,RWORK,tmpA,stat=error)
-  if (error.ne.0)then
-    print *,"SYS::LEAD::ZGETRF::error:fail to release"
-    stop
-  end if
-end function cond_number
-
-doubleprecision function cond_SVD(N,A) result(rval)
-    integer :: N
-    complex*16,dimension(:,:):: A
-    complex*16 , allocatable :: tmpA(:,:) , VT(:,:),tU(:,:),tVT(:,:)
-    doubleprecision , allocatable :: S(:) , tS(:)
-    integer :: i,j,M
-    allocate(tmpA(N,N))
-    tmpA = A
-    call ZSVD(N,tmpA,tU,tS,tVT)
-    M = 0
-    do i = 1 , N
-    if(abs(tS(i)) > 1.0d-20 ) M = M+1
-    enddo
-    rval = abs(tS(1)/tS(N))
-    deallocate(tmpA,tU,tS,tVT)
-end function cond_SVD
-
-
-subroutine ZSVD(N,A,U,S,VT)
-      integer :: N
-      complex*16 , dimension(:,:) :: A
-      complex*16 ,allocatable , dimension(:,:) :: U,VT
-      doubleprecision,allocatable,dimension(:) :: S
-
-!*     .. Parameters ..
-      INTEGER          LDA, LDU, LDVT
-      INTEGER          LWMAX
-      INTEGER          INFO, LWORK
-      complex*16,allocatable,dimension(:) :: WORK
-      doubleprecision,allocatable,dimension(:) :: RWORK
-
-      LDA   = N
-      LDU   = N
-      LDVT  = N
-      LWORK = -1
-      LWMAX = 40*N
-      if(allocated(U)) deallocate(U)
-      if(allocated(S)) deallocate(S)
-      if(allocated(VT)) deallocate(VT)
-      allocate(U( LDU, N ), VT( LDVT, N ), S( N ),WORK(LWMAX) , RWORK(5*N))
-
-
-      CALL ZGESVD( 'All', 'All', N, N, A, LDA, S, U, LDU, VT, LDVT, WORK, LWORK , RWORK, INFO )
-      LWORK = MIN( LWMAX, INT( WORK( 1 ) ) )
-
-      CALL ZGESVD( 'All', 'All', N, N, A, LDA, S, U, LDU, VT, LDVT, WORK, LWORK , RWORK, INFO )
-
-      IF( INFO.GT.0 ) THEN
-         WRITE(*,*)'The algorithm computing SVD failed to converge.'
-         STOP
-      END IF
-
-
-end subroutine ZSVD
-
-subroutine inverse_svd(N,A)
-    complex*16 :: A(:,:)
-    integer :: N,i,j
-    complex*16 ,allocatable , dimension(:,:) :: U,VT
-    doubleprecision,allocatable,dimension(:) :: S
-
-
-    call ZSVD(N,A,U,S,VT)
-
-    do i = 1, N
-    do j = 1, N
-        A(i,j) = sum( conjg(Vt(:,i))*(S(:)**(-1))*conjg(U(j,:)) )
-    enddo
-    enddo
-
-    deallocate(U,S,VT)
-end subroutine inverse_svd
-
-
-subroutine solve_GGEV(H0,Tau)
-    complex*16 :: H0(:,:) , Tau(:,:)
-    integer :: N,M
-    complex*16 , allocatable  :: U(:,:),VT(:,:) , V(:,:) , tU(:,:),tVT(:,:)
-    doubleprecision , allocatable  :: S(:) , tS(:)
-    doubleprecision :: rcond,eps
-    integer :: i,j
-    logical :: bStabilize
-    N = size(H0,1)
-    print*,"Perform SVD",N
-
-    call ZSVD(N,Tau,tU,tS,tVT)
-    M = 0
-    do i = 1 , N
-       if(abs(tS(i)) > 1.0d-20 ) M = M+1
-    enddo
-
-
-    allocate(S(M),U(N,M),Vt(M,N),V(N,M))
-    S = tS(1:M)
-    print*,S,M
-    U  = tU(1:N,1:M)
-    Vt = tVt(1:M,1:N)
-    V  = conjg(transpose(Vt))
-
-    do i = 1 , N
-    do j = 1 , M
-        U(i,j) =   U(i,j) * sqrt( S(j) )
-        V(i,j) =   V(i,j) * sqrt( S(j) )
-    enddo
-    enddo
-    rcond = cond_number(N,tau)
-
-    eps        = 1.0D-16
-    bStabilize = .false.
-
-    if( rcond < eps  ) bStabilize = .true.
-
-    if(bStabilize) then
-        do i = 1 , N
-        do j = 1 , N
-            tU(i,j) = sum(U(i,:)*conjg(U(j,:))) + sum(V(i,:)*conjg(V(j,:)))
-        enddo
-        enddo
-        tVt = H0 + II * tU
-        rcond = cond_number(N,tVt)
-        if( rcond < eps ) then
-            print*,"SYS::ERROR::Hoping matrix baldy defined"
-            stop -1
-        endif
-
-    endif
-
-end subroutine solve_GGEV
 
 endmodule modlead

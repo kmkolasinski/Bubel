@@ -1,12 +1,13 @@
 MODULE modunits
     USE, INTRINSIC :: ISO_C_BINDING
+    use modcommons
     implicit none
 
 
     double precision,parameter  :: M_PI      = 3.1415926
     double precision,parameter  :: A0        = 0.0529177249 ! Bohr radius in [nm]
     double precision,parameter  :: E0        = 27.211384523 ! Atomic unit of energy in [eV]
-    complex*16 ,parameter       :: II        = CMPLX(0.0D0,1.0D0)
+
 
     double precision  :: KbT
     double precision  :: Rd    ! For donors units

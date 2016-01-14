@@ -1,9 +1,12 @@
 module modcommons
 implicit none
 doubleprecision,public :: CONDA
+complex*16 ,parameter,public :: II = CMPLX(0.0D0,1.0D0)
+integer ,parameter,public    :: M_IN = 1 , M_OUT = 2 ! numbering the incoming mode and outgoing one
 
 integer,parameter,public  :: QSYS_NO_BONDS_INC_VALUE      = 10     ! For sparse structures
 integer,parameter,public  :: QSYS_NO_ATOMS_INC_VALUE      = 10000  !
+doubleprecision,public    :: QSYS_COUPLING_CUTOFF_VALUE = 0.0D0 !
 logical,public            :: QSYS_USE_ZGGEV_TO_FIND_MODES = .false. ! When finding modes use generalied eigenvalue problem, can be more stable
 logical,public            :: QSYS_DISABLE_HERMICITY_CHECK = .false.
 logical,public            :: QSYS_FORCE_HERMITIAN_MATRIX = .true. ! by default creates hermitian matrix, so connect
@@ -21,6 +24,32 @@ ENUM, BIND(C)
 END ENUM
 
 
+ENUM, BIND(C)
+  ENUMERATOR :: QSYS_LINSYS_STEP_FACTORIZE   = 1 ! factorize matrix
+  ENUMERATOR :: QSYS_LINSYS_STEP_SOLVE       = 2 ! solve system
+  ENUMERATOR :: QSYS_LINSYS_STEP_FREE_MEMORY = 3 ! free memory
+  ENUMERATOR :: QSYS_LINSYS_ALL_STEPS        = 4 ! all steps in one call
+END ENUM
+
+! PARDISO matrix types definition
+ENUM, BIND(C)
+  ENUMERATOR :: QSYS_LINSYS_PARDISO_REAL_STRUCT_SYM = 1 ! real and structurally symmetric
+  ENUMERATOR :: QSYS_LINSYS_PARDISO_REAL_SYM_POSITIVE_DEFINE = 2 ! real and symmetric positive definite
+  ENUMERATOR :: QSYS_LINSYS_PARDISO_REAL_SYM_IDENFINITE = -2 ! real and symmetric indefinite
+  ENUMERATOR :: QSYS_LINSYS_PARDISO_CMPLX_STRUCT_SYM = 3 ! complex and structurally symmetric
+  ENUMERATOR :: QSYS_LINSYS_PARDISO_CMPLX_HERMITIAN_POSITIVE_DEFINE = 4 ! complex and Hermitian positive definite
+  ENUMERATOR :: QSYS_LINSYS_PARDISO_CMPLX_HERMITIAN_IDENFINITE = -4 ! complex and Hermitian indefinite
+  ENUMERATOR :: QSYS_LINSYS_PARDISO_CMPLX_SYM = 6 ! complex and symmetric
+  ENUMERATOR :: QSYS_LINSYS_PARDISO_REAL_NON_SYM = 11 ! real and nonsymmetric
+  ENUMERATOR :: QSYS_LINSYS_PARDISO_CMPLX_NON_SYM = 13 ! complex and nonsymmetric
+END ENUM
+
+
+public :: QSYS_LINSYS_STEP_FACTORIZE,QSYS_LINSYS_STEP_SOLVE,QSYS_LINSYS_STEP_FREE_MEMORY,QSYS_LINSYS_ALL_STEPS
+
+public :: QSYS_LINSYS_PARDISO_REAL_STRUCT_SYM,QSYS_LINSYS_PARDISO_REAL_SYM_POSITIVE_DEFINE,QSYS_LINSYS_PARDISO_REAL_SYM_IDENFINITE
+public :: QSYS_LINSYS_PARDISO_CMPLX_STRUCT_SYM,QSYS_LINSYS_PARDISO_CMPLX_HERMITIAN_POSITIVE_DEFINE,QSYS_LINSYS_PARDISO_CMPLX_HERMITIAN_IDENFINITE
+public :: QSYS_LINSYS_PARDISO_CMPLX_SYM,QSYS_LINSYS_PARDISO_REAL_NON_SYM,QSYS_LINSYS_PARDISO_CMPLX_NON_SYM
 
 public :: QSYS_SCATTERING_QTBM, QSYS_SCATTERING_WFM , QSYS_SCATTERING_QTBM_TAKE_ALL_EVAN
 public :: qsys_double_error

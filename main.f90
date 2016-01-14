@@ -1,186 +1,127 @@
 ! ------------------------------------------------------ !
-! Quantulaba - superconductor_transport.f90 - Krzysztof Kolasinski 2015
+! Quantulaba - simple_sqlat.f90 - Krzysztof Kolasinski 2015
 !
-! Example based on Kwant tutorial i.e. how to deal
-! with multiple lattices in Quantulaba:
-! http://kwant-project.org/doc/1/tutorial/tutorial5
-! Here we create two lattices displaced in z direction
-! for which the one with z=0 is responsible for -1/2 spin value
-! and z=dx +1/2.
+! We want to find few first eigenvalues of rectangular
+! system defined within effective mass Shroedinger
+! equation. Magnetic field will be included into account.
+! We assume that after the finite discretization nodes
+! of the mesh are separated by dx=5nm distance in
+! each direction.
 ! ------------------------------------------------------ !
-program supercond
-use modunits     ! unit conversion tools
-use modscatter   ! eigen values and transport
-use modshape
-use modsys
+
+program transporter
+use modunits
+use modscatter
 implicit none
 character(*),parameter :: output_folder = "./"
 type(qscatter)             :: qt
-type(qshape)               :: lead_shape
-type(qsys)                 :: lead_e,lead_h ! storage for atoms in the electron and hole leads
+doubleprecision            :: a_dx,x,y,hx,hy
+integer ,parameter         :: nx = 100
+integer ,parameter         :: ny = 100
+doubleprecision,parameter  :: dx = 5.0 ! [nm]
+integer , dimension(nx,ny) :: gindex ! converts local index (i,j) to global index
+doubleprecision ,dimension(nx*ny) :: rho
+integer :: i,j,k
 
-doubleprecision            :: a_Emin,a_Emax
 
-integer ,parameter         :: nx = 10
-integer ,parameter         :: ny = 10
-doubleprecision,parameter  :: dx = 1.0 ! [nm]
+! Use atomic units in effective band model -> see modunit.f90 for more details
+QSYS_DEBUG_LEVEL = 1
+call modunits_set_GaAs_params()
+a_dx = dx * L2LA ! convert it to atomic units
+hx = dx * nx / 2
+hy = dx * ny / 2
 
-integer                    :: i,j,k,m
-doubleprecision            :: lead_translation_vec(3),Ef,T
-character(300) :: line
- ! Initalize system
+! Initalize system
 call qt%init_system()
-call lead_e%init()
-call lead_h%init()
 
 ! ----------------------------------------------------------
 ! 1. Create mesh - loop over width and height of the lattice
 ! ----------------------------------------------------------
-
+k      = 0
+gindex = 0
 do i = 1 , nx
 do j = 1 , ny
-    ! Initalize atom structure with position of the atom.
-    call qt%qatom%init((/ (i-1) * dx , (j-1) * dx + (i-1) * dx * 0.0 , 0.0D0 /),flag=1)
+    x = (i-1) * dx
+    y = (j-1) * dx
+    call qt%qatom%init((/ x , y , 0.0 * dx /))
+    ! Add atom to the system.
     call qt%qsystem%add_atom(qt%qatom)
-    ! store electrons lead "atoms"
-    if( i == 1 ) call lead_e%add_atom(qt%qatom)
-    ! Add second lattice (above, which will responsible for +1/2 spin)
-    call qt%qatom%init((/ (i-1) * dx , (j-1) * dx + (i-1) * dx * 0.0 , 1.0D0 /),flag=2)
-    call qt%qsystem%add_atom(qt%qatom)
-    ! store holes lead "atoms"
-    if( i == 1 ) call lead_h%add_atom(qt%qatom)
+    k           = k + 1
+    gindex(i,j) = k
+    rho(k) = exp( -0.01*( (x-hx+50)**2 + (y-hy)**2 ) ) - exp( -0.01*( (x-hx-50)**2 + (y-hy)**2 ) )
 enddo
 enddo
+
 ! ----------------------------------------------------------
 ! 2. Construct logical connections between sites on the mesh.
 ! ----------------------------------------------------------
-qt%qnnbparam%box = (/2*dx,2*dx,2*dx/) ! do not search for the sites far than (-dx:+dx) direction
-call qt%qsystem%make_lattice(qt%qnnbparam,c_matrix=coupling)
+! Set criterium for the nearest neightbours "radius" search algorithm.
+! Same as above qt%qnnbparam is a auxiliary variable of type(nnb_params) - more details in modsys.f90
+! This structure is responsible for different criteria of nearest neighbour searching
+qt%qnnbparam%box = (/2*dx,2*dx,0.0D0/) ! do not search for the sites far than (-dx:+dx) direction
+! Setup connections between sites with provided by you function "connect", see below for example.
+call qt%qsystem%make_lattice(qt%qnnbparam,c_simple=connect)
 
+call qt%qsystem%calc_linsys(dvec=rho,pardiso_mtype=QSYS_LINSYS_PARDISO_REAL_NON_SYM)
 
-! ----------------------------------------------------------
-! 3. Add leads to the system
-! ----------------------------------------------------------
-lead_translation_vec = (/  dx , 0.0D0 , 0.0D0 /)
-call lead_shape%init_atoms_list(lead_e%atoms)
-call qt%add_lead(lead_shape,lead_translation_vec)
-
-lead_translation_vec = (/  dx , 0.0D0 , 0.0D0 /)
-call lead_shape%init_atoms_list(lead_h%atoms)
-call qt%add_lead(lead_shape,lead_translation_vec)
-
-lead_translation_vec = (/ -dx , 0.0D0 , 0.0D0 /)
-call lead_shape%init_range_3d((/ (nx+0.5-1)*dx , 0.0D0 , 0.0D0 /),lead_translation_vec)
-call qt%add_lead(lead_shape,lead_translation_vec)
-
-
-! ----------------------------------------------------------
-! 4. Use generated mesh to calculate the band structure
-! in the region of homogenous leads: electrons,holes,superconductor
-! ----------------------------------------------------------
-a_Emin =-10.0
-a_Emax = 10.0
-call qt%leads(1)%bands(output_folder//"bands_e.dat",-M_PI,+M_PI,M_PI/160.0,a_Emin,a_Emax)
-call qt%leads(2)%bands(output_folder//"bands_h.dat",-M_PI,+M_PI,M_PI/160.0,a_Emin,a_Emax)
-call qt%leads(3)%bands(output_folder//"bands_s.dat",-M_PI,+M_PI,M_PI/160.0,a_Emin,a_Emax)
-
-
-! Save lattice to file to see if constructed system is OK!
-call qt%save_system(output_folder//"system.xml")
-
-! ----------------------------------------------------------
-! 5. Solve scattering problem for a given incident energy
-! and save obtained electron density to file.
-! ----------------------------------------------------------
-Ef = 0.1
-QSYS_DEBUG_LEVEL = 1 ! tell me more
-call qt%calculate_modes(Ef)
-call qt%solve(1,Ef)
-! Save calculated electron density to file
-do i = 1 , size(qt%qauxvec)
-    qt%qauxvec(i) = sum(qt%densities(:,i))
+open(unit=11,file="rho.txt")
+do i = 1 , nx
+do j = 1 , ny
+    x = (i-1) * dx
+    y = (j-1) * dx
+    write(11,"(3f)"),x,y,rho(gindex(i,j))
 enddo
-call qt%qsystem%save_data(output_folder//"densities.xml",array2d=qt%densities,array1d=qt%qauxvec)
-
-
-print*,"Performing energy scan..."
-open(unit=111,file=output_folder//"T.dat")
-QSYS_DEBUG_LEVEL = 0 ! show me less
-do Ef = 0.0 , 0.2 , 0.002
-    ! Update hamiltonian elemenents value
-    call qt%qsystem%update_lattice(c_matrix=coupling)
-    call qt%calculate_modes(Ef)
-    call qt%solve(1,Ef)
-
-    ! Current =  N - Ree - Reh
-    T =  qt%leads(1)%no_in_modes - qt%leads(1)%totalT + qt%leads(2)%totalT
-    print*,"Energy:",Ef,T
-    write(111,"(100f20.6)"),Ef,T
+    write(11,*),""
 enddo
-close(111)
-
-
 ! ----------------------------------------------------------
 ! X. Clean memory...
 ! ----------------------------------------------------------
-
 call qt%destroy_system()
-call lead_e%destroy()
-call lead_h%destroy()
-print*,"Generating plots..."
-print*,"Plotting band structure..."
-call system("cd "//output_folder//"; ./plot_bands.py")
-print*,"Plotting Transmission..."
-call system("cd "//output_folder//"; ./plot_T.py")
-print*,"Use Viewer program to see the structure and created leads."
+
 contains
 
 ! ---------------------------------------------------------------------------
-! Implement coupling between atoms
-! This was taken from Kwant tutorial:
-! http://kwant-project.org/doc/1/tutorial/tutorial5#lattice-description-using-different-lattices
+! This function decides if site A (called here atomA) with spin s1 has hoping
+! to atom B with spin s2, and what is the value of the coupling.
+! If there is no interaction between them returns false, otherwise true.
 ! ---------------------------------------------------------------------------
-logical function coupling(atomA,atomB,coupling_mat)
+logical function connect(atomA,atomB,coupling_val)
     use modcommons
     implicit none
     type(qatom) :: atomA,atomB
-    complex*16  :: coupling_mat(:,:) ! you must overwrite this variable
+
+    complex*16  :: coupling_val ! you must overwrite this variable
     ! local variables
     integer         :: xdiff,ydiff
-    integer         :: flagA,flagB
-
-    doubleprecision :: dydiff,dxdiff,t0,mu,Delta,barrier
+    doubleprecision :: dydiff,dxdiff,t0,y
 
     ! Calculate distance between atoms in units of dx.
     dxdiff = (atomA%atom_pos(1)-atomB%atom_pos(1))/dx
     dydiff = (atomA%atom_pos(2)-atomB%atom_pos(2))/dx
+
+
     ! Convert it to integers
     xdiff = NINT(dxdiff)
     ydiff = NINT(dydiff)
-    ! default return value
-    coupling       = .false.
-    coupling_mat   = 0.0
-    flagA =  atomA%flag
-    flagB =  atomB%flag
 
-    t0    = 1.0 ! hoping energy
-    mu    = 0.4 ! chemical potential
-    Delta = 0.1 ! superconducting order parameter
-    ! Potential barrier definition
-    barrier = 0
-    if( atomA%atom_pos(1) >= nx/2.0-1 .and. atomA%atom_pos(1) < nx/2.0 ) barrier = 1.5
+    ! default return value
+    connect = .false.
+
+    ! hoping parameter
+    t0 = 1/(2*m_eff*a_dx**2)
 
     if( xdiff == 0 .and. ydiff == 0 ) then
-        coupling     = .true.
-        coupling_mat = (4*t0 - mu + barrier ) * MAT_SZ(flagA,flagB) + Delta*MAT_SX(flagA,flagB)
-        ! do not create hopping for normal conductor part
-        if(flagA /= flagB .and. atomA%atom_pos(1) < nx/2 ) coupling     = .false.
-    else if( abs(xdiff) ==  1 .and. ydiff == 0 .and. flagA == flagB ) then
-        coupling     = .true.
-        coupling_mat = -t0 *(MAT_SZ(flagA,flagB))
-    else if( xdiff ==  0 .and. abs(ydiff) == 1 .and. flagA == flagB ) then
-        coupling     = .true.
-        coupling_mat = -t0 *(MAT_SZ(flagA,flagB))
+        connect      = .true.
+        coupling_val = 4*t0
+    else if( abs(xdiff) ==  1 .and. ydiff == 0 ) then
+        connect = .true.
+        coupling_val = -t0
+    else if( xdiff ==  0 .and. abs(ydiff) == 1 ) then
+        connect = .true.
+        coupling_val = -t0
     endif
-end function coupling
-end program supercond
+
+
+end function connect
+
+end program transporter

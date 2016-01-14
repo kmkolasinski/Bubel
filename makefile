@@ -15,7 +15,8 @@ zeus:
 # Uzyj polecenia
 # UMFPACK_MACRO=-DUSE_UMF_PACK
 # aby skompilowac z UMFPACKIEM
-UMFPACK_MACRO=-DUSE_PARDISO
+UMFPACK_MACRO= -DUSE_PARDISO
+#-DUSE_PARDISO
 #-DUSE_UMF_PACK
 #-DUSE_PARDISO
 
@@ -31,6 +32,7 @@ lib:
 										  modshape.f90 \
 										  modlead.f90 \
 										  modscatter.f90 \
+										  modalgs.f90 \
 										  $(SUPERLU_FILES) -o libquantulaba.so
 
 slib:
@@ -65,7 +67,7 @@ LIBS= $(BASEDIR)/libsuperlu_4.3.a
 FCFLAGS= -c  $(OPTS)  -132  -I$(BASEDIR)/SuperLU_4.3/SRC $(UMFPACK_MACRO)
 #-I$(BASEDIR)/XC
 FCCFLAGS= -c $(OPTS) -I$(BASEDIR)/SuperLU_4.3/SRC
-SUPERLU_FILES=zgssv.o
+SUPERLU_FILES=zgssv.o dgssv.o
 UMFPACK_FILES=
 endif
 FLIBS=   $(LIBS) -mkl -lmkl_lapack95_lp64
@@ -96,7 +98,7 @@ LIBS= $(BASEDIR)/libsuperlu_4.3.a
 FCFLAGS = -c -132 -traceback -O0 -fstack-protector -check all  -assume realloc_lhs -ftrapuv -fpe0 -warn -traceback -debug extended -I$(BASEDIR)/SuperLU_4.3/SRC $(UMFPACK_MACRO)
 # -I$(BASEDIR)/XC
 FCCFLAGS= -c -O0 -Wall -g -I$(BASEDIR)/SuperLU_4.3/SRC
-SUPERLU_FILES=zgssv.o
+SUPERLU_FILES=zgssv.o dgssv.o
 UMFPACK_FILES=
 endif
 FLIBS=   $(LIBS)  -mkl -lmkl_lapack95_lp64 -lmkl_intel_lp64  -L${MKLROOT}/lib/intel64
@@ -123,7 +125,7 @@ else
 LIBS= $(BASEDIR)/libsuperlu_4.3.a
 FCFLAGS= -c $(OPTS)  -132  -I$(BASEDIR)/SuperLU_4.3/SRC $(UMFPACK_MACRO) -I$(BASEDIR)/XC
 FCCFLAGS= -c $(OPTS) -I$(BASEDIR)/SuperLU_4.3/SRC -I$(BASEDIR)/XC
-SUPERLU_FILES=zgssv.o
+SUPERLU_FILES=zgssv.o dgssv.o
 UMFPACK_FILES=
 endif
 FLIBS=   $(LIBS)  -mkl $(BASEDIR)/libxc.a
@@ -132,8 +134,8 @@ endif
 
 
 
-quantulaba: main.f90 modcommons.o modinip.o modunits.o modutils.o $(UMFPACK_FILES) modsys.o modshape.o modlead.o modscatter.o $(SUPERLU_FILES)
-	$(FC) $(FBFLAGS)  main.f90 *.o $(FLIBS)   -o $@
+quantulaba: main.f90 modcommons.o modinip.o modunits.o modutils.o modalgs.o $(SUPERLU_FILES) $(UMFPACK_FILES) modsys.o modshape.o modlead.o modscatter.o
+	$(FC) $(FBFLAGS)  main.f90 *.o $(FLIBS) -o $@
 
 modcommons.o: modcommons.f90
 	$(FC) $(FCFLAGS) modcommons.f90 -o $@
@@ -159,8 +161,14 @@ modunits.o: modunits.f90
 modshape.o: modshape.f90
 	$(FC) $(FCFLAGS) modshape.f90 -o $@
 
+modalgs.o: modalgs.f90
+	$(FC) $(FCFLAGS) modalgs.f90 -o $@
+
 zgssv.o:c_fortran_zgssv.c
 	gcc   $(FCCFLAGS) c_fortran_zgssv.c -o $@
+
+dgssv.o:c_fortran_dgssv.c
+	gcc   $(FCCFLAGS) c_fortran_dgssv.c -o $@
 
 umfpack.o:umfpack.f90
 	$(FC) $(FCFLAGS) umfpack.f90 -o $@

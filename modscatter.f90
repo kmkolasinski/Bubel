@@ -14,6 +14,7 @@ use modcommons
 use modsys
 use modlead
 use modshape
+use modalgs
 
 implicit none
 
@@ -306,7 +307,8 @@ subroutine solve(this,leadID,Ef)
     call solve_SSOLEQ(this%NO_VARIABLES, &
                       this%NO_NON_ZERO_VALUES,&
                       this%ROWCOLID(:,2),HBROWS,&
-                      this%MATHVALS(:),phi,1)
+                      this%MATHVALS(:),phi,QSYS_LINSYS_STEP_FACTORIZE,&
+                      QSYS_LINSYS_PARDISO_CMPLX_NON_SYM)
 
     timer_factorization = get_clock() - timer_factorization
     if(QSYS_DEBUG_LEVEL > 0) then
@@ -348,7 +350,8 @@ subroutine solve(this,leadID,Ef)
     call solve_SSOLEQ(this%NO_VARIABLES, &
                       this%NO_NON_ZERO_VALUES,&
                       this%ROWCOLID(:,2),HBROWS,&
-                      this%MATHVALS(:),phi,2)
+                      this%MATHVALS(:),phi,QSYS_LINSYS_STEP_SOLVE,&
+                      QSYS_LINSYS_PARDISO_CMPLX_NON_SYM)
 
     this%densities(modin,:) = abs(phi(:))**2
 
@@ -383,7 +386,8 @@ subroutine solve(this,leadID,Ef)
     call solve_SSOLEQ(this%NO_VARIABLES, &
                       this%NO_NON_ZERO_VALUES,&
                       this%ROWCOLID(:,2),HBROWS,&
-                      this%MATHVALS(:),phi,3)
+                      this%MATHVALS(:),phi,QSYS_LINSYS_STEP_FREE_MEMORY,&
+                      QSYS_LINSYS_PARDISO_CMPLX_NON_SYM)
 
     deallocate(phi)
     deallocate(HBROWS)
