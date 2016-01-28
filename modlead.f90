@@ -322,7 +322,9 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
                 if( j > no_sites ) then
                     ! check if atom with id bond_atom_id is in the next unit cell not in the
                     ! previous one.
-                    if( lshape%is_inside(cellB_pos+cellBA_vec) == .true. ) cycle
+                    if(QSYS_DEBUG_LEVEL<2) then
+                        if( lshape%is_inside(cellB_pos+cellBA_vec) == .true. ) cycle
+                    endif
                     print"(A)",              " SYS::LEAD::ERROR::The translation"
                     print"(A,i9,A,3e12.4,A)","                   from atom:",atom_id," at position r=(",all_atoms(atom_id)%atom_pos,")"
                     print"(A,i9,A,3e12.4,A)","                   to atom  :",bond_atom_id," at position r=(",all_atoms(bond_atom_id)%atom_pos,")"
