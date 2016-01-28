@@ -655,7 +655,7 @@ subroutine update_lattice(sys,c_simple,c_matrix,o_simple,o_matrix)
     ! If both atoms are in the same spin state.
     if( .not. QSYS_DISABLE_HERMICITY_CHECK) then
     if(QSYS_DEBUG_LEVEL > 0) then
-    print*,"SYS::INFO::Checking hermiticity of the matrix."
+    print*,"SYS::INFO::Checking hermiticity of the matrix..."
     endif
     do i = 1 , sys%no_atoms ! take the atom A
         if(sys%atoms(i)%bActive) then
@@ -672,7 +672,8 @@ subroutine update_lattice(sys,c_simple,c_matrix,o_simple,o_matrix)
 
                 ns1 = size(sys%atoms(i)%bonds(j)%bondMatrix,1)
                 ns2 = size(sys%atoms(i)%bonds(j)%bondMatrix,2)
-
+!                print*,"a->b:",i, sys%atoms(i)%bonds(j)%bondMatrix
+!                print*,"b->a:",vp, sys%atoms(vp)%bonds(k)%bondMatrix
                 cpl_delta = 0.0
                 do s1 = 1 , ns1
                 do s2 = 1 , ns2

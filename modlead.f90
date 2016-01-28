@@ -290,83 +290,77 @@ subroutine init_lead(this,lshape,lvec,all_atoms)
 
 
     cellBA_vec = lvec
-    print"(A,3f12.4,A)"," SYS::LEAD::Lead translation vector XYZ=(",cellBA_vec,")"
+    if(QSYS_DEBUG_LEVEL>0) print"(A,3f12.4,A)"," SYS::LEAD::Lead translation vector XYZ=(",cellBA_vec,")"
 
     ! -----------------------------------------------------------
     ! Creating the Hamiltonian of the Lead and Coupling matrix
     ! -----------------------------------------------------------
     do i = 1 , no_sites
         atom_id = this%l2g(i,1) ! get atom index , this%l2g(i,2) tells what is the spinID of that atom
+        s1      = this%l2g(i,2) ! get atom spinID index
         ! iterate over all bonds in that atom (A)
         do b = 1 , all_atoms(atom_id)%no_bonds
             ns1 = size(all_atoms(atom_id)%bonds(b)%bondMatrix,1)
             ns2 = size(all_atoms(atom_id)%bonds(b)%bondMatrix,2)
 
-            do s1 = 1 , ns1
-            do s2 = 1 , ns2
-
-            ! Filter out bond from atom A but which do not have spin this%l2g(i,1)
-            if( s1 == this%l2g(i,2) ) then
             ! get ids of associated atom
             bond_atom_id = all_atoms(atom_id)%bonds(b)%toAtomID
             bond_id      = all_atoms(bond_atom_id)%globalIDs(1)
             ! if tmp_g2l(bond_id) == 0 it means that this atom with id = bond_atom_id
             ! is not in the lead, so it has to be located in the next unit cell.
             if( tmp_g2l(bond_id) == 0 ) then
+
                 ! now we search for an atom in the main uint cell with the same position
                 ! what assiociated atom in the next lead.
+                cellB_pos = all_atoms(bond_atom_id)%atom_pos
                 do j = 1 , no_sites
                     cellA_pos = all_atoms(this%l2g(j,1))%atom_pos + cellBA_vec
-                    cellB_pos = all_atoms(bond_atom_id)%atom_pos
                     if( sqrt(sum( (cellB_pos - cellA_pos )**2)) < minimum_distance*1.0D-5 ) then
                         exit
                     endif
                 enddo
                 if( j > no_sites ) then
+                    ! check if atom with id bond_atom_id is in the next unit cell not in the
+                    ! previous one.
+                    if( lshape%is_inside(cellB_pos+cellBA_vec) == .true. ) cycle
                     print"(A)",              " SYS::LEAD::ERROR::The translation"
                     print"(A,i9,A,3e12.4,A)","                   from atom:",atom_id," at position r=(",all_atoms(atom_id)%atom_pos,")"
                     print"(A,i9,A,3e12.4,A)","                   to atom  :",bond_atom_id," at position r=(",all_atoms(bond_atom_id)%atom_pos,")"
                     print"(A)",              "                   is impossible by applying lead translation vector. Maybe some of the "
                     print"(A)",              "                   atoms have not been inlcuded in the lead. Check lead area and T vector."
                     cycle
-                    !stop -1
                 endif
                 ! now "j" contains of localID of the state in the lead which is equivalent
                 ! to same state but in the next unit cell.
+                do s2 = 1 , ns2
+                    aid  = this%l2g(j,1) ! get globalID of that atom
+                    sid  = s2            ! and its spin
+                    gid  = all_atoms(aid)%globalIDs(sid) ! get global ID of site (atom+spin)
+                    lid  = tmp_g2l(gid) ! remap it to local ID in the lead
+                    irow = i
+                    icol = lid
+                    cval = all_atoms(atom_id)%bonds(b)%bondMatrix(s1,s2)
 
-                aid  = this%l2g(j,1) ! get globalID of that atom
-                sid  = s2            ! and its spin
-                gid  = all_atoms(aid)%globalIDs(sid) ! get global ID of site (atom+spin)
-                lid  = tmp_g2l(gid) ! remap it to local ID in the lead
-                irow = i
-                icol = lid
-                cval = all_atoms(atom_id)%bonds(b)%bondMatrix(s1,s2)
-
-                ! fill coupling matrix
-                this%valsTau(irow,icol) = cval
-                this%valsS1 (irow,icol) = all_atoms(atom_id)%bonds(b)%overlapMatrix(s1,s2)
-                this%next_update_map(irow,icol,:) = (/ atom_id , b , s1 ,s2 /)
-            else ! in case of coupling occures within lead
-
-                aid  = bond_atom_id ! id of connected atom
-                sid  = s2 ! and its spin ID
-                gid  = all_atoms(aid)%globalIDs(sid) ! convert to global state id (atom+spin)
-                lid  = tmp_g2l(gid) ! remap to local ID in lead
-                irow = i
-                icol = lid
-                cval = all_atoms(atom_id)%bonds(b)%bondMatrix(s1,s2)
-                this%valsH0(irow,icol) = cval
-                this%valsS0(irow,icol) = all_atoms(atom_id)%bonds(b)%overlapMatrix(s1,s2)
-                this%update_map(irow,icol,:) = (/ atom_id , b , s1 ,s2 /)
-!               print*,irow,icol,atom_id,aid,sqrt(sum((all_atoms(atom_id)%atom_pos-all_atoms(aid)%atom_pos)**2 ))
+                    ! fill coupling matrix
+                    this%valsTau(irow,icol) = cval
+                    this%valsS1 (irow,icol) = all_atoms(atom_id)%bonds(b)%overlapMatrix(s1,s2)
+                    this%next_update_map(irow,icol,:) = (/ atom_id , b , s1 ,s2 /)
+                enddo
+            else ! in case of coupling which occures within lead
+                do s2 = 1 , ns2
+                    aid  = bond_atom_id ! id of connected atom
+                    sid  = s2 ! and its spin ID
+                    gid  = all_atoms(aid)%globalIDs(sid) ! convert to global state id (atom+spin)
+                    lid  = tmp_g2l(gid) ! remap to local ID in lead
+                    irow = i
+                    icol = lid
+                    cval = all_atoms(atom_id)%bonds(b)%bondMatrix(s1,s2)
+                    this%valsH0(irow,icol) = cval
+                    this%valsS0(irow,icol) = all_atoms(atom_id)%bonds(b)%overlapMatrix(s1,s2)
+                    this%update_map(irow,icol,:) = (/ atom_id , b , s1 ,s2 /)
+                enddo
             endif ! end of else if "atom is in the lead or outside"
-            endif ! end of if bond comes from the atom with the same spin what site has
-
-            enddo ! end of s1
-            enddo ! end of s2
-
         enddo ! end of do over bond in site
-
     enddo ! end of do over sites in lead
     ! deallocate unnecessary array
     deallocate(tmp_g2l)
@@ -1689,7 +1683,7 @@ subroutine diagonalize_currents(this,mdir,ifrom,ito)
 
     integer :: mdir,ifrom,ito,N,i,j,Nlead
 
-    complex*16,allocatable :: PhiVecs(:,:),PhiVec(:), VelMat(:,:) , BaseMat(:,:) , tmpMat(:,:) , tmpVec(:)
+    complex*16,allocatable :: PhiVec(:), VelMat(:,:) , BaseMat(:,:) , tmpMat(:,:) , tmpVec(:)
     complex*16 :: alpha,beta,lambda
 
     doubleprecision :: current

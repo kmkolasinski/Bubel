@@ -179,7 +179,7 @@ print*,"Plotting eigenvectors..."
 call system("cd "//output_folder//"; ./plot_eigenvecs.py")
 print*,"Plotting Transmission..."
 call system("cd "//output_folder//"; ./plot_T.py")
-print*,"Use Viewer program to see the structure and crated leads."
+print*,"Use Viewer program to see the structure and created leads."
 contains
 
 ! ---------------------------------------------------------------------------

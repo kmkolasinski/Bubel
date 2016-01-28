@@ -31,6 +31,7 @@ call qt%init_system()
 !--------------------------------------------------------------------
 ! ZIGZAG test
 ! --------------------------------------------------------------------------
+QSYS_FORCE_SCHUR_DECOMPOSITION  = .true. ! use schur method to calculate modes which is more stable
 
 
 do i = 1 , 100
@@ -85,8 +86,8 @@ call qt%qsystem%save_data(output_folder//"densities.xml",array2d=qt%densities,ar
 
 print*,"Performing energy scan..."
 open(unit=111,file=output_folder//"T.dat")
-QSYS_DEBUG_LEVEL = 1 ! show more info
-do Ef = -3.0 , 3.025 , 0.025
+QSYS_DEBUG_LEVEL = 0 ! show more info
+do Ef = -3.0+0.0001 , 3.025 , 0.025
     ! Update hamiltonian elemenents value
     call qt%qsystem%update_lattice(c_simple=connect)
     call qt%calculate_modes(Ef)

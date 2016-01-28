@@ -1,13 +1,15 @@
 ! ---------------------------------------------------------------------------------------
 !  Created by Krzysztof Kolasinski - 2016
 ! ---------------------------------------------------------------------------------------
-! Module for solving
-! ---------------------------------------------------------------------------------------
-include 'lapack.f90'
+
 module modalgs
 use modutils
 use modcommons
-use mkl95_lapack
+use lapack95
+use blas95
+use f95_precision
+!use ifport
+
 implicit none
 public
 

@@ -59,6 +59,7 @@
 		<Unit filename="config.ini" />
 		<Unit filename="main.f90" />
 		<Unit filename="makefile" />
+		<Unit filename="modalgs.f90" />
 		<Unit filename="modcommons.f90" />
 		<Unit filename="modinip.f90" />
 		<Unit filename="modlead.f90" />
