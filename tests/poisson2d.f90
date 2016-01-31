@@ -88,7 +88,7 @@ enddo
 call qt%destroy_system()
 print*,"Generating plots..."
 print*,"Plotting solution..."
-call system("cd "//output_folder//"; ./plot_Sol.py")
+call system("cd "//output_folder//"; python plot_Sol.py")
 print*,"Use Viewer program to see the structure and created leads."
 contains
 

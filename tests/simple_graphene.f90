@@ -31,7 +31,7 @@ call qt%init_system()
 !--------------------------------------------------------------------
 ! ZIGZAG test
 ! --------------------------------------------------------------------------
-QSYS_FORCE_SCHUR_DECOMPOSITION  = .true. ! use schur method to calculate modes which is more stable
+!QSYS_FORCE_SCHUR_DECOMPOSITION  = .true. ! use schur method to calculate modes which is more stable
 
 
 do i = 1 , 100
@@ -72,8 +72,7 @@ call qt%save_system(output_folder//"system.xml")
 
 Ef = 2.0
 QSYS_DEBUG_LEVEL = 1 ! show more info
-! Force ZGGEV for graphen when looking for eigen modes
-QSYS_USE_ZGGEV_TO_FIND_MODES = .true.
+
 
 call qt%calculate_modes(Ef)
 call qt%solve(1,Ef)

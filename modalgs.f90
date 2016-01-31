@@ -1,7 +1,8 @@
 ! ---------------------------------------------------------------------------------------
 !  Created by Krzysztof Kolasinski - 2016
 ! ---------------------------------------------------------------------------------------
-
+!include "include/lapack.f90"
+!include "include/blas.f90"
 module modalgs
 use modutils
 use modcommons
@@ -30,7 +31,7 @@ subroutine convert_to_HB(no_vals,rows_cols,matA,out_rows)
       complex*16,intent(inout),dimension(:) :: matA
       integer,intent(inout),dimension(:)   :: out_rows
       integer :: iterator, irow ,  from , to
-      integer :: i, n , j
+      integer :: i, n
 
       n        = no_vals
       iterator = 0
@@ -78,7 +79,7 @@ subroutine dalg_convert2HB(no_vals,rows_cols,matA,out_rows)
       doubleprecision,intent(inout),dimension(:) :: matA
       integer,intent(inout),dimension(:)   :: out_rows
       integer :: iterator, irow ,  from , to
-      integer :: i, n , j
+      integer :: i, n
 
       n        = no_vals
       iterator = 0
@@ -684,22 +685,26 @@ subroutine alg_ZHEEV(N,Mat,Vecs,Lambdas)
 
 end subroutine alg_ZHEEV
 
-doubleprecision function cond_number(N,A) result(rval)
+doubleprecision function alg_cond(A) result(rval)
+
+  complex*16,dimension(:,:) :: A
+  integer :: info
   integer :: N
-  complex*16,dimension(:,:):: A
   complex*16,allocatable,dimension(:)       :: WORK
   doubleprecision,allocatable,dimension(:)  :: RWORK
   integer,allocatable,dimension (:)    :: IPIV
   complex*16,dimension(:,:),allocatable:: tmpA
-  integer info,error
+  integer :: error
   doubleprecision :: anorm,norm
   external zlange
   doubleprecision zlange
-  B_SINGULAR_MATRIX = .false.
+
+  ! get the size of the matrix
+  N = size(A,2)
 
   allocate(WORK(2*N),IPIV(N),RWORK(2*N),tmpA(N,N),stat=error)
   if (error.ne.0)then
-    print *,"SYS::LEAD::ZGETRF::error:not enough memory"
+    print *,"SYS::ALGS::ZGETRF::error:not enough memory"
     stop
   end if
 
@@ -709,22 +714,23 @@ doubleprecision function cond_number(N,A) result(rval)
 
   call ZGETRF(N,N,tmpA,N,IPIV,info)
   call zgecon( '1', N, tmpA, N, anorm, norm, work, rwork, info )
-  rval = norm
+
+  rval = 1.0/norm
 
 
   deallocate(IPIV,WORK,RWORK,tmpA,stat=error)
   if (error.ne.0)then
-    print *,"SYS::LEAD::ZGETRF::error:fail to release"
+    print *,"SYS::ALGS::ZGETRF::error:fail to release"
     stop
   end if
-end function cond_number
+end function alg_cond
 
 doubleprecision function cond_SVD(N,A) result(rval)
     integer :: N
     complex*16,dimension(:,:):: A
-    complex*16 , allocatable :: tmpA(:,:) , VT(:,:),tU(:,:),tVT(:,:)
-    doubleprecision , allocatable :: S(:) , tS(:)
-    integer :: i,j,M
+    complex*16 , allocatable :: tmpA(:,:) ,tU(:,:),tVT(:,:)
+    doubleprecision , allocatable ::  tS(:)
+    integer :: i,M
     allocate(tmpA(N,N))
     tmpA = A
     call ZSVD(N,tmpA,tU,tS,tVT)
@@ -792,60 +798,60 @@ subroutine inverse_svd(N,A)
     deallocate(U,S,VT)
 end subroutine inverse_svd
 
-
-subroutine solve_GGEV(H0,Tau)
-    complex*16 :: H0(:,:) , Tau(:,:)
-    integer :: N,M
-    complex*16 , allocatable  :: U(:,:),VT(:,:) , V(:,:) , tU(:,:),tVT(:,:)
-    doubleprecision , allocatable  :: S(:) , tS(:)
-    doubleprecision :: rcond,eps
-    integer :: i,j
-    logical :: bStabilize
-    N = size(H0,1)
-    print*,"Perform SVD",N
-
-    call ZSVD(N,Tau,tU,tS,tVT)
-    M = 0
-    do i = 1 , N
-       if(abs(tS(i)) > 1.0d-20 ) M = M+1
-    enddo
-
-
-    allocate(S(M),U(N,M),Vt(M,N),V(N,M))
-    S = tS(1:M)
-    print*,S,M
-    U  = tU(1:N,1:M)
-    Vt = tVt(1:M,1:N)
-    V  = conjg(transpose(Vt))
-
-    do i = 1 , N
-    do j = 1 , M
-        U(i,j) =   U(i,j) * sqrt( S(j) )
-        V(i,j) =   V(i,j) * sqrt( S(j) )
-    enddo
-    enddo
-    rcond = cond_number(N,tau)
-
-    eps        = 1.0D-16
-    bStabilize = .false.
-
-    if( rcond < eps  ) bStabilize = .true.
-
-    if(bStabilize) then
-        do i = 1 , N
-        do j = 1 , N
-            tU(i,j) = sum(U(i,:)*conjg(U(j,:))) + sum(V(i,:)*conjg(V(j,:)))
-        enddo
-        enddo
-        tVt = H0 + II * tU
-        rcond = cond_number(N,tVt)
-        if( rcond < eps ) then
-            print*,"SYS::ERROR::Hoping matrix baldy defined"
-            stop -1
-        endif
-
-    endif
-
-end subroutine solve_GGEV
+!
+!subroutine solve_GGEV(H0,Tau)
+!    complex*16 :: H0(:,:) , Tau(:,:)
+!    integer :: N,M
+!    complex*16 , allocatable  :: U(:,:),VT(:,:) , V(:,:) , tU(:,:),tVT(:,:)
+!    doubleprecision , allocatable  :: S(:) , tS(:)
+!    doubleprecision :: rcond,eps
+!    integer :: i,j
+!    logical :: bStabilize
+!    N = size(H0,1)
+!    print*,"Perform SVD",N
+!
+!    call ZSVD(N,Tau,tU,tS,tVT)
+!    M = 0
+!    do i = 1 , N
+!       if(abs(tS(i)) > 1.0d-20 ) M = M+1
+!    enddo
+!
+!
+!    allocate(S(M),U(N,M),Vt(M,N),V(N,M))
+!    S = tS(1:M)
+!    print*,S,M
+!    U  = tU(1:N,1:M)
+!    Vt = tVt(1:M,1:N)
+!    V  = conjg(transpose(Vt))
+!
+!    do i = 1 , N
+!    do j = 1 , M
+!        U(i,j) =   U(i,j) * sqrt( S(j) )
+!        V(i,j) =   V(i,j) * sqrt( S(j) )
+!    enddo
+!    enddo
+!    rcond = cond_number(N,tau)
+!
+!    eps        = 1.0D-16
+!    bStabilize = .false.
+!
+!    if( rcond < eps  ) bStabilize = .true.
+!
+!    if(bStabilize) then
+!        do i = 1 , N
+!        do j = 1 , N
+!            tU(i,j) = sum(U(i,:)*conjg(U(j,:))) + sum(V(i,:)*conjg(V(j,:)))
+!        enddo
+!        enddo
+!        tVt = H0 + II * tU
+!        rcond = cond_number(N,tVt)
+!        if( rcond < eps ) then
+!            print*,"SYS::ERROR::Hoping matrix baldy defined"
+!            stop -1
+!        endif
+!
+!    endif
+!
+!end subroutine solve_GGEV
 
 end module modalgs

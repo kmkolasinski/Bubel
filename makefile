@@ -1,5 +1,10 @@
 all: quantulaba
-
+debug:
+		make C=ifortDEBUG
+build:
+		make C=ifort
+zeus:
+		make C=ifortZEUS
 # --------------------------------------------------------------
 # make C=ifort 		- to compile optimized code (default option)
 # make C=ifortDEBUG - to compile DEUBG code

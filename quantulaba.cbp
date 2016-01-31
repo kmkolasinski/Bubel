@@ -7,11 +7,6 @@
 		<Option makefile_is_custom="1" />
 		<Option pch_mode="2" />
 		<Option compiler="ifclin" />
-		<Option show_notes="0">
-			<notes>
-				<![CDATA[warunki brzegowe ciagle do poprawki]]>
-			</notes>
-		</Option>
 		<Build>
 			<Target title="Debug">
 				<Option output="quantulaba" prefix_auto="1" extension_auto="1" />
@@ -25,16 +20,16 @@
 					<Add option="-I$(BASEDIR)/SuperLU_4.3/SRC" />
 				</Compiler>
 				<MakeCommands>
-					<Build command="$make -k debug" />
-					<CompileFile command="$make -k debug" />
-					<Clean command="$make  -k clean" />
+					<Build command="$make C=ifortDEBUG" />
+					<CompileFile command="$make " />
+					<Clean command="$make  clean" />
 					<DistClean command="$make -f $makefile distclean$target" />
-					<AskRebuildNeeded command="$make clean debug" />
-					<SilentBuild command="$make -k debug &gt; $(CMD_NULL)" />
+					<AskRebuildNeeded command="$make  " />
+					<SilentBuild command="$make C=ifortDEBUG &gt; $(CMD_NULL)" />
 				</MakeCommands>
 			</Target>
 			<Target title="Release">
-				<Option output="transporter" prefix_auto="1" extension_auto="1" />
+				<Option output="quantulaba" prefix_auto="1" extension_auto="1" />
 				<Option object_output="obj/Release/" />
 				<Option type="1" />
 				<Option compiler="ifclin" />
@@ -42,13 +37,16 @@
 					<Add option="-O2" />
 					<Add option="-I$(BASEDIR)/SuperLU_4.3/SRC" />
 				</Compiler>
+				<Environment>
+					<Variable name="C" value="ifort" />
+				</Environment>
 				<MakeCommands>
-					<Build command="$make -k build" />
-					<CompileFile command="$make -k build" />
-					<Clean command="$make -k clean" />
+					<Build command="$make build" />
+					<CompileFile command="$make build" />
+					<Clean command="$make clean " />
 					<DistClean command="$make -f $makefile distclean$target" />
-					<AskRebuildNeeded command="$make clean build" />
-					<SilentBuild command="$make -k build &gt; $(CMD_NULL)" />
+					<AskRebuildNeeded command="$make clean " />
+					<SilentBuild command="$make build &gt; $(CMD_NULL)" />
 				</MakeCommands>
 			</Target>
 		</Build>
@@ -70,12 +68,15 @@
 		<Unit filename="modutils.f90" />
 		<Unit filename="tests/carbon_nanotube.f90" />
 		<Unit filename="tests/makefile" />
+		<Unit filename="tests/poisson2d.f90" />
 		<Unit filename="tests/rashba_2deg.f90" />
+		<Unit filename="tests/recursive_wfm.f90" />
 		<Unit filename="tests/simple_galerkin1d.f90" />
 		<Unit filename="tests/simple_graphene.f90" />
 		<Unit filename="tests/simple_graphene2.f90" />
 		<Unit filename="tests/simple_sqlat.f90" />
 		<Unit filename="tests/strange_graphene.f90" />
+		<Unit filename="tests/supercnd_trans.f90" />
 		<Unit filename="tests/superconductor.f90" />
 		<Extensions>
 			<code_completion />

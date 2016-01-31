@@ -166,7 +166,7 @@ subroutine make_lattice(sys,nnbparams,c_simple,c_matrix,o_simple,o_matrix)
     type(nnb_params) :: nnbparams
 
     ! local variables
-    integer         :: i,j,k,l,p,no_active_atoms,ns1,ns2,s1,s2
+    integer         :: i,j,k,p,no_active_atoms,ns1,ns2,s1,s2
     doubleprecision :: time_start
     complex*16      :: cpl_value,cpl_1x1(1,1),cpl_delta
     complex*16,allocatable :: cpl_matrix(:,:)
@@ -722,7 +722,6 @@ subroutine update_overlaps(sys,o_simple,o_matrix)
     ! locals
     doubleprecision :: time_start
     integer :: i,j,k,vp,b,ta,fa,s1,s2,ns1,ns2
-    logical :: bondTest
     complex*16      :: cpl_value,cpl_delta,cpl_1x1(1,1)
     complex*16,allocatable :: cpl_matrix(:,:)
 
@@ -850,9 +849,9 @@ subroutine save_lattice(sys,filename,ofunit)
     integer,optional:: ofunit
 
     integer :: funit
-    integer :: i,b,ida,ids1,ids2,j,itmp,ns1,ns2,s1,s2
+    integer :: i,b,j,itmp,ns1,ns2,s1,s2
     integer,parameter :: ix = 1 , iy = 2 , iz = 3 , cmin = 1 , cmax =  2
-    double precision :: lWidth , bbox(2,3)
+    double precision ::  bbox(2,3)
     complex*16 :: cpl_value
     print*,"SYS::Saving lattice to file:",filename
 
@@ -988,7 +987,7 @@ subroutine calc_eigenproblem(sys,pEmin,pEmax,NoStates,no_feast_contours,print_in
 
 
     integer :: fpm(128)
-    integer :: i,j,info,itmp,nw,M0,loop,no_evals,ta,ts,ns1,ns2,s1,s2
+    integer :: i,j,info,itmp,nw,M0,loop,no_evals,ta,ns1,ns2,s1,s2
     integer :: no_contours,display_info,maks_iter
     doubleprecision :: epsout
     doubleprecision :: Emin, Emax

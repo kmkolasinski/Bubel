@@ -29,8 +29,7 @@ program transporter
  integer :: i,j,k
  doubleprecision            :: lead_translation_vec(3),Ef
 
- QSYS_USE_ZGGEV_TO_FIND_MODES = .true. ! in case of magnetic field some times one must force to
-                                       ! solve generalized eigenvalue problem -> singulat hoping matrix
+
 
  ! Use atomic units in effective band model -> see modunit.f90 for more details
  call modunits_set_GaAs_params()

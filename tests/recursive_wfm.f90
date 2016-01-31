@@ -37,8 +37,7 @@ integer :: i,j,k
 
 
 call qt%init_system()
-QSYS_USE_ZGGEV_TO_FIND_MODES = .true.  ! in case of magnetic field some times one must force to
-                                       ! solve generalized eigenvalue problem -> singulat hoping matrix
+
 
 ! Use atomic units in effective band model -> see modunit.f90 for more details
 call modunits_set_GaAs_params()
@@ -106,7 +105,7 @@ call lead_shape%destroy_shape()
 call qt%destroy_system()
 print*,"Generating plots..."
 print*,"Plotting Transmission..."
-call system("cd "//output_folder//"; ./plot_T.py")
+call system("cd "//output_folder//"; python plot_T.py")
 
 contains
 

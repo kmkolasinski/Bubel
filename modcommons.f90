@@ -7,13 +7,15 @@ integer ,parameter,public    :: M_IN = 1 , M_OUT = 2 ! numbering the incoming mo
 integer,parameter,public  :: QSYS_NO_BONDS_INC_VALUE      = 10     ! For sparse structures
 integer,parameter,public  :: QSYS_NO_ATOMS_INC_VALUE      = 10000  !
 doubleprecision,public    :: QSYS_COUPLING_CUTOFF_VALUE = 0.0D0 !
-logical,public            :: QSYS_USE_ZGGEV_TO_FIND_MODES = .false. ! When finding modes use generalied eigenvalue problem, can be more stable
+
 logical,public            :: QSYS_DISABLE_HERMICITY_CHECK = .false.
 logical,public            :: QSYS_FORCE_HERMITIAN_MATRIX = .true. ! by default creates hermitian matrix, so connect
                                                                   ! function may take care only for the nnb with greater ID number
-
+double precision,public   :: QSYS_DELTA_SVD = 10.0D-14            ! Minimal value of SVD decomposion, modes < delta are rejjected from Bloch matrices
+double precision,public   :: QSYS_ERROR_EPS =  1.0D-15            ! Used to choose which method will be used, during modes stabilization
 
 logical,public            :: QSYS_FORCE_SCHUR_DECOMPOSITION = .false. ! Maybe more stable but slower only for WFM
+logical,public            :: QSYS_FORCE_ZGGEV_TO_FIND_MODES = .false. ! When finding modes use generalied eigenvalue problem, can be more stable
 integer,public            :: QSYS_DEBUG_LEVEL = 0   ! 0 - less messages, 1-more, 2-even more
 doubleprecision,parameter :: qsys_double_error = 1.0D-16 ! approximated error of double presicion numerical error
 
@@ -64,7 +66,10 @@ public :: QSYS_LEAD_TYPE_NORMAL,QSYS_LEAD_TYPE_PSEUDO_TRANSPARENT
 integer,public :: QSYS_SCATTERING_METHOD       = QSYS_SCATTERING_WFM ! choose approach
 integer,public :: QSYS_SCATTERING_QTBM_NO_EVAN = QSYS_SCATTERING_QTBM_TAKE_ALL_EVAN ! force number of evanescent modes in calculation
 
-logical,public            :: B_SINGULAR_MATRIX = .false.
+logical,public :: B_SINGULAR_MATRIX = .false.
+
+
+
 private
 ! -----------------------------------------------
 ! Stucture which holds connection between

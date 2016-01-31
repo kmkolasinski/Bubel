@@ -129,9 +129,9 @@ call lead_e%destroy()
 call lead_h%destroy()
 print*,"Generating plots..."
 print*,"Plotting band structure..."
-call system("cd "//output_folder//"; ./plot_bands.py")
+call system("cd "//output_folder//"; python plot_bands.py")
 print*,"Plotting Transmission..."
-call system("cd "//output_folder//"; ./plot_T.py")
+call system("cd "//output_folder//"; python plot_T.py")
 print*,"Use Viewer program to see the structure and created leads."
 contains
 
