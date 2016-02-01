@@ -1063,25 +1063,94 @@ subroutine calculate_modes(this,Ef)
 !        print*,"UtitleDager=",alg_cond(Mdiag)
     endif
 
+    no_modes = this%no_out_modes + this%no_out_em - no_inf_modes
+!
+!    Z11 = transpose(this%modes(M_OUT,:,:))
+!    Z21 = conjg(this%modes(M_OUT,:,:))
+!    call gemm(Z21(1:no_modes,:),Z11(:,1:no_modes),Mdiag(1:no_modes,1:no_modes))
+!    print*,"ccc=",alg_cond(Mdiag(1:no_modes,1:no_modes))
+!    do i = 1 , no_modes
+!        print"(500f8.3)",dble(Mdiag(i,1:no_modes))
+!    enddo
+!
+!
+!    Z21 = Mdiag
+!
+!    call geqlf(Mdiag(1:no_modes,1:no_modes) , tau=QLdcmp_TauVec(1:no_modes) ,info=INFO)
+!    if(info /= 0 ) then
+!        print*,"QSYS::LEAD::QR geqlf decomposition error for matrix U(M_OUT,:,:) with info=",INFO
+!    endif
+!    ! Get Q matrix.
+!    Z11 = Mdiag
+!
+!    call ungql(Z11(1:no_modes,1:no_modes), QLdcmp_TauVec(1:no_modes) ,info=INFO)
+!    print*,"Q:=",sum(Z11(1:no_modes,1:no_modes))
+!    if(info /= 0 ) then
+!        print*,"QSYS::LEAD::QR ungql decomposition error for matrix U(M_OUT,:,:) with info=",INFO
+!    endif
+!    ! Get L matrix
+!
+!    call unmql(Mdiag(1:no_modes,1:no_modes), QLdcmp_TauVec(1:no_modes), Z21(1:no_modes,1:no_modes), side="L" ,trans='C' ,info=INFO)
+!    print*,"L:=",sum(Z21(1:no_modes,1:no_modes))
+!    if(info /= 0 ) then
+!        print*,"QSYS::LEAD::QR unmql decomposition error for matrix U(M_OUT,:,:) with info=",INFO
+!    endif
+!
+!    this%QLdcmp_Qmat(1:no_modes,1:no_modes) = Z11(1:no_modes,1:no_modes)
+!    this%QLdcmp_Lmat(1:no_modes,1:no_modes) = Z21(1:no_modes,1:no_modes)
+!
+!
+!    Z11 = 0
+!    do i = 1 , no_modes
+!        Z11(i,1:i) = 1/Z21(i,1:i)
+!    enddo
+!!    Z11 = Z21
+!    call gemm(Z11(1:no_modes,:),Z21(:,1:no_modes),Mdiag(1:no_modes,1:no_modes))
+!
+!    if( QSYS_DEBUG_LEVEL > 1 ) then
+!        print*,"QSYS::LEAD::Performed QL factorization of the modes matrix "
+!        print*,"QSYS::abs of L(modes) - matrix:",sum(abs(Z21(i,1:this%no_out_modes)))
+!!        do i = 1 , this%no_out_modes
+!!            print"(500f8.3)",abs(Z21(i,1:this%no_out_modes))
+!!        enddo
+!        do i = 1 , no_modes
+!            print"(500f8.3)",abs(Mdiag(i,1:no_modes))
+!        enddo
+!
+!!        do i = 1 , this%no_sites
+!!            print"(e12.2,500e8.1)",abs(this%lambdas(M_OUT,i)),DBLE((this%modes(M_OUT,i,:)))
+!!        enddo
+!        print*,"               cond(U)=",alg_cond(this%modes(M_OUT,:,:))
+!        print*,"               cond(Q)=",alg_cond(this%QLdcmp_Qmat(1:no_modes,1:no_modes))
+!        print*,"               cond(L)=",alg_cond(Mdiag(1:no_modes,1:no_modes))
+!        print*,"        cond(L(modes))=",alg_cond(Mdiag(1:this%no_out_modes,1:this%no_out_modes))
+!    endif
+
     ! Performing QL factorization of the matrix U in order to get more stable
     ! transmision calculation of transmission matrix
 
     ! Transpose mode matrix to have modes ordered in columns instead of rows
     ! The perform QL factorizaion
     Mdiag(:,:) = transpose(this%modes(M_OUT,:,:))
+!    print*,"Mdiag:=",sum(Mdiag)
+!    print*,"abs(U)=",sum(abs((Mdiag)))
+
     call geqlf(Mdiag , tau=QLdcmp_TauVec ,info=INFO)
     if(info /= 0 ) then
         print*,"QSYS::LEAD::QR geqlf decomposition error for matrix U(M_OUT,:,:) with info=",INFO
     endif
     ! Get Q matrix.
     Z11 = Mdiag
+
     call ungql(Z11, QLdcmp_TauVec ,info=INFO)
+!    print*,"Q:=",sum(Z11)
     if(info /= 0 ) then
         print*,"QSYS::LEAD::QR ungql decomposition error for matrix U(M_OUT,:,:) with info=",INFO
     endif
     ! Get L matrix
     Z21 = transpose(this%modes(M_OUT,:,:))
     call unmql(Mdiag, QLdcmp_TauVec, Z21, side="L" ,trans='C' ,info=INFO)
+!    print*,"L:=",sum(Z21)
     if(info /= 0 ) then
         print*,"QSYS::LEAD::QR unmql decomposition error for matrix U(M_OUT,:,:) with info=",INFO
     endif
@@ -1089,12 +1158,24 @@ subroutine calculate_modes(this,Ef)
     this%QLdcmp_Qmat = Z11
     this%QLdcmp_Lmat = Z21
 
-    if( QSYS_DEBUG_LEVEL > 1 ) then
-        print*,"QSYS::LEAD::Performed QL factorization of the modes matrix "
-        print*,"               cond(Q)=",alg_cond(this%QLdcmp_Qmat)
-        print*,"               cond(L)=",alg_cond(this%QLdcmp_Lmat)
-        print*,"        cond(L(modes))=",alg_cond(Z21(1:this%no_out_modes,1:this%no_out_modes))
-    endif
+!    if( QSYS_DEBUG_LEVEL > 1 ) then
+!        print*,"QSYS::LEAD::Performed QL factorization of the modes matrix "
+!        print*,"QSYS::abs of L(modes) - matrix:",sum(abs(Z21(i,1:this%no_out_modes)))
+!!        do i = 1 , this%no_out_modes
+!!            print"(500f8.3)",abs(Z21(i,1:this%no_out_modes))
+!!        enddo
+!        do i = 1 , this%no_sites
+!            print"(500f8.3)",abs(Z21(i,1:this%no_sites))
+!        enddo
+!        print*,"QSYS::abs of U(M_OUT) - matrix:",sum(abs((this%modes(M_OUT,:,:))))
+!        do i = 1 , this%no_sites
+!            print"(e12.2,500e8.1)",abs(this%lambdas(M_OUT,i)),DBLE((this%modes(M_OUT,i,:)))
+!        enddo
+!        print*,"               cond(U)=",alg_cond(this%modes(M_OUT,:,:))
+!        print*,"               cond(Q)=",alg_cond(this%QLdcmp_Qmat)
+!        print*,"               cond(L)=",alg_cond(this%QLdcmp_Lmat)
+!        print*,"        cond(L(modes))=",alg_cond(Z21(1:this%no_out_modes,1:this%no_out_modes))
+!    endif
 
     T_SE_constr = get_clock() - T_SE_constr
 
@@ -2144,10 +2225,12 @@ subroutine try_svd_modes_decomposition(H0,TauDag,ALPHA,BETA,Z)
     ! problem if cond(Kcc) < small enough, i.e. is well conditioned
     cond_Value = alg_cond(Kcc)
     if(QSYS_DEBUG_LEVEL > 1) then
-        print*,"QSYS::LEAD::SVD cond(Kcc)=",cond_Value
+        print*,"QSYS::LEAD::SVD cond(Kcc)          =",cond_Value
+        print*,"            SVD compression factor =",dble(n_svd)/n1/2.0
+        print*,"            SVD no. singular values=",n2 - n_svd
     endif
     B_SINGULAR_MATRIX = .false.
-    if( cond_Value*qsys_double_error > QSYS_ERROR_EPS ) then
+    if( cond_Value*qsys_double_error > 1.0D-6 ) then
         print*,"LEAD::SVD decomposition cannot be use. cond(Kcc)=",cond_Value
         print*,"TRY TO USE FORCE SCHUR DECOMPOSITION MODE"
         deallocate(MA  )
@@ -2216,9 +2299,11 @@ subroutine try_svd_modes_decomposition(H0,TauDag,ALPHA,BETA,Z)
     deallocate(MB)
     allocate(MA(n1,n2))
     allocate(MB(n1,n2))
+
     MA = Z(1+n1:n2,:)
     call gemm(svd_hcVt, MA, MB )
     Z(1+n1:n2,:) = MB
+
 
 
     deallocate(MA  )
