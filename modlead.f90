@@ -1981,6 +1981,7 @@ subroutine calc_bloch_matrix(A,B,F)
     complex*16 :: A(:,:),B(:,:),F(:,:)
 
     complex*16,allocatable      :: svd_U(:,:),svd_Vt(:,:)
+    complex*16,allocatable      :: svd_Ur(:,:),svd_Vtr(:,:)
     doubleprecision,allocatable :: svd_S(:)
     integer :: i ,j, n , info , n_svd
     n = size(A,1)
@@ -2006,23 +2007,43 @@ subroutine calc_bloch_matrix(A,B,F)
 
     F = 0
     B = 0
+    allocate(svd_Ur(n,n_svd))
+    allocate(svd_Vtr(n_svd,n))
+
+    svd_Vtr = svd_Vt(1:n_svd,1:n)
+
     ! Multiply B' = A * V
-    call gemm(A, svd_Vt(1:n_svd,1:n), B(1:n,1:n_svd) ,transa="N",transb="C" )
+    call gemm(A, svd_Vtr, svd_Ur ,transa="N",transb="C" )
+!    call gemm(A, svd_Vt(1:n_svd,1:n), B(1:n,1:n_svd) ,transa="N",transb="C" )
     ! Multiply B'' = B' * S (S is diagonal matrix)
+
+    deallocate(svd_Vtr)
+    allocate(svd_Vtr(n,n_svd))
+    svd_Vtr = svd_Ur
     do i = 1 , n
     do j = 1 , n_svd
-        B(i,j) = B(i,j) * svd_S(j)**(-1)
+        svd_Vtr(i,j) = svd_Vtr(i,j) * svd_S(j)**(-1)
     enddo
     enddo
+
+    svd_Ur = svd_U(1:n,1:n_svd)
     ! Multiply F = B'' * U^H
-    call gemm(B(1:n,1:n_svd), svd_U(1:n,1:n_svd), F,transa="N",transb="C" )
+    call gemm(svd_Vtr, svd_Ur, F,transa="N",transb="C" )
+!    call gemm(B(1:n,1:n_svd), svd_U(1:n,1:n_svd), F,transa="N",transb="C" )
 
     deallocate(svd_U )
     deallocate(svd_S )
     deallocate(svd_Vt)
 end subroutine calc_bloch_matrix
 
-
+! ---------------------------------------------------------- !
+! Solves generalized eigenvalue problem of form:
+! (     0     1   ) ( c ) =         ( 1    0   ) ( c )
+! (   -Tau    H0  ) ( d ) = \lambda ( 0  Tau^+ ) ( d )
+! where d = \lambda * c
+! by converting it to  standard one using SVD decomposition
+! of Tau^+ = U * S * V^+
+! ---------------------------------------------------------- !
 subroutine try_svd_modes_decomposition(H0,TauDag,ALPHA,BETA,Z)
     complex*16 :: H0(:,:),TauDag(:,:),ALPHA(:),BETA(:),Z(:,:)
 
@@ -2122,7 +2143,9 @@ subroutine try_svd_modes_decomposition(H0,TauDag,ALPHA,BETA,Z)
     ! Such system can be transformed to standard eigenvalue
     ! problem if cond(Kcc) < small enough, i.e. is well conditioned
     cond_Value = alg_cond(Kcc)
-
+    if(QSYS_DEBUG_LEVEL > 1) then
+        print*,"QSYS::LEAD::SVD cond(Kcc)=",cond_Value
+    endif
     B_SINGULAR_MATRIX = .false.
     if( cond_Value*qsys_double_error > QSYS_ERROR_EPS ) then
         print*,"LEAD::SVD decomposition cannot be use. cond(Kcc)=",cond_Value

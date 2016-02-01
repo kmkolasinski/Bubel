@@ -40,30 +40,30 @@ call modunits_set_GaAs_params()
 a_dx = dx * L2LA ! convert it to atomic units
 a_Bz = BtoAtomicB(0.45D0) ! 1 Tesla to atomic units
 
+!!
+!!QSYS_FORCE_ZGGEV_TO_FIND_MODES = .true.
+!QSYS_FORCE_SCHUR_DECOMPOSITION = .false.
+!QSYS_DEBUG_LEVEL = 2
+!a_Bz = BtoAtomicB(0.45D0)
+!ny = 100
+!nx = 30
+!call create_system(ny,1)
 !
-!QSYS_FORCE_ZGGEV_TO_FIND_MODES = .true.
-QSYS_FORCE_SCHUR_DECOMPOSITION = .false.
-QSYS_DEBUG_LEVEL = 2
-a_Bz = BtoAtomicB(0.45D0)
-ny = 100
-nx = 30
-call create_system(ny,1)
-
-Ef = 5.0/E0/1000.0
-call qt%calculate_modes(Ef)
-call qt%solve(1,Ef)
-! Save calculated electron density to file
-do i = 1 , size(qt%qauxvec)
-    qt%qauxvec(i) = sum(qt%densities(:,i))
-enddo
-call qt%qsystem%save_data(output_folder//"densities.xml",array2d=qt%densities,array1d=qt%qauxvec)
-
-call qt%save_system(output_folder//"system.xml")
+!Ef = 5.0/E0/1000.0
+!call qt%calculate_modes(Ef)
+!call qt%solve(1,Ef)
+!! Save calculated electron density to file
+!do i = 1 , size(qt%qauxvec)
+!    qt%qauxvec(i) = sum(qt%densities(:,i))
+!enddo
+!call qt%qsystem%save_data(output_folder//"densities.xml",array2d=qt%densities,array1d=qt%qauxvec)
+!
+!call qt%save_system(output_folder//"system.xml")
+!
 
 
 
-
-if(.true.) then
+if(.false.) then
 ! -------------------------------------------------------------------
 ! Test 1
 ! -------------------------------------------------------------------
