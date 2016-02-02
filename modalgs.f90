@@ -4,7 +4,6 @@
 !include "include/lapack.f90"
 !include "include/blas.f90"
 module modalgs
-use modutils
 use modcommons
 use lapack95
 use blas95
@@ -183,7 +182,7 @@ end subroutine sort_col_vals
 
 
   subroutine solve_SSOLEQ(no_rows,no_vals,colptr,rowind,values,b,iopt,mtype)
-        use modutils
+
         implicit none
         integer,intent(in)                 :: no_rows
         integer,intent(in)                 :: no_vals
@@ -394,7 +393,7 @@ end subroutine sort_col_vals
 
 
   subroutine dalg_SSOLEQ(no_rows,no_vals,colptr,rowind,values,b,iopt,pardiso_mtype)
-        use modutils
+
         implicit none
         integer,intent(in)                 :: no_rows
         integer,intent(in)                 :: no_vals
@@ -638,6 +637,42 @@ subroutine inverse_matrix(N,A)
     stop
   end if
 end subroutine inverse_matrix
+
+subroutine dalg_invmat(A)
+
+  doubleprecision,dimension(:,:):: A
+  doubleprecision,allocatable,dimension(:)  :: WORK
+  integer,allocatable,dimension (:)    :: IPIV
+  integer info,error
+  integer :: N
+
+  N = size(A,1)
+  B_SINGULAR_MATRIX = .false.
+  allocate(WORK(N),IPIV(N),stat=error)
+  if (error.ne.0)then
+    print *,"SYS::LEAD::ZGETRF::error:not enough memory"
+    stop
+  end if
+  call DGETRF(N,N,A,N,IPIV,info)
+  if(info .eq. 0) then
+!    write(*,*)"succeded"
+  else
+    write(*,*)"SYS::LEAD::ZGETRF::failed with info:",info
+    write(*,*)"           It seems your matrix is singular check your code"
+    B_SINGULAR_MATRIX = .true.
+  end if
+  call DGETRI(N,A,N,IPIV,WORK,N,info)
+  if(info .eq. 0) then
+!    write(*,*)"succeded"
+  else
+   write(*,*)"SYS::LEAD::ZGETRI::failed with info:",info
+  end if
+  deallocate(IPIV,WORK,stat=error)
+  if (error.ne.0)then
+    print *,"SYS::LEAD::ZGETRF::error:fail to release"
+    stop
+  end if
+end subroutine dalg_invmat
 
 subroutine alg_ZHEEV(N,Mat,Vecs,Lambdas)
     integer :: N

@@ -9,7 +9,6 @@
 ! However it may be less stable.
 ! ---------------------------------------------------------------------------------------
 module modscatter
-use modutils
 use modcommons
 use modsys
 use modlead

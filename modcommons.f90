@@ -68,7 +68,11 @@ integer,public :: QSYS_SCATTERING_QTBM_NO_EVAN = QSYS_SCATTERING_QTBM_TAKE_ALL_E
 
 logical,public :: B_SINGULAR_MATRIX = .false.
 
-
+! -------------------------------------------------------
+integer,parameter :: QTOOLS_FD_EXPANSION_MAX_ORDER = 10 ! calculate up to  4th order of finite difference
+                                                        ! expansion of derivative. See modutils for more details.
+public :: QTOOLS_FD_EXPANSION_MAX_ORDER
+! -------------------------------------------------------
 
 private
 ! -----------------------------------------------
@@ -131,7 +135,38 @@ public :: QSYS_NNB_FILTER_DISTANCE
 public :: QSYS_NNB_FILTER_BOX
 public :: qatom , nnb_params
 
+public :: reset_clock , get_clock
+INTEGER,private :: clock1
 contains
+
+! ------------------------------------------------------------------------
+! Time functions
+! ------------------------------------------------------------------------
+subroutine reset_clock()
+    CALL SYSTEM_CLOCK(COUNT=clock1)
+end subroutine reset_clock
+
+real function get_clock() result(c)
+    INTEGER :: clock_rate,c_time
+    CALL SYSTEM_CLOCK(COUNT_RATE=clock_rate)
+    CALL SYSTEM_CLOCK(COUNT=c_time)
+    c = (real(c_time) - clock1)/clock_rate
+end function get_clock
+
+
+subroutine  printDate
+    character(8)  :: date
+    character(10) :: time
+    character(5)  :: zone
+    integer,dimension(8) :: values
+
+    ! using keyword arguments
+    call date_and_time(date,time,zone,values)
+    call date_and_time(DATE=date,ZONE=zone)
+    call date_and_time(TIME=time)
+    call date_and_time(VALUES=values)
+    print '(a,2x,a,A,2x,a)'," DATA:", date,"   TIME:", time
+end subroutine printDate
 
 ! ------------------------------------------------------------------------
 ! Initialize qatom structure. This function does not

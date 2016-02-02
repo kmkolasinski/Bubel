@@ -49,8 +49,8 @@ LDFLAGS=$(LIBS)  -mkl -lmkl_lapack95_lp64 -lmkl_blas95_lp64 -lmkl_intel_lp64 -L$
 F90_SOURCES= modcommons.f90 \
 		modinip.f90 \
 		modunits.f90 \
-		modutils.f90 \
 		modalgs.f90 \
+		modutils.f90 \
 		modsys.f90  \
 		modshape.f90  \
 		modlead.f90  \

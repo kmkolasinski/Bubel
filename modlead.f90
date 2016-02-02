@@ -16,7 +16,6 @@ module modlead
 use modshape
 use modsys
 use modcommons
-use modutils
 use modalgs
 
 implicit none
