@@ -21,7 +21,7 @@ program graphene2
  doubleprecision           :: atom_pos(3),lead_translation_vec(3),range_base(3),range_dir(3),Ef
  integer,parameter         :: atom_A = 1 , atom_B = 2
  integer           :: atom,i,j
- integer,parameter :: nx = 50  , ny = 100
+ integer,parameter :: nx = 50  , ny = 400
 
  call qt%init_system()
 !QSYS_FORCE_SCHUR_DECOMPOSITION = .true.
