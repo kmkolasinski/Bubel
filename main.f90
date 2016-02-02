@@ -21,7 +21,7 @@ program graphene2
  doubleprecision           :: atom_pos(3),lead_translation_vec(3),range_base(3),range_dir(3),Ef
  integer,parameter         :: atom_A = 1 , atom_B = 2
  integer           :: atom,i,j
- integer,parameter :: nx = 50  , ny = 50
+ integer,parameter :: nx = 50  , ny = 100
 
  call qt%init_system()
 !QSYS_FORCE_SCHUR_DECOMPOSITION = .true.
@@ -74,7 +74,7 @@ call qt%add_lead(lead_area,(/-1.0D0,0.0D0,0.0D0/))
 !QSYS_FORCE_ZGGEV_TO_FIND_MODES = .true.
 !QSYS_FORCE_SCHUR_DECOMPOSITION = .true.
 call qt%save_system(output_folder//"system.xml")
-Ef = 2.4
+Ef = 2.5
 QSYS_DEBUG_LEVEL = 2
 call qt%calculate_modes(Ef)
 call qt%solve(1,Ef)

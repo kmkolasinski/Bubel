@@ -1038,102 +1038,31 @@ subroutine calculate_modes(this,Ef)
     ! Lambda matrix calculation:
     call ZGEMM( 'N', 'N', N, N, N, one ,Mdiag  , N, Z11, N, zero,this%LambdaMat, N )
 
-
-    if(this%bUseShurDecomposition) then
-        ! -------------------------------------------------
-        ! Calculate overlap matrix
-        ! -------------------------------------------------
-!        no_modes = this%no_out_modes + this%no_out_em - no_inf_modes
-!        deallocate(MA)
-!        allocate(MA (no_modes,N))
-!        deallocate(this%UTildeDagger)
-!        allocate(this%UTildeDagger(no_modes,no_modes))
-!
-!        MA  = conjg((this%modes(M_OUT,1:no_modes,:)))
-!        Z11 = this%modes(M_OUT,:,:)
-!        call ZGEMM( 'N', 'T', no_modes,no_modes,N,one, &
-!                    MA, no_modes, Z11, N, zero,this%UTildeDagger, no_modes )
-!
-!        if(no_modes > 0) call inverse_matrix(no_modes,this%UTildeDagger)
-!        print*,"U-1=",alg_cond(this%UTildeDagger)
-
-!        Mdiag(:,:) = this%modes(M_OUT,:,:)
-!        call inverse_matrix(N,Mdiag)
-!        this%UTildeDagger  = Mdiag
-!        print*,"UtitleDager=",alg_cond(Mdiag)
-    endif
-
     no_modes = this%no_out_modes + this%no_out_em - no_inf_modes
-!
-!    Z11 = transpose(this%modes(M_OUT,:,:))
-!    Z21 = conjg(this%modes(M_OUT,:,:))
-!    call gemm(Z21(1:no_modes,:),Z11(:,1:no_modes),Mdiag(1:no_modes,1:no_modes))
-!    print*,"ccc=",alg_cond(Mdiag(1:no_modes,1:no_modes))
-!    do i = 1 , no_modes
-!        print"(500f8.3)",dble(Mdiag(i,1:no_modes))
-!    enddo
-!
-!
-!    Z21 = Mdiag
-!
-!    call geqlf(Mdiag(1:no_modes,1:no_modes) , tau=QLdcmp_TauVec(1:no_modes) ,info=INFO)
-!    if(info /= 0 ) then
-!        print*,"QSYS::LEAD::QR geqlf decomposition error for matrix U(M_OUT,:,:) with info=",INFO
-!    endif
-!    ! Get Q matrix.
-!    Z11 = Mdiag
-!
-!    call ungql(Z11(1:no_modes,1:no_modes), QLdcmp_TauVec(1:no_modes) ,info=INFO)
-!    print*,"Q:=",sum(Z11(1:no_modes,1:no_modes))
-!    if(info /= 0 ) then
-!        print*,"QSYS::LEAD::QR ungql decomposition error for matrix U(M_OUT,:,:) with info=",INFO
-!    endif
-!    ! Get L matrix
-!
-!    call unmql(Mdiag(1:no_modes,1:no_modes), QLdcmp_TauVec(1:no_modes), Z21(1:no_modes,1:no_modes), side="L" ,trans='C' ,info=INFO)
-!    print*,"L:=",sum(Z21(1:no_modes,1:no_modes))
-!    if(info /= 0 ) then
-!        print*,"QSYS::LEAD::QR unmql decomposition error for matrix U(M_OUT,:,:) with info=",INFO
-!    endif
-!
-!    this%QLdcmp_Qmat(1:no_modes,1:no_modes) = Z11(1:no_modes,1:no_modes)
-!    this%QLdcmp_Lmat(1:no_modes,1:no_modes) = Z21(1:no_modes,1:no_modes)
-!
-!
-!    Z11 = 0
-!    do i = 1 , no_modes
-!        Z11(i,1:i) = 1/Z21(i,1:i)
-!    enddo
-!!    Z11 = Z21
-!    call gemm(Z11(1:no_modes,:),Z21(:,1:no_modes),Mdiag(1:no_modes,1:no_modes))
-!
-!    if( QSYS_DEBUG_LEVEL > 1 ) then
-!        print*,"QSYS::LEAD::Performed QL factorization of the modes matrix "
-!        print*,"QSYS::abs of L(modes) - matrix:",sum(abs(Z21(i,1:this%no_out_modes)))
-!!        do i = 1 , this%no_out_modes
-!!            print"(500f8.3)",abs(Z21(i,1:this%no_out_modes))
-!!        enddo
-!        do i = 1 , no_modes
-!            print"(500f8.3)",abs(Mdiag(i,1:no_modes))
-!        enddo
-!
-!!        do i = 1 , this%no_sites
-!!            print"(e12.2,500e8.1)",abs(this%lambdas(M_OUT,i)),DBLE((this%modes(M_OUT,i,:)))
-!!        enddo
-!        print*,"               cond(U)=",alg_cond(this%modes(M_OUT,:,:))
-!        print*,"               cond(Q)=",alg_cond(this%QLdcmp_Qmat(1:no_modes,1:no_modes))
-!        print*,"               cond(L)=",alg_cond(Mdiag(1:no_modes,1:no_modes))
-!        print*,"        cond(L(modes))=",alg_cond(Mdiag(1:this%no_out_modes,1:this%no_out_modes))
-!    endif
+    deallocate(RWORK)
+    allocate(RWORK(this%no_sites))
+
+    ! Calculate the SVD decomposition of modes matrix U(modes)
+    ! U(modes) = U_svd * S * V^+ we will use U_svd matrix to
+    ! order the eigen values of this matrix
+
+    Mdiag(:,:) = transpose(this%modes(M_OUT,:,:))
+    call gesvd(Mdiag,RWORK ,u=Z11,job="All" ,info=info)
+    if(info /= 0 ) then
+        print*,"LEAD::SVD decomposition error with info=",info
+    endif
+    this%QLdcmp_Lmat = Z11
 
     ! Performing QL factorization of the matrix U in order to get more stable
     ! transmision calculation of transmission matrix
-
     ! Transpose mode matrix to have modes ordered in columns instead of rows
     ! The perform QL factorizaion
+    ! We perform QL factorization on transformed U(modes) matrix
+    ! U' = U_svd^+ * U(modes)
     Mdiag(:,:) = transpose(this%modes(M_OUT,:,:))
-!    print*,"Mdiag:=",sum(Mdiag)
-!    print*,"abs(U)=",sum(abs((Mdiag)))
+    call gemm(Z11,Mdiag,Z21,transa='C')
+    Mdiag            = Z21
+    this%QLdcmp_Qmat = Z21
 
     call geqlf(Mdiag , tau=QLdcmp_TauVec ,info=INFO)
     if(info /= 0 ) then
@@ -1141,41 +1070,28 @@ subroutine calculate_modes(this,Ef)
     endif
     ! Get Q matrix.
     Z11 = Mdiag
-
     call ungql(Z11, QLdcmp_TauVec ,info=INFO)
-!    print*,"Q:=",sum(Z11)
     if(info /= 0 ) then
         print*,"QSYS::LEAD::QR ungql decomposition error for matrix U(M_OUT,:,:) with info=",INFO
     endif
     ! Get L matrix
-    Z21 = transpose(this%modes(M_OUT,:,:))
+    Z21 = this%QLdcmp_Qmat
     call unmql(Mdiag, QLdcmp_TauVec, Z21, side="L" ,trans='C' ,info=INFO)
-!    print*,"L:=",sum(Z21)
     if(info /= 0 ) then
         print*,"QSYS::LEAD::QR unmql decomposition error for matrix U(M_OUT,:,:) with info=",INFO
     endif
-
-    this%QLdcmp_Qmat = Z11
+    ! Back to original space by multiplying obtained matrix Q by U_svd
+    ! Q = U_svd * Q'
+    call gemm(this%QLdcmp_Lmat,Z11,this%QLdcmp_Qmat)
     this%QLdcmp_Lmat = Z21
 
-!    if( QSYS_DEBUG_LEVEL > 1 ) then
-!        print*,"QSYS::LEAD::Performed QL factorization of the modes matrix "
-!        print*,"QSYS::abs of L(modes) - matrix:",sum(abs(Z21(i,1:this%no_out_modes)))
-!!        do i = 1 , this%no_out_modes
-!!            print"(500f8.3)",abs(Z21(i,1:this%no_out_modes))
-!!        enddo
-!        do i = 1 , this%no_sites
-!            print"(500f8.3)",abs(Z21(i,1:this%no_sites))
-!        enddo
-!        print*,"QSYS::abs of U(M_OUT) - matrix:",sum(abs((this%modes(M_OUT,:,:))))
-!        do i = 1 , this%no_sites
-!            print"(e12.2,500e8.1)",abs(this%lambdas(M_OUT,i)),DBLE((this%modes(M_OUT,i,:)))
-!        enddo
-!        print*,"               cond(U)=",alg_cond(this%modes(M_OUT,:,:))
-!        print*,"               cond(Q)=",alg_cond(this%QLdcmp_Qmat)
-!        print*,"               cond(L)=",alg_cond(this%QLdcmp_Lmat)
-!        print*,"        cond(L(modes))=",alg_cond(Z21(1:this%no_out_modes,1:this%no_out_modes))
-!    endif
+    if( QSYS_DEBUG_LEVEL > 1 ) then
+        print*,"QSYS::LEAD::Performed QL factorization of the modes matrix "
+        print*,"               cond(U)=",alg_cond(this%modes(M_OUT,:,:))
+        print*,"               cond(Q)=",alg_cond(this%QLdcmp_Qmat)
+        print*,"               cond(L)=",alg_cond(this%QLdcmp_Lmat)
+        print*,"        cond(L(modes))=",alg_cond(Z21(1:this%no_out_modes,1:this%no_out_modes))
+    endif
 
     T_SE_constr = get_clock() - T_SE_constr
 
@@ -1186,7 +1102,6 @@ subroutine calculate_modes(this,Ef)
     no_inf_modes = 0
     one          = 1.0
     zero         = 0.0
-
 
     do i = 1 , 2*N
 
@@ -1487,6 +1402,7 @@ subroutine extract_modes_wfm(this,N,c,d,ALPHA,BETA,Z,Z11,Z21,blochF,iselect,no_i
             if(  abs(abs(lambda) - 1.0) < 1.0E-6 ) then ! check if propagating mode
                 current = (mode_current_sparse(c(i,:),lambda,sparse_tau_vals,sparse_tau_rcid,sparse_tau_novals))
                 tmpc    = current
+!                print*,i,"c=",current,"l=",abs(lambda)
                 ! Normalize to current = 1
                 c(i,:)  = c(i,:)/sqrt(abs(current))
                 d(i,:)  = d(i,:)/sqrt(abs(current))
@@ -1533,13 +1449,11 @@ subroutine extract_modes_wfm(this,N,c,d,ALPHA,BETA,Z,Z11,Z21,blochF,iselect,no_i
     no_e_out = 0
     k = 0
     do i = 1 , 2*N
-
+        lambda= (ALPHA(i)/BETA(i))
         if(abs(Beta(i))>1e-16) then
-            lambda= (ALPHA(i)/BETA(i))
-!            print*,i,abs(lambda),sum(abs(c(i,:)**2))
-
             if(  abs(abs(lambda) - 1.0) < 1.0E-6 ) then
                 current = (mode_current_sparse(c(i,:),lambda,sparse_tau_vals,sparse_tau_rcid,sparse_tau_novals))
+
                 if(current > 0) then
                     no_in  = no_in + 1
                     this%modes   (M_IN,no_in,:)  = c(i,:)
@@ -2070,6 +1984,7 @@ subroutine calc_bloch_matrix(A,B,F)
     allocate(svd_U(n,n))
     allocate(svd_Vt(n,n))
     allocate(svd_S(n))
+
     ! Decompose matrix B = U S V^H
     call gesvd(B,svd_S ,u=svd_U ,vt=svd_Vt ,job="All" ,info=info)
     if(info /= 0 ) then
@@ -2133,8 +2048,10 @@ subroutine try_svd_modes_decomposition(H0,TauDag,ALPHA,BETA,Z)
     complex*16,allocatable      :: svd_hcU(:,:),svd_hcVt(:,:)
     complex*16,allocatable      :: MA(:,:),MB(:,:),Diag(:,:),Tau(:,:),DiagS(:,:),tmpMat(:,:)
     complex*16,allocatable      :: Kaa(:,:),Kac(:,:),Kca(:,:),tmp_Kca(:,:),Kcc(:,:),Kcc_INV(:,:),Kmm(:,:),KMA(:,:)
+    complex*16,allocatable      :: geev_a(:),geev_b(:)
+
     doubleprecision ::   cond_Value
-    integer :: n2 , n1 , n_svd
+    integer :: n2 , n1 , n_svd , n2_svd
     integer :: i,j,info
 
     if(QSYS_DEBUG_LEVEL>0) then
@@ -2201,6 +2118,8 @@ subroutine try_svd_modes_decomposition(H0,TauDag,ALPHA,BETA,Z)
 
     n_svd = n1 + n_svd
     allocate(Kmm(n_svd,n_svd))
+    allocate(geev_a(n_svd))
+    allocate(geev_b(n_svd))
     allocate(Kaa(n_svd,n_svd))
     allocate(KMA(n_svd,n_svd))
     allocate(Kac(n_svd,n2-n_svd))
@@ -2224,15 +2143,13 @@ subroutine try_svd_modes_decomposition(H0,TauDag,ALPHA,BETA,Z)
     ! Such system can be transformed to standard eigenvalue
     ! problem if cond(Kcc) < small enough, i.e. is well conditioned
     cond_Value = alg_cond(Kcc)
-    if(QSYS_DEBUG_LEVEL > 1) then
-        print*,"QSYS::LEAD::SVD cond(Kcc)          =",cond_Value
-        print*,"            SVD compression factor =",dble(n_svd)/n1/2.0
-        print*,"            SVD no. singular values=",n2 - n_svd
-    endif
+
     B_SINGULAR_MATRIX = .false.
     if( cond_Value*qsys_double_error > 1.0D-6 ) then
         print*,"LEAD::SVD decomposition cannot be use. cond(Kcc)=",cond_Value
         print*,"TRY TO USE FORCE SCHUR DECOMPOSITION MODE"
+        deallocate(geev_a  )
+        deallocate(geev_b  )
         deallocate(MA  )
         deallocate(MB  )
         deallocate(Diag)
@@ -2273,13 +2190,69 @@ subroutine try_svd_modes_decomposition(H0,TauDag,ALPHA,BETA,Z)
     enddo
     enddo
 
-    ! Solve standard eigenvalue problem
-    Z    = 0
-    call geev(KMA, ALPHA(1:n_svd), vr=Kmm ,info=INFO)
-    if(info /= 0 ) then
-        print*,"QSYS::LEAD::SVD decomposition GGEV error with info=",info
-        stop -1
+    ! Here we again perform SVD in order to remove singular values
+    ! but this time with |lambda| = 0
+    deallocate(svd_S )
+    deallocate(svd_U )
+    deallocate(svd_Vt )
+    deallocate(DiagS )
+    allocate(svd_S(n_svd) )
+    allocate(svd_U(n_svd,n_svd) )
+    allocate(svd_Vt(n_svd,n_svd) )
+    allocate(DiagS(n_svd,n_svd))
+    ! From SVD of matrix A from A x = \lambda x we will get only the
+    ! upper part of factorized matrix.
+    call gesvd(KMA,svd_S,u=svd_U ,vt=svd_Vt ,job="All" ,info=info)
+
+    ! Finding singular values
+    n2_svd = 0
+    DiagS  = 0
+    do i = 1, n_svd
+        if( svd_S(i)/svd_S(1) > QSYS_DELTA_SVD ) then
+            n2_svd = n2_svd + 1
+            DiagS(i,i) = svd_S(i)
+        endif
+    enddo
+    ! Create new matrix A' = S * V^+ * U
+    call gemm(DiagS,svd_Vt,KMA)
+    call gemm(KMA,svd_U,svd_Vt)
+
+
+    if(QSYS_DEBUG_LEVEL > 1) then
+        print*,"QSYS::LEAD::SVD cond(Kcc)          =",cond_Value
+        print*,"            SVD compression factor =",dble(n2_svd)/n1/2.0
+        print*,"            SVD no. singular values=",n2 - n2_svd
+        print*,"            SVD cond(Kmm)          =",alg_cond(Kmm)
     endif
+
+    ! And solve eigenproblem for matrix A'
+
+    deallocate(geev_b)
+    deallocate(KMA)
+    deallocate(Kcc)
+    allocate(KMA(1:n2_svd,1:n2_svd))
+    allocate(Kcc(1:n2_svd,1:n2_svd))
+    allocate(geev_b(1:n2_svd))
+
+    KMA = svd_Vt(1:n2_svd,1:n2_svd)
+    call geev(KMA, geev_b , vr=Kcc,info=INFO)
+
+
+    DiagS                    = 0
+    geev_a                   = 0
+    geev_a(1:n2_svd)         = geev_b
+    ALPHA(1:n_svd)           = geev_a
+    DiagS(1:n2_svd,1:n2_svd) = Kcc
+
+    ! Transform back to original space by multiplying result with
+    ! X = U_svd * X'
+    call gemm(svd_U,DiagS,svd_Vt)
+    Kmm(1:n_svd,1:n_svd) = svd_Vt
+
+
+
+
+    Z = 0
 
     BETA = 1
     BETA(n_svd+1:n2) = 0.0 ! set modes with lambda=infty
@@ -2304,8 +2277,8 @@ subroutine try_svd_modes_decomposition(H0,TauDag,ALPHA,BETA,Z)
     call gemm(svd_hcVt, MA, MB )
     Z(1+n1:n2,:) = MB
 
-
-
+    deallocate(geev_a  )
+    deallocate(geev_b  )
     deallocate(MA  )
     deallocate(MB  )
     deallocate(Diag)

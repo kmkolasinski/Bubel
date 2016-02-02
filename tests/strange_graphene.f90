@@ -32,7 +32,7 @@ integer :: i,j,k,m
 doubleprecision            :: lead_translation_vec(3),x,y,z,Ef
 character(300) :: line
 
-
+!QSYS_FORCE_SCHUR_DECOMPOSITION = .true.
 ! Initalize system
 call qt%init_system()
 ! ----------------------------------------------------------
