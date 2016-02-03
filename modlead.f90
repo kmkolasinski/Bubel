@@ -746,6 +746,10 @@ subroutine calculate_modes(this,Ef)
     ! ---------------------------------------------------------------------------
     Z11 = this%valsTau  - this%valsS1*Ef
     CONDA = alg_cond(Z11)
+    if(QSYS_DEBUG_LEVEL > 1) then
+        print*,"SYS::LEAD::Checking               cond(Tau)=",CONDA
+        print*,"            cond(Tau) * eps < QSYS_ERROR_EPS=",CONDA * qsys_double_error < QSYS_ERROR_EPS
+    endif
     if(QSYS_FORCE_ZGGEV_TO_FIND_MODES) CONDA = 1.0D16 ! Go to GGEV mehtod if forced
     if( CONDA * qsys_double_error < QSYS_ERROR_EPS ) then
 
@@ -767,15 +771,10 @@ subroutine calculate_modes(this,Ef)
         Z11 = this%valsTau  - this%valsS1*Ef
         call inverse_matrix(N,Z11)
 
-
-        one  = -1
-        zero =  0
         ! Calculate new matrix block element
         ! TauDag^-1 * Tau
-
-        call ZGEMM( 'N', 'N', N, N, N, one ,Z11 , N , &
-                            Mdiag,  N, zero,Z21 , N )
-        MA(N+1:2*N,1:N) = Z21
+        call gemm(Z11,Mdiag,Z21)
+        MA(N+1:2*N,1:N) = -Z21
         ! filling diag with diagonal matrix
         Mdiag = 0
         do i = 1 , N
@@ -785,11 +784,8 @@ subroutine calculate_modes(this,Ef)
 
         ! Calculate new matrix block element
         ! TauDag^-1 * (E - H0)
-        one = +1
         Z21 = this%valsS0*Ef - this%valsH0
-
-        call ZGEMM( 'N', 'N', N, N, N, one ,Z11  , N, &
-                            Z21, N   , zero,Mdiag, N )
+        call gemm(Z11,Z21,Mdiag)
         MA(N+1:2*N,N+1:2*N) = Mdiag
 
         ! Solve eigen problem normally or use Schur decomposition
@@ -876,6 +872,9 @@ subroutine calculate_modes(this,Ef)
             ! Solve problem using Shur decompostion
             ! ---------------------------------------------------------------
             if(QSYS_FORCE_SCHUR_DECOMPOSITION) then
+                if(QSYS_DEBUG_LEVEL > 0) then
+                    print*,"SYS::LEAD::Using Generalized Schur decomposition to find modes."
+                endif
                 allocate(Qshur      (2*N,2*N))
                 allocate(Zshur      (2*N,2*N))
                 allocate(Sshur      (2*N,2*N))
@@ -927,7 +926,7 @@ subroutine calculate_modes(this,Ef)
     T_ordering = get_clock() - T_ordering
 
     T_BLOCH_constr = get_clock()
-    blochF(M_OUT,:,:)  = 0
+    blochF         = 0
     select case(STABILIZATION_METHOD)
         ! -----------------------------------------------------------
         case (QLEAD_MS_TO_STANDARD,QLEAD_MS_GENERALIZED)
@@ -952,7 +951,7 @@ subroutine calculate_modes(this,Ef)
                 ! Try to inverse - if this will fail, use QTBM
                 call inverse_matrix(N,Z21)
                 if(B_SINGULAR_MATRIX) then
-                    print*,"QSYS::LEAD::Shur Z21 matrix is non-invertible, try to use QTBM to solve your problem"
+                    print*,"SYS::LEAD::Shur Z21 matrix is non-invertible, try to use QTBM to solve your problem"
                     print*,"            by setting:QSYS_SCATTERING_METHOD = QSYS_SCATTERING_QTBM in main.f90"
                     stop
                 endif
@@ -999,8 +998,10 @@ subroutine calculate_modes(this,Ef)
                 blochF(M_OUT,:,:) = Z21
 
             else ! use SVD to calculate Bloch matrix since Z21 is ill-conditioned
-                call calc_bloch_matrix(Z11,Z21,Mdiag) ! using SVD
-                blochF(M_OUT,:,:) = Mdiag
+                call calc_bloch_matrix(Z11,Z21,blochF) ! using SVD
+!                blochF(M_OUT,:,:) = Mdiag
+!                call calc_bloch_matrix_U(Z11,this%lambdas,blochF) ! using SVD
+
                 this%bUseShurDecomposition =.true.
             endif ! if matrix \lambda*U(-) is well conditioned
 
@@ -1010,10 +1011,13 @@ subroutine calculate_modes(this,Ef)
 !        case (QLEAD_MS_GENERALIZED)
 !        ! -----------------------------------------------------------
         case default
-            print*,"QSYS::QLEAD::There is no such method of modes stabilization: ",STABILIZATION_METHOD
+            print*,"SYS::LEAD::There is no such method of modes stabilization: ",STABILIZATION_METHOD
             stop
     end select
-
+    if(QSYS_DEBUG_LEVEL > 1) then
+        Mdiag = blochF(M_OUT,:,:)
+        print*,"SYS::LEAD::Bloch matrix condition number:",alg_cond(Mdiag)
+    endif
     T_BLOCH_constr = get_clock() - T_BLOCH_constr
 
     if(QSYS_DEBUG_LEVEL > 0) then
@@ -1021,21 +1025,41 @@ subroutine calculate_modes(this,Ef)
     endif
     T_SE_constr = get_clock()
     ! Calculating of SigmaMatrix - SELF ENERGY
+    ! Here we can use the fact that Tau is sparse and perform
+    ! Sparse matrix multiplication times normal matrix, wchich
+    ! will be faster.
+
     do i = 1 , N
     do j = 1 , N
         Mdiag(i,j) =  conjg(this%valsTau(j,i)) - Ef * conjg(this%valsS1(j,i)) ! Dag of Tau
     enddo
     enddo
-    one  = 1.0
-    zero = 0.0
+    sparse_tau_novals = 0
+    sparse_tau_vals   = 0
+    sparse_tau_rcid   = 0
+    do i = 1 , N
+    do j = 1 , N
+        lambda = Mdiag(i,j)
+        if(abs(lambda) > qsys_double_error ) then
+            sparse_tau_novals = sparse_tau_novals + 1
+            k = sparse_tau_novals
+            sparse_tau_vals(k)   = lambda
+            sparse_tau_rcid(k,1) = i
+            sparse_tau_rcid(k,2) = j
+        endif
+    enddo
+    enddo
+
+
     Z11 = blochF(M_OUT,:,:)
-    call ZGEMM( 'N', 'N', N, N, N, one ,Mdiag  , N, Z11, N, zero,this%SigmaMat, N )
-
-    ! add to sigma H0 internal hamiltonian
-    this%SigmaMat = this%SigmaMat + this%valsH0
-
     ! Lambda matrix calculation:
-    call ZGEMM( 'N', 'N', N, N, N, one ,Mdiag  , N, Z11, N, zero,this%LambdaMat, N )
+    call zalg_gesmm(sparse_tau_vals,&
+                    sparse_tau_rcid,&
+                    sparse_tau_novals,&
+                    Z11,this%LambdaMat)
+    ! add to sigma H0 internal hamiltonian
+    this%SigmaMat = this%LambdaMat + this%valsH0
+
 
     no_modes = this%no_out_modes + this%no_out_em - no_inf_modes
     deallocate(RWORK)
@@ -1045,12 +1069,19 @@ subroutine calculate_modes(this,Ef)
     ! U(modes) = U_svd * S * V^+ we will use U_svd matrix to
     ! order the eigen values of this matrix
 
-    Mdiag(:,:) = transpose(this%modes(M_OUT,:,:))
-    call gesvd(Mdiag,RWORK ,u=Z11,job="All" ,info=info)
-    if(info /= 0 ) then
-        print*,"LEAD::SVD decomposition error with info=",info
+    ! Before check if blochF(M_IN,:,:) contains U_svd already
+    if(sum(abs(blochF(M_IN,:,:))) > qsys_double_error) then
+        Z11 = blochF(M_IN,:,:)
+!        print*,"here:"
+    else ! if not recalculate it
+        Mdiag(:,:) = transpose(this%modes(M_OUT,:,:))
+        call gesvd(Mdiag,RWORK ,u=Z11,job="All" ,info=info)
+        if(info /= 0 ) then
+            print*,"LEAD::SVD decomposition error with info=",info
+        endif
     endif
-    this%QLdcmp_Lmat = Z11
+
+    this%QLdcmp_Lmat = Z11 ! keep it here for a while
 
     ! Performing QL factorization of the matrix U in order to get more stable
     ! transmision calculation of transmission matrix
@@ -1059,33 +1090,35 @@ subroutine calculate_modes(this,Ef)
     ! We perform QL factorization on transformed U(modes) matrix
     ! U' = U_svd^+ * U(modes)
     Mdiag(:,:) = transpose(this%modes(M_OUT,:,:))
+    ! Compute U' = U_svd^+ * U(modes)
     call gemm(Z11,Mdiag,Z21,transa='C')
     Mdiag            = Z21
     this%QLdcmp_Qmat = Z21
 
     call geqlf(Mdiag , tau=QLdcmp_TauVec ,info=INFO)
     if(info /= 0 ) then
-        print*,"QSYS::LEAD::QR geqlf decomposition error for matrix U(M_OUT,:,:) with info=",INFO
+        print*,"SYS::LEAD::QR geqlf decomposition error for matrix U(M_OUT,:,:) with info=",INFO
     endif
     ! Get Q matrix.
     Z11 = Mdiag
     call ungql(Z11, QLdcmp_TauVec ,info=INFO)
     if(info /= 0 ) then
-        print*,"QSYS::LEAD::QR ungql decomposition error for matrix U(M_OUT,:,:) with info=",INFO
+        print*,"SYS::LEAD::QR ungql decomposition error for matrix U(M_OUT,:,:) with info=",INFO
     endif
     ! Get L matrix
     Z21 = this%QLdcmp_Qmat
     call unmql(Mdiag, QLdcmp_TauVec, Z21, side="L" ,trans='C' ,info=INFO)
     if(info /= 0 ) then
-        print*,"QSYS::LEAD::QR unmql decomposition error for matrix U(M_OUT,:,:) with info=",INFO
+        print*,"SYS::LEAD::QR unmql decomposition error for matrix U(M_OUT,:,:) with info=",INFO
     endif
     ! Back to original space by multiplying obtained matrix Q by U_svd
     ! Q = U_svd * Q'
     call gemm(this%QLdcmp_Lmat,Z11,this%QLdcmp_Qmat)
     this%QLdcmp_Lmat = Z21
 
+
     if( QSYS_DEBUG_LEVEL > 1 ) then
-        print*,"QSYS::LEAD::Performed QL factorization of the modes matrix "
+        print*,"SYS::LEAD::Performed QL factorization of the modes matrix "
         print*,"               cond(U)=",alg_cond(this%modes(M_OUT,:,:))
         print*,"               cond(Q)=",alg_cond(this%QLdcmp_Qmat)
         print*,"               cond(L)=",alg_cond(this%QLdcmp_Lmat)
@@ -1972,7 +2005,7 @@ end subroutine calc_average_spins
 ! during inversion.
 ! -----------------------------------------------------------------------
 subroutine calc_bloch_matrix(A,B,F)
-    complex*16 :: A(:,:),B(:,:),F(:,:)
+    complex*16 :: A(:,:),B(:,:),F(:,:,:)
 
     complex*16,allocatable      :: svd_U(:,:),svd_Vt(:,:)
     complex*16,allocatable      :: svd_Ur(:,:),svd_Vtr(:,:)
@@ -1985,9 +2018,14 @@ subroutine calc_bloch_matrix(A,B,F)
     allocate(svd_S(n))
 
     ! Decompose matrix B = U S V^H
+    F           = 0
+    F(M_IN,:,:) = B
     call gesvd(B,svd_S ,u=svd_U ,vt=svd_Vt ,job="All" ,info=info)
+    B = F(M_IN,:,:)
+    F(M_IN,:,:) = svd_U ! save svd_U matrix for later usage
+
     if(info /= 0 ) then
-        print*,"QSYS:::LEAD::SVD decomposition error with info=",info, " in :calc_bloch_matrix"
+        print*,"SYS:::LEAD::SVD decomposition error with info=",info, " in :calc_bloch_matrix"
         stop
     endif
     n_svd = 0
@@ -1995,13 +2033,11 @@ subroutine calc_bloch_matrix(A,B,F)
     ! of matrices
     do i = 1 , n
 !        print*,i,svd_S(i)/svd_S(1)
-        if( svd_S(i)/svd_S(1) > QSYS_ERROR_EPS ) then
+        if( svd_S(i)/svd_S(1) > QSYS_DELTA_SVD ) then
             n_svd = n_svd + 1
         endif
     enddo
 
-    F = 0
-    B = 0
     allocate(svd_Ur(n,n_svd))
     allocate(svd_Vtr(n_svd,n))
 
@@ -2009,9 +2045,7 @@ subroutine calc_bloch_matrix(A,B,F)
 
     ! Multiply B' = A * V
     call gemm(A, svd_Vtr, svd_Ur ,transa="N",transb="C" )
-!    call gemm(A, svd_Vt(1:n_svd,1:n), B(1:n,1:n_svd) ,transa="N",transb="C" )
     ! Multiply B'' = B' * S (S is diagonal matrix)
-
     deallocate(svd_Vtr)
     allocate(svd_Vtr(n,n_svd))
     svd_Vtr = svd_Ur
@@ -2023,13 +2057,91 @@ subroutine calc_bloch_matrix(A,B,F)
 
     svd_Ur = svd_U(1:n,1:n_svd)
     ! Multiply F = B'' * U^H
-    call gemm(svd_Vtr, svd_Ur, F,transa="N",transb="C" )
-!    call gemm(B(1:n,1:n_svd), svd_U(1:n,1:n_svd), F,transa="N",transb="C" )
-
+    call gemm(svd_Vtr, svd_Ur, A,transa="N",transb="C" )
+    F(M_OUT,:,:) = A
     deallocate(svd_U )
     deallocate(svd_S )
     deallocate(svd_Vt)
 end subroutine calc_bloch_matrix
+
+subroutine calc_bloch_matrix_U(U,Lambdas,F)
+    complex*16 :: U(:,:),Lambdas(:,:),F(:,:,:)
+
+    complex*16,allocatable      :: svd_U(:,:),svd_Vt(:,:)
+    complex*16,allocatable      :: svd_Ur(:,:),svd_Vtr(:,:)
+    doubleprecision,allocatable :: svd_S(:)
+    integer :: i ,j, n , info , n_svd
+    n = size(U,1)
+
+    allocate(svd_U(n,n))
+    allocate(svd_Vt(n,n))
+    allocate(svd_S(n))
+
+    ! Decompose matrix B = U S V^H
+    F(M_IN,:,:) = U
+    call gesvd(U,svd_S ,u=svd_U ,vt=svd_Vt ,job="All" ,info=info)
+    U = F(M_IN,:,:)
+    if(info /= 0 ) then
+        print*,"SYS:::LEAD::SVD decomposition error with info=",info, " in :calc_bloch_matrix"
+        stop
+    endif
+    n_svd = 0
+    ! Remove singular values from B matrix, thus reduce the size
+    ! of matrices
+    do i = 1 , n
+!        print*,i,svd_S(i)/svd_S(1)
+        if( svd_S(i)/svd_S(1) > QSYS_DELTA_SVD ) then
+            n_svd = n_svd + 1
+        else
+            svd_S(i) = 1.0/qsys_double_error
+        endif
+    enddo
+
+    F           = 0
+    F(M_IN,:,:) = svd_U ! Keep this matrix for later
+
+    do i = 1 , n
+    do j = 1 , n
+        F(M_OUT,i,j) = conjg(svd_Vt(j,i)) * (svd_S(j)*Lambdas(M_OUT,i))**(-1)
+    enddo
+    enddo
+    svd_Vt = F(M_OUT,:,:)
+    allocate(svd_Vtr(n,n))
+    call gemm(U, svd_Vt,svd_Vtr)
+    call gemm(svd_Vtr,svd_U,svd_Vt,transb="C")
+    F(M_OUT,:,:) = svd_Vt
+!
+!    allocate(svd_Ur(n,n_svd))
+!    allocate(svd_Vtr(n_svd,n))
+!
+!    svd_Vtr = svd_Vt(1:n_svd,1:n)
+!
+!    ! Multiply B' = A * V
+!    call gemm(A, svd_Vtr, svd_Ur ,transa="N",transb="C" )
+!!    call gemm(A, svd_Vt(1:n_svd,1:n), B(1:n,1:n_svd) ,transa="N",transb="C" )
+!    ! Multiply B'' = B' * S (S is diagonal matrix)
+!
+!    deallocate(svd_Vtr)
+!    allocate(svd_Vtr(n,n_svd))
+!    svd_Vtr = svd_Ur
+!    do i = 1 , n
+!    do j = 1 , n_svd
+!        svd_Vtr(i,j) = svd_Vtr(i,j) * svd_S(j)**(-1)
+!    enddo
+!    enddo
+!
+!    svd_Ur = svd_U(1:n,1:n_svd)
+!    ! Multiply F = B'' * U^H
+!    call gemm(svd_Vtr, svd_Ur, F,transa="N",transb="C" )
+!!    call gemm(B(1:n,1:n_svd), svd_U(1:n,1:n_svd), F,transa="N",transb="C" )
+
+    deallocate(svd_U )
+    deallocate(svd_S )
+    deallocate(svd_Vt)
+    deallocate(svd_Vtr)
+end subroutine calc_bloch_matrix_U
+
+
 
 ! ---------------------------------------------------------- !
 ! Solves generalized eigenvalue problem of form:
@@ -2050,14 +2162,13 @@ subroutine try_svd_modes_decomposition(H0,TauDag,ALPHA,BETA,Z)
     complex*16,allocatable      :: geev_a(:),geev_b(:)
 
     doubleprecision ::   cond_Value
-    doubleprecision :: time_SD
-    integer :: n2 , n1 , n_svd , n2_svd
+    integer :: n2 , n1 , n_svd
     integer :: i,j,info
 
 !    time_SD = get_clock()
 
     if(QSYS_DEBUG_LEVEL>0) then
-        print*,"SYS::LEAD::Finding modes using SVD decomposition of Generalized eigenvalue problem."
+        print*,"SYS::LEAD::Finding modes using SVD decomposition of GEP."
     endif
     n1 = size(TauDag,1) ! Size of coupling matrix
     n2 = n1*2           ! Size of Generalized eigenvalue problem
@@ -2147,11 +2258,11 @@ subroutine try_svd_modes_decomposition(H0,TauDag,ALPHA,BETA,Z)
     ! Such system can be transformed to standard eigenvalue
     ! problem if cond(Kcc) < small enough, i.e. is well conditioned
     cond_Value = alg_cond(Kcc)
-
     B_SINGULAR_MATRIX = .false.
-    if( cond_Value*qsys_double_error > 1.0D-6 ) then
-        print*,"LEAD::SVD decomposition cannot be use. cond(Kcc)=",cond_Value
-        print*,"TRY TO USE FORCE SCHUR DECOMPOSITION MODE"
+    if( cond_Value*qsys_double_error > QSYS_ERROR_EPS .or. n2-n_svd == 0 ) then
+        print*,"SYS::LEAD::SVD decomposition cannot be use. cond(Kcc)=",cond_Value
+        print*,"           Number of singular values                 =",n2-n_svd
+        print*,"           NOTE:: YOU CAN TRY TO USE FORCE SCHUR DECOMPOSITION MODE"
         deallocate(geev_a  )
         deallocate(geev_b  )
         deallocate(MA  )
@@ -2194,8 +2305,14 @@ subroutine try_svd_modes_decomposition(H0,TauDag,ALPHA,BETA,Z)
     enddo
     enddo
 
+    if(QSYS_DEBUG_LEVEL > 1) then
+        print*,"SYS::LEAD::SVD cond(Kcc)          =",cond_Value
+        print*,"           SVD compression factor =",dble(n_svd)/n1/2.0
+        print*,"           SVD no. singular values=",n2 - n_svd
+        print*,"           SVD cond(Kmm)          =",alg_cond(Kmm)
+    endif
 ! ------------------------------------------------------------------
-! Stable reduction of lambda = 0 modes from eigen problem.
+! Stable reduction of lambda = 0 modes from eigen problem. Very slow!
 ! ------------------------------------------------------------------
 !    print*,"preparation(M):",get_clock()
 !    call reset_clock()
@@ -2354,297 +2471,5 @@ subroutine try_svd_modes_decomposition(H0,TauDag,ALPHA,BETA,Z)
     deallocate(Kcc)
     deallocate(Kcc_INV)
 endsubroutine try_svd_modes_decomposition
-
-!subroutine try_svd_modes_decomposition(H0,TauDag,ALPHA,BETA,Z)
-!    complex*16 :: H0(:,:),TauDag(:,:),ALPHA(:),BETA(:),Z(:,:)
-!
-!    complex*16,allocatable      :: svd_U(:,:),svd_Vt(:,:)
-!    doubleprecision,allocatable :: svd_S(:)
-!    complex*16,allocatable      :: svd_hcU(:,:),svd_hcVt(:,:)
-!    complex*16,allocatable      :: MA(:,:),MB(:,:),Diag(:,:),Tau(:,:),DiagS(:,:),tmpMat(:,:)
-!    complex*16,allocatable      :: Kaa(:,:),Kac(:,:),Kca(:,:),tmp_Kca(:,:),Kcc(:,:),Kcc_INV(:,:),Kmm(:,:),KMA(:,:)
-!    complex*16,allocatable      :: geev_a(:),geev_b(:)
-!
-!    doubleprecision ::   cond_Value
-!    doubleprecision :: time_SD
-!    integer :: n2 , n1 , n_svd , n2_svd
-!    integer :: i,j,info
-!
-!    time_SD = get_clock()
-!
-!    if(QSYS_DEBUG_LEVEL>0) then
-!        print*,"SYS::LEAD::Finding modes using SVD decomposition of Generalized eigenvalue problem."
-!    endif
-!    n1 = size(TauDag,1) ! Size of coupling matrix
-!    n2 = n1*2           ! Size of Generalized eigenvalue problem
-!    allocate(MA  (n2,n2))
-!    allocate(MB  (n2,n2))
-!    allocate(Diag(n1,n1))
-!    allocate(DiagS(n1,n1))
-!    allocate(Tau(n1,n1))
-!    allocate(tmpMat(n1,n1))
-!    allocate(svd_hcU(n1,n1))
-!    allocate(svd_hcVt(n1,n1))
-!    allocate(svd_U(n1,n1))
-!    allocate(svd_Vt(n1,n1))
-!    allocate(svd_S(n1))
-!
-!    call reset_clock()
-!    ! Perform SVD of coupling matrix Tau = svd_U * svd_S * svd_Vt
-!    Tau = TauDag
-!    call gesvd(Tau,svd_S ,u=svd_U ,vt=svd_Vt ,job="All" ,info=info)
-!    if(info /= 0 ) then
-!        print*,"LEAD::SVD decomposition error with info=",info
-!    endif
-!    print*,"svd(Tau):",get_clock()
-!    call reset_clock()
-!    Diag = 0
-!    DiagS= 0
-!    Tau  = 0
-!    MA   = 0
-!    MB   = 0
-!    ! Calculate \lambda =\infty subspace size: number of zero rows in Tau matrix
-!    ! Prepare other matrices:
-!    n_svd= 0
-!    do i = 1 , n1
-!        Diag(i,i)  = 1
-!        DiagS(i,i) = svd_S(i)
-!
-!        if( svd_S(i)/svd_S(1) > QSYS_DELTA_SVD ) then
-!            n_svd = n_svd + 1
-!        endif
-!    do j = 1 , n1
-!        svd_hcU(i,j)  = conjg(svd_U(j,i))
-!        svd_hcVt(i,j) = conjg(svd_Vt(j,i))
-!        Tau(i,j)      = conjg(TauDag(j,i))
-!    enddo
-!    enddo
-!
-!    ! Create the generalized eigenvalue problem of form:
-!    ! (     0         V    ) ( c ) =         ( 1  0 ) ( c )
-!    ! (-U^+Tsu^+   U^+H0 V ) (~d ) = \lambda ( 0  S ) (~d )
-!    ! where: ~d = V^+ d, and  d = \lambda c
-!    ! and S is a diagonal matrix from SVD decomposition.
-!    call gemm(svd_hcU, Tau, tmpMat )
-!    call gemm(tmpMat , svd_hcVt , Diag )
-!    MA(n1+1:2*n1,1:n1)      = -Diag
-!    call gemm(svd_hcU , svd_hcVt , Diag )
-!    MA(1:n1,n1+1:2*n1)      = Diag
-!
-!    call gemm(svd_hcU,        H0, tmpMat )
-!    call gemm(tmpMat , svd_hcVt , svd_hcU )
-!    MA(n1+1:2*n1,n1+1:2*n1) = svd_hcU
-!
-!    MB(1:n1,1:n1)           = Diag
-!    MB(n1+1:2*n1,n1+1:2*n1) = DiagS
-!
-!    n_svd = n1 + n_svd
-!    allocate(Kmm(n_svd,n_svd))
-!    allocate(geev_a(n_svd))
-!    allocate(geev_b(n_svd))
-!    allocate(Kaa(n_svd,n_svd))
-!    allocate(KMA(n_svd,n_svd))
-!    allocate(Kac(n_svd,n2-n_svd))
-!    allocate(Kca(n2-n_svd,n_svd))
-!    allocate(tmp_Kca(n2-n_svd,n_svd))
-!    allocate(Kcc(n2-n_svd,n2-n_svd))
-!    allocate(Kcc_INV(n2-n_svd,n2-n_svd))
-!
-!    ! Divide matrix into submatrices:
-!    ! ( Kaa Kac ) ( pa ) =         ( Kmm  0 ) ( pa )
-!    ! ( Kca Kcc ) ( pb ) = \lambda (  0   0 ) ( pb )
-!    ! Where pa vector of size (n_svd)
-!    !   and pb vector of size (n2-n_svd)
-!    !   matrix Kaa and Kmm has shape (n_svd,n_svd)
-!    Kmm = MB(1:n_svd,1:n_svd)
-!    Kaa = MA(1:n_svd,1:n_svd)
-!    Kac = MA(1:n_svd,1+n_svd:n2)
-!    Kca = MA(1+n_svd:n2,1:n_svd)
-!    Kcc = MA(1+n_svd:n2,1+n_svd:n2)
-!
-!    ! Such system can be transformed to standard eigenvalue
-!    ! problem if cond(Kcc) < small enough, i.e. is well conditioned
-!    cond_Value = alg_cond(Kcc)
-!
-!    B_SINGULAR_MATRIX = .false.
-!    if( cond_Value*qsys_double_error > 1.0D-6 ) then
-!        print*,"LEAD::SVD decomposition cannot be use. cond(Kcc)=",cond_Value
-!        print*,"TRY TO USE FORCE SCHUR DECOMPOSITION MODE"
-!        deallocate(geev_a  )
-!        deallocate(geev_b  )
-!        deallocate(MA  )
-!        deallocate(MB  )
-!        deallocate(Diag)
-!        deallocate(tmpMat)
-!        deallocate(Tau )
-!        deallocate(svd_hcU )
-!        deallocate(svd_hcVt)
-!        deallocate(svd_U )
-!        deallocate(svd_S )
-!        deallocate(svd_Vt)
-!        deallocate(Kmm)
-!        deallocate(Kaa)
-!        deallocate(Kac)
-!        deallocate(tmp_Kca)
-!        deallocate(Kca)
-!        deallocate(Kcc)
-!        deallocate(Kcc_INV)
-!        B_SINGULAR_MATRIX = .true. ! This will be used to chose proper method for modes finding i.e:GGEV or Schur Decomp.
-!        return
-!    endif
-!    Kcc     = MA(1+n_svd:n2,1+n_svd:n2)
-!
-!    ! Invert Kcc matrix
-!    Kcc_INV = Kcc
-!    call inverse_matrix(n2-n_svd,Kcc_INV)
-!
-!    ! Redefine: Kca := Kcc^-1 * Kca
-!    call gemm(Kcc_INV, Kca, tmp_Kca )
-!    Kca = tmp_Kca
-!    ! Calculate: MA := Kaa - Kac * Kcc^-1 * Kca
-!    call gemm(Kac, Kca, KMA )
-!    KMA = Kaa - KMA
-!    ! Multiply by inverse ob B matrix which is diagonal matrix
-!    ! Generalized eigenvalue problem is transformed to standard one.
-!!    do i = 1 , n_svd
-!!    do j = 1 , n_svd
-!!            KMA(i,j) = KMA(i,j)/KMM(i,i)
-!!    enddo
-!!    enddo
-!    call inverse_matrix(n_svd,KMM)
-!    call gemm(KMM,KMA,Kaa)
-!    KMA = Kaa
-!
-!!    print*,"preparation(M):",get_clock()
-!!    call reset_clock()
-!!    ! Here we again perform SVD in order to remove singular values
-!!    ! but this time with |lambda| = 0
-!!    deallocate(svd_S )
-!!    deallocate(svd_U )
-!!    deallocate(svd_Vt )
-!!    deallocate(DiagS )
-!!    allocate(svd_S(n_svd) )
-!!    allocate(svd_U(n_svd,n_svd) )
-!!    allocate(svd_Vt(n_svd,n_svd) )
-!!    allocate(DiagS(n_svd,n_svd))
-!!    ! From SVD of matrix A from A x = \lambda x we will get only the
-!!    ! upper part of factorized matrix.
-!!    call gesvd(KMA,svd_S,u=svd_U ,vt=svd_Vt ,job="All" ,info=info)
-!!
-!!    print*,"svd(M):",get_clock()
-!!    call reset_clock()
-!!    ! Finding singular values
-!!    n2_svd = 0
-!!    DiagS  = 0
-!!    do i = 1, n_svd
-!!        if( svd_S(i)/svd_S(1) > QSYS_DELTA_SVD ) then
-!!            n2_svd = n2_svd + 1
-!!            DiagS(i,i) = svd_S(i)
-!!        endif
-!!    enddo
-!!    ! Create new matrix A' = S * V^+ * U
-!!    call gemm(DiagS,svd_Vt,KMA)
-!!    call gemm(KMA,svd_U,svd_Vt)
-!!
-!!    print*,"preparation(M'):",get_clock()
-!!    call reset_clock()
-!!    if(QSYS_DEBUG_LEVEL > 1) then
-!!        print*,"QSYS::LEAD::SVD cond(Kcc)          =",cond_Value
-!!        print*,"            SVD compression factor =",dble(n2_svd)/n1/2.0
-!!        print*,"            SVD no. singular values=",n2 - n2_svd
-!!        print*,"            SVD cond(Kmm)          =",alg_cond(Kmm)
-!!    endif
-!!
-!!    ! And solve eigenproblem for matrix A'
-!!
-!!    deallocate(geev_b)
-!!    deallocate(KMA)
-!!    deallocate(Kcc)
-!!    allocate(KMA(1:n2_svd,1:n2_svd))
-!!    allocate(Kcc(1:n2_svd,1:n2_svd))
-!!    allocate(geev_b(1:n2_svd))
-!!
-!!    KMA = svd_Vt(1:n2_svd,1:n2_svd)
-!!    call geev(KMA, geev_b , vr=Kcc,info=INFO)
-!!
-!!    print*,"geev(M'):",get_clock()
-!!    call reset_clock()
-!!
-!!    DiagS                    = 0
-!!    geev_a                   = 0
-!!    geev_a(1:n2_svd)         = geev_b
-!!    ALPHA(1:n_svd)           = geev_a
-!!    DiagS(1:n2_svd,1:n2_svd) = Kcc
-!!
-!!    ! Transform back to original space by multiplying result with
-!!    ! X = U_svd * X'
-!!    call gemm(svd_U,DiagS,svd_Vt)
-!!    Kmm(1:n_svd,1:n_svd) = svd_Vt
-!
-!    Kaa = 0
-!    do i = 1 , n_svd
-!        Kaa(i,i) = 1
-!    enddo
-!     ! Solve standard eigenvalue problem
-!    Z = 0
-!!    call geev(KMA, ALPHA(1:n_svd), vr=Kmm ,info=INFO)
-!    BETA = 1
-!    call GGEV(KMA, Kaa, alpha(1:n_svd), beta(1:n_svd) , vr = Kmm,info=info)
-!    if(info /= 0 ) then
-!        print*,"QSYS::LEAD::SVD decomposition GGEV error with info=",info
-!        stop -1
-!    endif
-!
-!
-!    BETA(n_svd+1:n2) = 0.0 ! set modes with lambda=infty
-!
-!    ! Calculate rest of the eigenvectors from
-!    ! pb(i) = - Kcc^-1 * Kca * pa(i) := - Kca * Kmm
-!    ! Here we directly locate pb in Kmm matrix Kmm[values,mode]
-!
-!    call gemm(Kca, Kmm, tmp_Kca )
-!
-!    Z(1:n_svd,1:n_svd)    =  Kmm
-!    Z(n_svd+1:n2,1:n_svd) = -tmp_Kca
-!
-!    ! Back to original basis: d = V * ~d
-!    ! note that V = svd_hcVt
-!    deallocate(MA)
-!    deallocate(MB)
-!    allocate(MA(n1,n2))
-!    allocate(MB(n1,n2))
-!
-!    MA = Z(1+n1:n2,:)
-!    call gemm(svd_hcVt, MA, MB )
-!    Z(1+n1:n2,:) = MB
-!
-!    MA = Z(1:n1,:)
-!    call gemm(svd_hcVt, MA, MB )
-!    Z(1:n1,:) = MB
-!    print*,"finalizing(M'):",get_clock()
-!    call reset_clock()
-!
-!    print*,"Total time:",  get_clock() - time_SD
-!
-!    deallocate(geev_a  )
-!    deallocate(geev_b  )
-!    deallocate(MA  )
-!    deallocate(MB  )
-!    deallocate(Diag)
-!    deallocate(Tau )
-!    deallocate(tmpMat )
-!    deallocate(svd_hcU )
-!    deallocate(svd_hcVt)
-!    deallocate(svd_U )
-!    deallocate(svd_S )
-!    deallocate(svd_Vt)
-!    deallocate(Kmm)
-!    deallocate(Kaa)
-!    deallocate(Kac)
-!    deallocate(tmp_Kca)
-!    deallocate(Kca)
-!    deallocate(Kcc)
-!    deallocate(Kcc_INV)
-!endsubroutine try_svd_modes_decomposition
 
 endmodule modlead

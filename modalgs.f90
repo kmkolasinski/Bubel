@@ -833,60 +833,28 @@ subroutine inverse_svd(N,A)
     deallocate(U,S,VT)
 end subroutine inverse_svd
 
-!
-!subroutine solve_GGEV(H0,Tau)
-!    complex*16 :: H0(:,:) , Tau(:,:)
-!    integer :: N,M
-!    complex*16 , allocatable  :: U(:,:),VT(:,:) , V(:,:) , tU(:,:),tVT(:,:)
-!    doubleprecision , allocatable  :: S(:) , tS(:)
-!    doubleprecision :: rcond,eps
-!    integer :: i,j
-!    logical :: bStabilize
-!    N = size(H0,1)
-!    print*,"Perform SVD",N
-!
-!    call ZSVD(N,Tau,tU,tS,tVT)
-!    M = 0
-!    do i = 1 , N
-!       if(abs(tS(i)) > 1.0d-20 ) M = M+1
-!    enddo
-!
-!
-!    allocate(S(M),U(N,M),Vt(M,N),V(N,M))
-!    S = tS(1:M)
-!    print*,S,M
-!    U  = tU(1:N,1:M)
-!    Vt = tVt(1:M,1:N)
-!    V  = conjg(transpose(Vt))
-!
-!    do i = 1 , N
-!    do j = 1 , M
-!        U(i,j) =   U(i,j) * sqrt( S(j) )
-!        V(i,j) =   V(i,j) * sqrt( S(j) )
-!    enddo
-!    enddo
-!    rcond = cond_number(N,tau)
-!
-!    eps        = 1.0D-16
-!    bStabilize = .false.
-!
-!    if( rcond < eps  ) bStabilize = .true.
-!
-!    if(bStabilize) then
-!        do i = 1 , N
-!        do j = 1 , N
-!            tU(i,j) = sum(U(i,:)*conjg(U(j,:))) + sum(V(i,:)*conjg(V(j,:)))
-!        enddo
-!        enddo
-!        tVt = H0 + II * tU
-!        rcond = cond_number(N,tVt)
-!        if( rcond < eps ) then
-!            print*,"SYS::ERROR::Hoping matrix baldy defined"
-!            stop -1
-!        endif
-!
-!    endif
-!
-!end subroutine solve_GGEV
+
+
+subroutine zalg_gesmm(svalsA,rowcolsA,nvalsA,matB,matC)
+    complex*16 , dimension(:)   :: svalsA
+    integer    , dimension(:,:) :: rowcolsA
+    integer                     :: nvalsA
+    complex*16 , dimension(:,:) :: matB,matC
+
+    integer :: k,p,i,j
+    integer :: n
+
+    n = size(matB,1)
+
+    matC = 0
+    do k = 1 , nvalsA
+        i = rowcolsA(k,1)
+        j = rowcolsA(k,2)
+        do p = 1 , n
+            matC(i,p) = matC(i,p) + svalsA(k) * matB(j,p)
+        enddo
+    enddo
+end subroutine zalg_gesmm
+
 
 end module modalgs

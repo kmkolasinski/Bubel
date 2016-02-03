@@ -132,7 +132,7 @@ lead_translation_vec = (/  -dx , 0.0D0 , 0.0D0 /)
 call qt%add_lead(lead_shape,lead_translation_vec)
 
 a_Emin =  0.0 / E0 / 1000.0 ! converting from [meV] to atomic units
-a_Emax = 15.0 / E0 / 1000.0 ! converting from [meV] to atomic units
+a_Emax = 150.0 / E0 / 1000.0 ! converting from [meV] to atomic units
 call qt%leads(1)%bands(output_folder//"bands.dat",-M_PI,+M_PI,M_PI/50.0,a_Emin,a_Emax)
 
 call qt%save_system(output_folder//"system.xml")

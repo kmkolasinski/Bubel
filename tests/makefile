@@ -8,7 +8,8 @@ all: build_simple_sqlat \
 	 build_supercnd_trans \
 	 build_simple_galerkin1d \
 	 build_recursive_wfm \
-	 build_poisson2d
+	 build_poisson2d \
+	 build_benchmark
 
 run:
 		 ./simple_sqlat ; \
@@ -59,6 +60,10 @@ build_recursive_wfm:
 build_poisson2d:
 	make poisson2d C=$(COMPILATION_TYPE) P=poisson2d
 
+build_benchmark:
+	make benchmark C=$(COMPILATION_TYPE) P=benchmark
+
+
 EXEC_FILE=$(P)
 
 
@@ -98,4 +103,5 @@ clean:
 		  supercnd_trans \
 		  simple_galerkin1d \
 		  poisson2d \
-		  recursive_wfm 2> /dev/null
+		  recursive_wfm \
+		  benchmark 2> /dev/null

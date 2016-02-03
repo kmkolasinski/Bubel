@@ -17,6 +17,7 @@ x = data[:,0]
 for i in range(no_lines-1):    
     plt.plot(x,data[:,i+1],c='k',ls='-')     
     
+#plt.ylim([-0.0003,0.001])
 plt.xlabel("k [1/unit size]")    
 plt.ylabel("Energy [in atomic units]")   
 plt.savefig("bands.png")

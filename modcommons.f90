@@ -11,8 +11,8 @@ doubleprecision,public    :: QSYS_COUPLING_CUTOFF_VALUE = 0.0D0 !
 logical,public            :: QSYS_DISABLE_HERMICITY_CHECK = .false.
 logical,public            :: QSYS_FORCE_HERMITIAN_MATRIX = .true. ! by default creates hermitian matrix, so connect
                                                                   ! function may take care only for the nnb with greater ID number
-double precision,public   :: QSYS_DELTA_SVD = 10.0D-14            ! Minimal value of SVD decomposion, modes < delta are rejjected from Bloch matrices
-double precision,public   :: QSYS_ERROR_EPS =  1.0D-15            ! Used to choose which method will be used, during modes stabilization
+double precision,public   :: QSYS_DELTA_SVD =  1.0D-16            ! Minimal value of SVD decomposion, modes < delta are rejjected from Bloch matrices
+double precision,public   :: QSYS_ERROR_EPS =  1.0D-10            ! Used to choose which method will be used, during modes stabilization
 
 logical,public            :: QSYS_FORCE_SCHUR_DECOMPOSITION = .false. ! Maybe more stable but slower only for WFM
 logical,public            :: QSYS_FORCE_ZGGEV_TO_FIND_MODES = .false. ! When finding modes use generalied eigenvalue problem, can be more stable

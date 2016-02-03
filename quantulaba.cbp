@@ -66,6 +66,7 @@
 		<Unit filename="modsys.f90" />
 		<Unit filename="modunits.f90" />
 		<Unit filename="modutils.f90" />
+		<Unit filename="tests/benchmark.f90" />
 		<Unit filename="tests/carbon_nanotube.f90" />
 		<Unit filename="tests/makefile" />
 		<Unit filename="tests/poisson2d.f90" />
