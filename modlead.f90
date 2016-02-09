@@ -2215,6 +2215,33 @@ subroutine try_svd_modes_decomposition(H0,TauDag,ALPHA,BETA,Z)
     enddo
     enddo
 
+
+!    MA(n1+1:2*n1,1:n1)      = -Tau
+!    MA(1:n1,n1+1:2*n1)      = Diag
+!    MA(n1+1:2*n1,n1+1:2*n1) = H0
+!
+!    MB(1:n1,1:n1)           = Diag
+!    MB(n1+1:2*n1,n1+1:2*n1) = TauDag
+!
+!    call test(MA,ALPHA,BETA,MB)
+!    Z = MB
+!
+!    deallocate(MA  )
+!    deallocate(MB  )
+!    deallocate(Diag)
+!    deallocate(Tau )
+!    deallocate(tmpMat )
+!    deallocate(svd_hcU )
+!    deallocate(svd_hcVt)
+!    deallocate(svd_U )
+!    deallocate(svd_S )
+!    deallocate(svd_Vt)
+!    print*,"kunic"
+!    B_SINGULAR_MATRIX = .false.
+!    return
+!    print*,"kunic2"
+    MA = 0
+    MB = 0
     ! Create the generalized eigenvalue problem of form:
     ! (     0         V    ) ( c ) =         ( 1  0 ) ( c )
     ! (-U^+Tsu^+   U^+H0 V ) (~d ) = \lambda ( 0  S ) (~d )
@@ -2230,6 +2257,7 @@ subroutine try_svd_modes_decomposition(H0,TauDag,ALPHA,BETA,Z)
 
     MB(1:n1,1:n1)           = Diag
     MB(n1+1:2*n1,n1+1:2*n1) = DiagS
+
 
     n_svd = n1 + n_svd
     allocate(Kmm(n_svd,n_svd))
@@ -2305,83 +2333,13 @@ subroutine try_svd_modes_decomposition(H0,TauDag,ALPHA,BETA,Z)
     enddo
     enddo
 
+
     if(QSYS_DEBUG_LEVEL > 1) then
         print*,"SYS::LEAD::SVD cond(Kcc)          =",cond_Value
         print*,"           SVD compression factor =",dble(n_svd)/n1/2.0
         print*,"           SVD no. singular values=",n2 - n_svd
         print*,"           SVD cond(Kmm)          =",alg_cond(Kmm)
     endif
-! ------------------------------------------------------------------
-! Stable reduction of lambda = 0 modes from eigen problem. Very slow!
-! ------------------------------------------------------------------
-!    print*,"preparation(M):",get_clock()
-!    call reset_clock()
-!    ! Here we again perform SVD in order to remove singular values
-!    ! but this time with |lambda| = 0
-!    deallocate(svd_S )
-!    deallocate(svd_U )
-!    deallocate(svd_Vt )
-!    deallocate(DiagS )
-!    allocate(svd_S(n_svd) )
-!    allocate(svd_U(n_svd,n_svd) )
-!    allocate(svd_Vt(n_svd,n_svd) )
-!    allocate(DiagS(n_svd,n_svd))
-!    ! From SVD of matrix A from A x = \lambda x we will get only the
-!    ! upper part of factorized matrix.
-!    call gesvd(KMA,svd_S,u=svd_U ,vt=svd_Vt ,job="All" ,info=info)
-!
-!    print*,"svd(M):",get_clock()
-!    call reset_clock()
-!    ! Finding singular values
-!    n2_svd = 0
-!    DiagS  = 0
-!    do i = 1, n_svd
-!        if( svd_S(i)/svd_S(1) > QSYS_DELTA_SVD ) then
-!            n2_svd = n2_svd + 1
-!            DiagS(i,i) = svd_S(i)
-!        endif
-!    enddo
-!    ! Create new matrix A' = S * V^+ * U
-!    call gemm(DiagS,svd_Vt,KMA)
-!    call gemm(KMA,svd_U,svd_Vt)
-!
-!    print*,"preparation(M'):",get_clock()
-!    call reset_clock()
-!    if(QSYS_DEBUG_LEVEL > 1) then
-!        print*,"QSYS::LEAD::SVD cond(Kcc)          =",cond_Value
-!        print*,"            SVD compression factor =",dble(n2_svd)/n1/2.0
-!        print*,"            SVD no. singular values=",n2 - n2_svd
-!        print*,"            SVD cond(Kmm)          =",alg_cond(Kmm)
-!    endif
-!
-!    ! And solve eigenproblem for matrix A'
-!
-!    deallocate(geev_b)
-!    deallocate(KMA)
-!    deallocate(Kcc)
-!    allocate(KMA(1:n2_svd,1:n2_svd))
-!    allocate(Kcc(1:n2_svd,1:n2_svd))
-!    allocate(geev_b(1:n2_svd))
-!
-!    KMA = svd_Vt(1:n2_svd,1:n2_svd)
-!    call geev(KMA, geev_b , vr=Kcc,info=INFO)
-!
-!    print*,"geev(M'):",get_clock()
-!    call reset_clock()
-!
-!    DiagS                    = 0
-!    geev_a                   = 0
-!    geev_a(1:n2_svd)         = geev_b
-!    ALPHA(1:n_svd)           = geev_a
-!    DiagS(1:n2_svd,1:n2_svd) = Kcc
-!
-!    ! Transform back to original space by multiplying result with
-!    ! X = U_svd * X'
-!    call gemm(svd_U,DiagS,svd_Vt)
-!    Kmm(1:n_svd,1:n_svd) = svd_Vt
-! ------------------------------------------------------------------
-! EDN OF:Stable reduction of lambda = 0 modes from eigen problem.
-! ------------------------------------------------------------------
 
 ! ------------------------------------------------------------------
 ! GEEV was not stable for GRAPHENE
@@ -2396,6 +2354,10 @@ subroutine try_svd_modes_decomposition(H0,TauDag,ALPHA,BETA,Z)
 ! ------------------------------------------------------------------
     ! Solve standard eigenvalue problem
     ! with Schur decomposition
+    ALPHA  = 0
+!    KMM    = 0
+!    call test(KMA,ALPHA,KMM)
+
     Z    = 0
     BETA = 1
 
@@ -2451,6 +2413,17 @@ subroutine try_svd_modes_decomposition(H0,TauDag,ALPHA,BETA,Z)
     call gemm(svd_hcVt, MA, MB )
     Z(1+n1:n2,:) = MB
 
+
+    do i = 1 , n2
+        if(abs(BETA(i)) > qsys_double_error) then
+            Z(:,i) = Z(:,i)/sqrt(sum(abs(Z(:,i))**2))
+        endif
+    enddo
+!    do i = 1 , n2
+!        print"(i,100f8.4)",i,ALPHA(i),abs(ALPHA(i)),abs(Z(:,i))
+!    enddo
+
+
     deallocate(geev_a  )
     deallocate(geev_b  )
     deallocate(MA  )
@@ -2471,5 +2444,285 @@ subroutine try_svd_modes_decomposition(H0,TauDag,ALPHA,BETA,Z)
     deallocate(Kcc)
     deallocate(Kcc_INV)
 endsubroutine try_svd_modes_decomposition
+
+subroutine test(A,alpha,beta,Z)
+    complex*16 :: A(:,:),alpha(:),beta(:),Z(:,:)
+    complex*16,allocatable :: mA(:,:),mB(:,:)
+    integer,allocatable :: ising(:),ising_b(:),b_map(:),a_map(:)
+    integer :: i,j,k,n,m_sing,info,mm
+    doubleprecision :: da,db
+    n      = size(A,1)
+    m_sing = 0
+
+
+    allocate(mA(n,n))
+    allocate(mB(n,n))
+    allocate(ising(n))
+    allocate(ising_b(n))
+    allocate(b_map(n))
+    allocate(a_map(n))
+
+    ising = 0
+
+!    print*,"MA="
+    do i = 1 , n
+!        print"(i,100f8.4)",i,sum(abs(A(i,:))),sum(abs(A(:,i))),abs(A(i,:))
+        da = sum(abs(A(:,i)))
+        if( abs(da-0) < qsys_double_error ) then
+            ising(i) = 1
+        endif
+    enddo
+!
+!    print*,"MB="
+!    do i = 1 , n
+!        print"(i,100f8.4)",i,sum(abs(z(i,:))),sum(abs(z(:,i))),abs(z(i,:))
+!    enddo
+
+    m_sing = sum(ising)
+!    print*,"no_sing=",m_sing
+    a_map = 0
+    k     = 0
+    do i = 1 , n
+        if( ising(i) == 0 ) then
+            k = k + 1
+            a_map(k) = i
+        endif
+    enddo
+
+    do i = 1 , n
+        if( ising(i) == 1 ) then
+            k        = k + 1
+            a_map(k) = i
+        endif
+    enddo
+!    print*,"amap="
+!    do i = 1 , n
+!            print*,"i=",i," to ",a_map(i)
+!    enddo
+    mA = 0
+    mB = 0
+
+    do i = 1 , n
+        k = a_map(i)
+        mA(i,:) = A(k,:)
+        mB(i,:) = Z(k,:)
+    enddo
+    A = mA
+    Z = mB
+    do i = 1 , n
+        k = a_map(i)
+        mA(:,i) = A(:,k)
+        mB(:,i) = Z(:,k)
+    enddo
+
+!    mA = 0
+!    mB = 0
+!
+!
+!
+!    k  = 0
+!    do i = 1 , n
+!        mA(i-k,:) = A(i,:)
+!        mB(i-k,:) = Z(i,:)
+!        if(ising(i) == 1) k = k + 1
+!    enddo
+!    k  = 0
+!    do i = 1 , n
+!        mA(:,i-k) = mA(:,i)
+!        mB(:,i-k) = mB(:,i)
+!        if(ising(i) == 1) k = k + 1
+!    enddo
+    mA(n-m_sing+1:n,:) = 0
+    mA(:,n-m_sing+1:n) = 0
+
+    mB(n-m_sing+1:n,:) = 0
+    mB(:,n-m_sing+1:n) = 0
+
+
+
+
+!    print*,"New Ma"
+!    do i = 1 , n
+!        print"(i,100f8.4)",i,sum(abs(mA(i,:))),sum(abs(mA(:,i))),abs(mA(i,:))
+!    enddo
+!    print*,"New MB"
+!    do i = 1 , n
+!        print"(i,100f8.4)",i,sum(abs(mB(i,:))),sum(abs(mB(:,i))),abs(mB(i,:))
+!    enddo
+
+
+    ising_b = 0
+    do i = 1 , n
+        da = sum(abs(mB(i,:)))
+        if( abs(da-0) < qsys_double_error ) then
+            ising_b(i) = 1
+        endif
+    enddo
+!    print*,"zera b=",sum(ising_b)
+
+    b_map = 0
+    k     = 0
+    do i = 1 , n
+        if( ising_b(i) == 0 ) then
+            k = k + 1
+            b_map(k) = i
+        endif
+    enddo
+
+    do i = 1 , n
+        if( ising_b(i) == 1 ) then
+            k        = k + 1
+            b_map(k) = i
+        endif
+    enddo
+
+!    do i = 1 , n
+!            print*,"i=",i," to ",b_map(i)
+!    enddo
+
+    ! reordering
+    A = 0
+    Z = 0
+    do i = 1 , n
+        k = b_map(i)
+        A(i,:) = mA(k,:)
+        Z(i,:) = mB(k,:)
+
+!        A(i,:) = mA(i,:)
+!        Z(i,:) = mB(i,:)
+    enddo
+!    print*,"sa=",sum(mA),"sa'=",sum(A)
+!    print*,"sb=",sum(mB),"sb'=",sum(Z)
+!
+!    print*,"New2 Ma"
+!    do i = 1 , n
+!        print"(i,100f8.4)",i,sum(abs(A(i,:))),sum(abs(A(:,i))),abs(A(i,:))
+!    enddo
+!    print*,"New2 MB"
+!    do i = 1 , n
+!        print"(i,100f8.4)",i,sum(abs(Z(i,:))),sum(abs(Z(:,i))),abs(Z(i,:))
+!    enddo
+
+    call GGEV(A, Z, alpha, beta, vr = mB,info=info)
+    if(info /= 0 ) then
+        print*,"QSYS::LEAD::SVD decomposition GGEV error with info=",info
+        stop -1
+    endif
+    beta(n-m_sing+1:n) = 1
+!    ! reorder back
+!    alpha = alpha/beta
+!    beta  = alpha
+
+
+
+!    A     = 0
+!    do i = 1 , n
+!        k = b_map(i)
+!        A(:,k)     = mB(:,i)
+!        alpha(k)   = beta(i)
+!    enddo
+!
+!    print*,"Sol MB"
+!    do i = 1 , n
+!        print"(i,100f8.4)",i,abs(alpha(i)),abs(mB(:,i))
+!    enddo
+
+
+    A = 0
+    do i = 1 , n
+        k = a_map(i)
+        A(k,:) = mB(i,:)
+    enddo
+    do i = 1 , n - m_sing*2
+        if(ising(i) == 1) then
+            do k = 1 , n - m_sing*2
+                A(i,k) = A(i+n/2,k)/alpha(k)*beta(k)
+            enddo
+        endif
+    enddo
+    do i = 1 , n - m_sing*2
+        A(:,i) = A(:,i)/sqrt(sum(abs(A(:,i))**2))
+    enddo
+!    mA = A
+!    do i = 1 , n
+!        k = a_map(i)
+!        A(:,k) = mA(:,i)
+!    enddo
+!    mA = A
+
+!    print*,"Sol sorted MB"
+!
+!    do i = 1 , n
+!        print"(i,100f8.4)",i,ALPHA(i)/beta(i),abs(ALPHA(i)/beta(i)),abs(A(:,i))
+!    enddo
+    Z = A
+
+
+!    ALPHA = 0
+!
+!
+!!    call geev(mA(1:n-m_sing,1:n-m_sing), ALPHA(1:n-m_sing), vr=Z(1:n-m_sing,1:n-m_sing) ,info=INFO)
+!    call geev(mA, ALPHA, vr=Z ,info=INFO)
+!!    mm = n - m_sing
+!!    call gees(mA(1:mm,1:mm), ALPHA(1:mm) ,vs=Kmm(1:mm,1:mm),info=info)
+!!    ! Checking solution
+!!    if( INFO /= 0 ) then
+!!        print*,"SYS::LEAD::Shur decomposition failed: gees info:",INFO
+!!        stop
+!!    endif
+!!
+!!    call trevc(KMA, howmny='B',vr=Kmm ,info=info)
+!!    if( INFO /= 0 ) then
+!!        print*,"SYS::LEAD::Shur decomposition failed: trevc info:",INFO
+!!        stop
+!!    endif
+!
+!
+!    print*,"info=",info
+!    mA = 0
+!    k  = 0
+!!    do i = 1 , n-m_sing
+!    do i = 1 , n
+!            print"(i,100f9.4)",i,ALPHA(i),abs(ALPHA(i)),abs(Z(:,i))
+!    enddo
+!    print*," -- asdasd -- "
+!!    do i = 1 , n-m_sing
+!!        if(ising(i+k) == 1) k = k + 1
+!!        mA(i+k,:) = Z(i,:)
+!!    enddo
+!    k  = 0
+!!    do i = 1 , n-m_sing
+!!        if(ising(i+k) == 1) k = k + 1
+!!        mA(:,i+k) = mA(:,i)
+!!    enddo
+!    do i = 1 , n
+!        if(ising(i) == 1) mA(i,:) = 0
+!!        if(ising(i) == 1) mA(:,i) = 0
+!    enddo
+!    Z = mA
+!    k = 0
+!
+!!    mA(1,:) = alpha(1:n-m_sing)
+!!    ALPHA = 0
+!!    do i = 1 , n-m_sing
+!!        if(ising(i+k) == 1) k = k + 1
+!!        ALPHA(i+k) = mA(1,i)
+!!    enddo
+!
+!    do i = 1 , n
+!!        print"(i,100f9.4)",i,ALPHA(i),abs(ALPHA(i)),abs(Z(:,i))
+!    enddo
+!    print*,"asd:"
+
+
+    deallocate(mA)
+    deallocate(mB)
+    deallocate(ising)
+
+    deallocate(a_map)
+    deallocate(b_map)
+
+
+endsubroutine test
 
 endmodule modlead
