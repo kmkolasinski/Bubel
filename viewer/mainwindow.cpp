@@ -67,9 +67,9 @@ MainWindow::MainWindow(QWidget *parent) :
 #endif
 
 
-    xmlData.read_data("../system.xml");
-    xmlData.precalculate_data();
-    lastDir = "../system.xml";
+    //xmlData.read_data("../system.xml");
+    //xmlData.precalculate_data();
+    //lastDir = "../system.xml";
 
 
     glWidget->atoms = &xmlData.p_atoms;

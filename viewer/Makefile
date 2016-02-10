@@ -33,7 +33,7 @@ MOVE          = mv -f
 TAR           = tar -cf
 COMPRESS      = gzip -9f
 DISTNAME      = viewer1.0.0
-DISTDIR = /media/DANE/Doktorat/CODES/Quantulaba/viewer/.tmp/viewer1.0.0
+DISTDIR = /media/DANE/Doktorat/CODES/Bubel/viewer/.tmp/viewer1.0.0
 LINK          = g++
 LFLAGS        = -Wl,-O1 -Wl,-rpath,/home/mkk/Programs/Qt/5.4/gcc_64 -Wl,-rpath,/home/mkk/Programs/Qt/5.4/gcc_64/lib
 LIBS          = $(SUBLIBS) -lGLU -L/home/mkk/Programs/Qt/5.4/gcc_64/lib -lQt5OpenGL -lQt5Widgets -lQt5Gui -lQt5Xml -lQt5Core -lGL -lpthread 
@@ -989,7 +989,7 @@ moc_glwidget.cpp: /home/mkk/Programs/Qt/5.4/gcc_64/include/QtOpenGL/QGLWidget \
 		/home/mkk/Programs/Qt/5.4/gcc_64/include/QtWidgets/QMessageBox \
 		/home/mkk/Programs/Qt/5.4/gcc_64/include/QtCore/QDebug \
 		glwidget.h
-	/home/mkk/Programs/Qt/5.4/gcc_64/bin/moc $(DEFINES) -I/home/mkk/Programs/Qt/5.4/gcc_64/mkspecs/linux-g++ -I/media/DANE/Doktorat/CODES/Quantulaba/viewer -I/media/DANE/Doktorat/CODES/Quantulaba/shared -I/home/mkk/Programs/Qt/5.4/gcc_64/include -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtOpenGL -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtWidgets -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtGui -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtXml -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtCore glwidget.h -o moc_glwidget.cpp
+	/home/mkk/Programs/Qt/5.4/gcc_64/bin/moc $(DEFINES) -I/home/mkk/Programs/Qt/5.4/gcc_64/mkspecs/linux-g++ -I/media/DANE/Doktorat/CODES/Bubel/viewer -I/media/DANE/Doktorat/CODES/Bubel/shared -I/home/mkk/Programs/Qt/5.4/gcc_64/include -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtOpenGL -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtWidgets -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtGui -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtXml -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtCore glwidget.h -o moc_glwidget.cpp
 
 moc_window.cpp: /home/mkk/Programs/Qt/5.4/gcc_64/include/QtWidgets/QWidget \
 		/home/mkk/Programs/Qt/5.4/gcc_64/include/QtWidgets/qwidget.h \
@@ -1094,7 +1094,7 @@ moc_window.cpp: /home/mkk/Programs/Qt/5.4/gcc_64/include/QtWidgets/QWidget \
 		/home/mkk/Programs/Qt/5.4/gcc_64/include/QtGui/qvector2d.h \
 		/home/mkk/Programs/Qt/5.4/gcc_64/include/QtGui/qtouchdevice.h \
 		window.h
-	/home/mkk/Programs/Qt/5.4/gcc_64/bin/moc $(DEFINES) -I/home/mkk/Programs/Qt/5.4/gcc_64/mkspecs/linux-g++ -I/media/DANE/Doktorat/CODES/Quantulaba/viewer -I/media/DANE/Doktorat/CODES/Quantulaba/shared -I/home/mkk/Programs/Qt/5.4/gcc_64/include -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtOpenGL -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtWidgets -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtGui -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtXml -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtCore window.h -o moc_window.cpp
+	/home/mkk/Programs/Qt/5.4/gcc_64/bin/moc $(DEFINES) -I/home/mkk/Programs/Qt/5.4/gcc_64/mkspecs/linux-g++ -I/media/DANE/Doktorat/CODES/Bubel/viewer -I/media/DANE/Doktorat/CODES/Bubel/shared -I/home/mkk/Programs/Qt/5.4/gcc_64/include -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtOpenGL -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtWidgets -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtGui -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtXml -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtCore window.h -o moc_window.cpp
 
 moc_mainwindow.cpp: /home/mkk/Programs/Qt/5.4/gcc_64/include/QtWidgets/QMainWindow \
 		/home/mkk/Programs/Qt/5.4/gcc_64/include/QtWidgets/qmainwindow.h \
@@ -1570,7 +1570,7 @@ moc_mainwindow.cpp: /home/mkk/Programs/Qt/5.4/gcc_64/include/QtWidgets/QMainWind
 		/home/mkk/Programs/Qt/5.4/gcc_64/include/QtCore/QDebug \
 		formleadparams.h \
 		mainwindow.h
-	/home/mkk/Programs/Qt/5.4/gcc_64/bin/moc $(DEFINES) -I/home/mkk/Programs/Qt/5.4/gcc_64/mkspecs/linux-g++ -I/media/DANE/Doktorat/CODES/Quantulaba/viewer -I/media/DANE/Doktorat/CODES/Quantulaba/shared -I/home/mkk/Programs/Qt/5.4/gcc_64/include -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtOpenGL -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtWidgets -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtGui -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtXml -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtCore mainwindow.h -o moc_mainwindow.cpp
+	/home/mkk/Programs/Qt/5.4/gcc_64/bin/moc $(DEFINES) -I/home/mkk/Programs/Qt/5.4/gcc_64/mkspecs/linux-g++ -I/media/DANE/Doktorat/CODES/Bubel/viewer -I/media/DANE/Doktorat/CODES/Bubel/shared -I/home/mkk/Programs/Qt/5.4/gcc_64/include -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtOpenGL -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtWidgets -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtGui -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtXml -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtCore mainwindow.h -o moc_mainwindow.cpp
 
 moc_formleadparams.cpp: /home/mkk/Programs/Qt/5.4/gcc_64/include/QtWidgets/QWidget \
 		/home/mkk/Programs/Qt/5.4/gcc_64/include/QtWidgets/qwidget.h \
@@ -1675,7 +1675,7 @@ moc_formleadparams.cpp: /home/mkk/Programs/Qt/5.4/gcc_64/include/QtWidgets/QWidg
 		/home/mkk/Programs/Qt/5.4/gcc_64/include/QtGui/qvector2d.h \
 		/home/mkk/Programs/Qt/5.4/gcc_64/include/QtGui/qtouchdevice.h \
 		formleadparams.h
-	/home/mkk/Programs/Qt/5.4/gcc_64/bin/moc $(DEFINES) -I/home/mkk/Programs/Qt/5.4/gcc_64/mkspecs/linux-g++ -I/media/DANE/Doktorat/CODES/Quantulaba/viewer -I/media/DANE/Doktorat/CODES/Quantulaba/shared -I/home/mkk/Programs/Qt/5.4/gcc_64/include -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtOpenGL -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtWidgets -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtGui -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtXml -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtCore formleadparams.h -o moc_formleadparams.cpp
+	/home/mkk/Programs/Qt/5.4/gcc_64/bin/moc $(DEFINES) -I/home/mkk/Programs/Qt/5.4/gcc_64/mkspecs/linux-g++ -I/media/DANE/Doktorat/CODES/Bubel/viewer -I/media/DANE/Doktorat/CODES/Bubel/shared -I/home/mkk/Programs/Qt/5.4/gcc_64/include -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtOpenGL -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtWidgets -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtGui -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtXml -I/home/mkk/Programs/Qt/5.4/gcc_64/include/QtCore formleadparams.h -o moc_formleadparams.cpp
 
 compiler_moc_source_make_all:
 compiler_moc_source_clean:
