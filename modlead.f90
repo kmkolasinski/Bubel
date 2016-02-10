@@ -2110,30 +2110,6 @@ subroutine calc_bloch_matrix_U(U,Lambdas,F)
     call gemm(U, svd_Vt,svd_Vtr)
     call gemm(svd_Vtr,svd_U,svd_Vt,transb="C")
     F(M_OUT,:,:) = svd_Vt
-!
-!    allocate(svd_Ur(n,n_svd))
-!    allocate(svd_Vtr(n_svd,n))
-!
-!    svd_Vtr = svd_Vt(1:n_svd,1:n)
-!
-!    ! Multiply B' = A * V
-!    call gemm(A, svd_Vtr, svd_Ur ,transa="N",transb="C" )
-!!    call gemm(A, svd_Vt(1:n_svd,1:n), B(1:n,1:n_svd) ,transa="N",transb="C" )
-!    ! Multiply B'' = B' * S (S is diagonal matrix)
-!
-!    deallocate(svd_Vtr)
-!    allocate(svd_Vtr(n,n_svd))
-!    svd_Vtr = svd_Ur
-!    do i = 1 , n
-!    do j = 1 , n_svd
-!        svd_Vtr(i,j) = svd_Vtr(i,j) * svd_S(j)**(-1)
-!    enddo
-!    enddo
-!
-!    svd_Ur = svd_U(1:n,1:n_svd)
-!    ! Multiply F = B'' * U^H
-!    call gemm(svd_Vtr, svd_Ur, F,transa="N",transb="C" )
-!!    call gemm(B(1:n,1:n_svd), svd_U(1:n,1:n_svd), F,transa="N",transb="C" )
 
     deallocate(svd_U )
     deallocate(svd_S )
@@ -2303,6 +2279,8 @@ subroutine try_svd_modes_decomposition(H0,TauDag,ALPHA,BETA,Z)
     do j = 1 , n_svd
             KMA(i,j) = KMA(i,j)/KMM(i,i)
     enddo
+        write(222,"(i,2f10.4,A,1000f10.4)"),i,sum(abs(KMA(i,:))),sum(abs(KMA(:,i))),"=",abs(KMA(i,:))
+
     enddo
 
     if(QSYS_DEBUG_LEVEL > 1) then
@@ -2310,6 +2288,7 @@ subroutine try_svd_modes_decomposition(H0,TauDag,ALPHA,BETA,Z)
         print*,"           SVD compression factor =",dble(n_svd)/n1/2.0
         print*,"           SVD no. singular values=",n2 - n_svd
         print*,"           SVD cond(Kmm)          =",alg_cond(Kmm)
+        print*,"           SVD   cond(M)          =",alg_cond(KMA)
     endif
 ! ------------------------------------------------------------------
 ! Stable reduction of lambda = 0 modes from eigen problem. Very slow!
