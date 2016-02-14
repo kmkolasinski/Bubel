@@ -302,7 +302,6 @@ end subroutine sort_col_vals
           phase     = 11      ! only reordering and symbolic factorization
 
 
-
           CALL pardiso (pt, maxfct, mnum, mtype, phase, n, values, rowind, colptr,&
                        idum, nrhs, iparm, msglvl, ddum, ddum, error)
 
@@ -602,6 +601,128 @@ end subroutine sort_col_vals
 !DEC$ ENDIF
 
       endsubroutine dalg_SSOLEQ
+
+
+subroutine zalg_PARDISO(no_rows,no_vals,colptr,rowind,values,nrhs,b,iopt,mtype)
+
+    implicit none
+    integer,intent(in)                 :: no_rows
+    integer,intent(in)                 :: no_vals
+    integer,intent(in),dimension(:)    :: colptr,rowind
+    complex*16,intent(in),dimension(:) :: values
+    complex*16,intent(inout),dimension(:) :: b
+    integer :: iopt,mtype
+    integer n, nnz, nrhs, ldb , bPerm ,i
+
+    integer, save        ::  info = 0
+    integer*8 , save     :: factors = 0
+    doubleprecision,save :: total_time
+    INTEGER*8,save       :: pt(64)
+    INTEGER,save         :: phase
+    INTEGER,save         :: maxfct, mnum , error, msglvl
+    INTEGER,save         :: iparm(64)
+    complex*16,allocatable,dimension(:),save :: b_sol
+
+    INTEGER    ,save     :: idum(1)
+    COMPLEX*16 ,save     :: ddum(1)
+
+
+    n    = no_rows
+    nnz  = no_vals
+    ldb  = n
+
+
+selectcase (iopt)
+case (1)
+    allocate(b_sol(size(b)))
+
+    total_time = get_clock();
+    maxfct = 1 ! in many application this is 1
+    mnum   = 1 ! same here
+    iparm = 0
+    iparm(1) = 1 ! no solver default
+    iparm(2) = 2 ! fill-in reordering from METIS
+    iparm(3) = 1 ! numbers of processors, value of OMP_NUM_THREADS
+    iparm(4) = 0 ! 0 - no iterative-direct algorithm, if 1 multirecursive iterative algorithm 61, 31 para me
+    iparm(5) = 0 ! no user fill-in reducing permutation perm is ignored
+    iparm(6) = 0 ! =0 solution on the first n compoments of x
+    iparm(7) = 0 ! not in use
+    iparm(8) = 2 ! numbers of iterative refinement steps
+    iparm(9) = 0 ! not in use
+    iparm(10) = 12 ! perturbe the pivot elements with 1E-13
+    iparm(11) = 1 ! use nonsymmetric permutation and scaling MPS
+    iparm(12) = 0 ! not in use
+    iparm(13) = 1 ! maximum weighted matching algorithm is switched-on (default for non-symmetric).
+    iparm(14) = 0 ! Output: number of perturbed pivots
+    iparm(15) = 0 ! not in use
+    iparm(16) = 0 ! not in use
+    iparm(17) = 0 ! not in use
+    iparm(18) = -1 ! Output: number of nonzeros in the factor LU
+    iparm(19) = -1 ! Output: Mflops for LU factorization
+    iparm(20) = 0 ! Output: Numbers of CG Iterations
+    iparm(27) = 0 ! perform matrix check
+    iparm(32) = 0 ! if 1 use multirecursive iterative algorithm
+
+
+    error  = 0 ! initialize error flag
+    msglvl = 0 ! print statistical information
+    !          mtype     = 13     ! complex unsymmetric matrix
+    phase     = 11      ! only reordering and symbolic factorization
+
+    CALL pardiso (pt, maxfct, mnum, mtype, phase, n, values, rowind, colptr,&
+               idum, nrhs, iparm, msglvl, ddum, ddum, error)
+
+    !          WRITE(*,*) 'Reordering completed ... '
+
+    IF (error .NE. 0) THEN
+    WRITE(*,*) 'SYS::PARDISO::The following ERROR was detected during the reordeing step:', error
+    STOP 1
+    END IF
+    !C.. Factorization.
+    phase     = 22  ! only factorization
+    CALL pardiso (pt, maxfct, mnum, mtype, phase, n, values, rowind, colptr,&
+               idum, nrhs, iparm, msglvl, ddum, ddum, error)
+
+    IF (error .NE. 0) THEN
+     WRITE(*,*) 'SYS::PARDISO::The following ERROR was detected during the factorization step:', error
+    STOP 1
+    ENDIF
+    if(QSYS_DEBUG_LEVEL > 0) then
+    WRITE(*,*) 'Peak memory usage   = ',max (IPARM(15), IPARM(16)+IPARM(17))/1024.0,"[MB]"
+    endif
+
+case(2)
+    b_sol = 0
+    !C.. Back substitution and iterative refinement
+    phase     = 33  ! only factorization
+    iparm(8)  = 3   ! max numbers of iterative refinement steps
+
+
+
+    CALL pardiso (pt, maxfct, mnum, mtype, phase, n, values, rowind, colptr,&
+               idum, nrhs, iparm, msglvl, b, b_sol, error)
+
+    b  = b_sol;
+    !WRITE(*,*) 'Solve completed ... '
+    IF (error .NE. 0) THEN
+     WRITE(*,*) 'SYS::PARDISO::The following ERROR was detected: ', error
+    ENDIF
+
+case(3)
+!C.. Termination and release of memory
+    phase     = -1           ! release internal memory
+    CALL pardiso (pt, maxfct, mnum, mtype, phase, n, ddum, idum, idum,&
+                  idum, nrhs, iparm, msglvl, ddum, ddum, error)
+    if(QSYS_DEBUG_LEVEL > 0) then
+    print*,"SYS::PARDISO::Solve time needed:",get_clock()-total_time,"[s]"
+    endif
+    deallocate(b_sol)
+
+endselect
+
+
+endsubroutine zalg_PARDISO
+
 
 subroutine inverse_matrix(N,A)
   integer :: N

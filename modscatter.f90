@@ -29,6 +29,7 @@ type qscatter
     complex*16,dimension(:)  , allocatable       :: MATHVALS
     integer   ,dimension(:,:), allocatable       :: ROWCOLID
     doubleprecision,allocatable                  :: densities(:,:),qauxvec(:)
+    complex*16     ,allocatable                  :: wavefunc(:,:)
     doubleprecision,allocatable                  :: Tn(:),Rn(:)
 
     integer   :: NO_NON_ZERO_VALUES,NO_VARIABLES
@@ -65,6 +66,7 @@ subroutine destroy_system(this)
     if(allocated(this%MATHVALS))    deallocate(this%MATHVALS)
     if(allocated(this%ROWCOLID))    deallocate(this%ROWCOLID)
     if(allocated(this%densities))   deallocate(this%densities)
+    if(allocated(this%wavefunc))    deallocate(this%wavefunc)
     if(allocated(this%qauxvec))     deallocate(this%qauxvec)
     if(allocated(this%Tn))          deallocate(this%Tn)
     if(allocated(this%Rn))          deallocate(this%Rn)
@@ -267,8 +269,8 @@ subroutine solve(this,leadID,Ef)
     doubleprecision :: timer_factorization,total_Tn,total_Rn
     integer ,allocatable   :: HBROWS(:)
     complex*16,allocatable :: phi(:)
-    complex*16 :: cval
-    integer :: modin , i , j , lg , la ,ls
+    complex*16             :: cval
+    integer :: modin , i , j , lg , la ,ls , nrhs
 
     ! --------------------------------------------------------------------
     !
@@ -277,42 +279,46 @@ subroutine solve(this,leadID,Ef)
     call this%construct_matrix(Ef)
 
     if(allocated(this%densities)) deallocate(this%densities)
+    if(allocated(this%wavefunc))  deallocate(this%wavefunc)
     if(allocated(this%qauxvec))   deallocate(this%qauxvec)
     if(allocated(this%Tn))        deallocate(this%Tn)
     if(allocated(this%Rn))        deallocate(this%Rn)
 
     allocate(this%densities(this%leads(leadID)%no_in_modes,this%NO_VARIABLES))
+    allocate(this%wavefunc (this%leads(leadID)%no_in_modes,this%NO_VARIABLES))
     allocate(this%qauxvec  (this%NO_VARIABLES))
     allocate(this%Tn(this%leads(leadID)%no_in_modes))
     allocate(this%Rn(this%leads(leadID)%no_in_modes))
 
 
     this%densities = 0
+    this%wavefunc  = 0
     this%Tn        = 0
     this%Rn        = 0
 
 
     ! Skip calculation for case when there is no modes in the input lead
     if(this%leads(leadID)%no_out_modes == 0 ) return;
-
-
-    allocate(phi(this%NO_VARIABLES))
+    nrhs = this%leads(leadID)%no_in_modes
+    allocate(phi(this%NO_VARIABLES*nrhs))
     allocate(HBROWS(this%NO_VARIABLES+1))
 
 
     call convert_to_HB(this%NO_NON_ZERO_VALUES,this%ROWCOLID,this%MATHVALS,HBROWS)
 
+
     timer_factorization  = get_clock()
-    call solve_SSOLEQ(this%NO_VARIABLES, &
+    call zalg_PARDISO(this%NO_VARIABLES, &
                       this%NO_NON_ZERO_VALUES,&
                       this%ROWCOLID(:,2),HBROWS,&
-                      this%MATHVALS(:),phi,QSYS_LINSYS_STEP_FACTORIZE,&
+                      this%MATHVALS(:),nrhs,phi,QSYS_LINSYS_STEP_FACTORIZE,&
                       QSYS_LINSYS_PARDISO_CMPLX_NON_SYM)
 
     timer_factorization = get_clock() - timer_factorization
     if(QSYS_DEBUG_LEVEL > 0) then
-    print*,"SYS::SCATTERING::Factorization time:",timer_factorization
+        print*,"SYS::SCATTERING::Factorization time:",timer_factorization
     endif
+
     this%Tn = 0
     this%Rn = 0
     do i = 1 , this%no_leads
@@ -322,9 +328,10 @@ subroutine solve(this,leadID,Ef)
     ! ---------------------------------------------------------
     ! Loop over all modes
     ! ---------------------------------------------------------
+    phi = 0
     do modin = 1 , this%leads(leadID)%no_in_modes
 
-    phi   = 0
+
     do i = 1 , this%leads(leadID)%no_sites
         la = this%leads(leadID)%l2g(i,1)
         ls = this%leads(leadID)%l2g(i,2)
@@ -333,44 +340,51 @@ subroutine solve(this,leadID,Ef)
             ! Choosing between available method
             if(QSYS_SCATTERING_METHOD == QSYS_SCATTERING_QTBM) then
             cval    = this%leads(leadID)%lambdas(M_IN,modin) - this%leads(leadID)%lambdas(M_IN,modin)**(-1)
-            phi(lg) = phi(lg) + (this%leads(leadID)%LambdaMat(i,j) - &
+            phi(lg+(modin-1)*this%NO_VARIABLES) = phi(lg+(modin-1)*this%NO_VARIABLES) &
+                                + (this%leads(leadID)%LambdaMat(i,j) - &
                                 cval*(conjg(this%leads(leadID)%valsTau(j,i)) - Ef*conjg(this%leads(leadID)%valsS1(j,i)) ) ) &
                                 *this%leads(leadID)%modes(M_IN,modin,j)
 
             else if(QSYS_SCATTERING_METHOD == QSYS_SCATTERING_WFM) then
             cval    = this%leads(leadID)%lambdas(M_IN,modin)**(-1)
-            phi(lg) = phi(lg) + (-this%leads(leadID)%LambdaMat(i,j) + &
+            phi(lg+(modin-1)*this%NO_VARIABLES) = phi(lg+(modin-1)*this%NO_VARIABLES) &
+                              + (-this%leads(leadID)%LambdaMat(i,j) + &
                                 cval*(conjg(this%leads(leadID)%valsTau(j,i)) - Ef*conjg(this%leads(leadID)%valsS1(j,i)) ) ) &
                                 *this%leads(leadID)%modes(M_IN,modin,j)
             endif
-        enddo
-    enddo
+        enddo ! end of j
+    enddo ! end of i
+    enddo ! end of modin
 
-    call solve_SSOLEQ(this%NO_VARIABLES, &
+    call zalg_PARDISO(this%NO_VARIABLES, &
                       this%NO_NON_ZERO_VALUES,&
                       this%ROWCOLID(:,2),HBROWS,&
-                      this%MATHVALS(:),phi,QSYS_LINSYS_STEP_SOLVE,&
+                      this%MATHVALS(:),nrhs,phi,QSYS_LINSYS_STEP_SOLVE,&
                       QSYS_LINSYS_PARDISO_CMPLX_NON_SYM)
 
-    this%densities(modin,:) = abs(phi(:))**2
 
-    total_Tn = 0
-    total_Rn = 0
-    do i = 1 , this%no_leads
-        ! Skip tranmission from input lead
-        if( i /= leadID) then
-            call this%leads(i)%calculate_Tnm(this%qsystem%atoms,phi)
-            total_Tn = total_Tn  + this%leads(i)%modeT
-        else
-            call this%leads(i)%calculate_Tnm(this%qsystem%atoms,phi,modin)
-            total_Rn = total_Rn  + this%leads(i)%modeT
-        endif
-        this%leads(i)%totalT = this%leads(i)%totalT + this%leads(i)%modeT
-    enddo
+    do modin = 1 , this%leads(leadID)%no_in_modes
+        la = (modin-1)*this%NO_VARIABLES + 1
+        ls = (modin)*this%NO_VARIABLES
+        this%densities(modin,:) = abs(phi(la:ls))**2
+        this%wavefunc (modin,:) = phi(la:ls)
 
+        total_Tn = 0
+        total_Rn = 0
+        do i = 1 , this%no_leads
+            ! Skip tranmission from input lead
+            if( i /= leadID) then
+                call this%leads(i)%calculate_Tnm(this%qsystem%atoms,this%wavefunc (modin,:))
+                total_Tn = total_Tn  + this%leads(i)%modeT
+            else
+                call this%leads(i)%calculate_Tnm(this%qsystem%atoms,this%wavefunc (modin,:),modin)
+                total_Rn = total_Rn  + this%leads(i)%modeT
+            endif
+            this%leads(i)%totalT = this%leads(i)%totalT + this%leads(i)%modeT
+        enddo
 
-    this%Tn(modin) = total_Tn
-    this%Rn(modin) = total_Rn
+        this%Tn(modin) = total_Tn
+        this%Rn(modin) = total_Rn
 
     enddo ! end of loop over modes
     if(QSYS_DEBUG_LEVEL > 0) then
@@ -382,14 +396,111 @@ subroutine solve(this,leadID,Ef)
     print*,"-----------------------------------------"
     endif
     ! Free memory
-    call solve_SSOLEQ(this%NO_VARIABLES, &
+    call zalg_PARDISO(this%NO_VARIABLES, &
                       this%NO_NON_ZERO_VALUES,&
                       this%ROWCOLID(:,2),HBROWS,&
-                      this%MATHVALS(:),phi,QSYS_LINSYS_STEP_FREE_MEMORY,&
+                      this%MATHVALS(:),nrhs,phi,QSYS_LINSYS_STEP_FREE_MEMORY,&
                       QSYS_LINSYS_PARDISO_CMPLX_NON_SYM)
 
     deallocate(phi)
+
     deallocate(HBROWS)
+
+!    allocate(phi(this%NO_VARIABLES))
+!    allocate(HBROWS(this%NO_VARIABLES+1))
+!
+!
+!    call convert_to_HB(this%NO_NON_ZERO_VALUES,this%ROWCOLID,this%MATHVALS,HBROWS)
+!
+!    timer_factorization  = get_clock()
+!    call solve_SSOLEQ(this%NO_VARIABLES, &
+!                      this%NO_NON_ZERO_VALUES,&
+!                      this%ROWCOLID(:,2),HBROWS,&
+!                      this%MATHVALS(:),phi,QSYS_LINSYS_STEP_FACTORIZE,&
+!                      QSYS_LINSYS_PARDISO_CMPLX_NON_SYM)
+!
+!    timer_factorization = get_clock() - timer_factorization
+!    if(QSYS_DEBUG_LEVEL > 0) then
+!    print*,"SYS::SCATTERING::Factorization time:",timer_factorization
+!    endif
+!    this%Tn = 0
+!    this%Rn = 0
+!    do i = 1 , this%no_leads
+!        this%leads(i)%totalT = 0
+!    enddo
+!
+!    ! ---------------------------------------------------------
+!    ! Loop over all modes
+!    ! ---------------------------------------------------------
+!    do modin = 1 , this%leads(leadID)%no_in_modes
+!
+!    phi   = 0
+!    do i = 1 , this%leads(leadID)%no_sites
+!        la = this%leads(leadID)%l2g(i,1)
+!        ls = this%leads(leadID)%l2g(i,2)
+!        lg = this%qsystem%atoms(la)%globalIDs(ls);
+!        do j = 1 , this%leads(leadID)%no_sites
+!            ! Choosing between available method
+!            if(QSYS_SCATTERING_METHOD == QSYS_SCATTERING_QTBM) then
+!            cval    = this%leads(leadID)%lambdas(M_IN,modin) - this%leads(leadID)%lambdas(M_IN,modin)**(-1)
+!            phi(lg) = phi(lg) + (this%leads(leadID)%LambdaMat(i,j) - &
+!                                cval*(conjg(this%leads(leadID)%valsTau(j,i)) - Ef*conjg(this%leads(leadID)%valsS1(j,i)) ) ) &
+!                                *this%leads(leadID)%modes(M_IN,modin,j)
+!
+!            else if(QSYS_SCATTERING_METHOD == QSYS_SCATTERING_WFM) then
+!            cval    = this%leads(leadID)%lambdas(M_IN,modin)**(-1)
+!            phi(lg) = phi(lg) + (-this%leads(leadID)%LambdaMat(i,j) + &
+!                                cval*(conjg(this%leads(leadID)%valsTau(j,i)) - Ef*conjg(this%leads(leadID)%valsS1(j,i)) ) ) &
+!                                *this%leads(leadID)%modes(M_IN,modin,j)
+!            endif
+!        enddo
+!    enddo
+!
+!    call solve_SSOLEQ(this%NO_VARIABLES, &
+!                      this%NO_NON_ZERO_VALUES,&
+!                      this%ROWCOLID(:,2),HBROWS,&
+!                      this%MATHVALS(:),phi,QSYS_LINSYS_STEP_SOLVE,&
+!                      QSYS_LINSYS_PARDISO_CMPLX_NON_SYM)
+!
+!    this%densities(modin,:) = abs(phi(:))**2
+!    this%wavefunc (modin,:) = phi(:)
+!
+!    total_Tn = 0
+!    total_Rn = 0
+!    do i = 1 , this%no_leads
+!        ! Skip tranmission from input lead
+!        if( i /= leadID) then
+!            call this%leads(i)%calculate_Tnm(this%qsystem%atoms,phi)
+!            total_Tn = total_Tn  + this%leads(i)%modeT
+!        else
+!            call this%leads(i)%calculate_Tnm(this%qsystem%atoms,phi,modin)
+!            total_Rn = total_Rn  + this%leads(i)%modeT
+!        endif
+!        this%leads(i)%totalT = this%leads(i)%totalT + this%leads(i)%modeT
+!    enddo
+!
+!
+!    this%Tn(modin) = total_Tn
+!    this%Rn(modin) = total_Rn
+!
+!    enddo ! end of loop over modes
+!    if(QSYS_DEBUG_LEVEL > 0) then
+!    print*,"-----------------------------------------"
+!    print*,"SYS::SCATTERING problem solved:"
+!    print*,"        T=",sum(this%Tn)
+!    print*,"        R=",sum(this%Rn)
+!    print*,"      T+R=",sum(this%Tn)+sum(this%Rn)," M=",this%leads(leadID)%no_in_modes
+!    print*,"-----------------------------------------"
+!    endif
+!    ! Free memory
+!    call solve_SSOLEQ(this%NO_VARIABLES, &
+!                      this%NO_NON_ZERO_VALUES,&
+!                      this%ROWCOLID(:,2),HBROWS,&
+!                      this%MATHVALS(:),phi,QSYS_LINSYS_STEP_FREE_MEMORY,&
+!                      QSYS_LINSYS_PARDISO_CMPLX_NON_SYM)
+!
+!    deallocate(phi)
+!    deallocate(HBROWS)
 
 end subroutine solve
 
