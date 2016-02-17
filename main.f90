@@ -25,25 +25,25 @@ program transporter
  doubleprecision            :: zeros_vector(200)
  doubleprecision            :: a_dx,a_Emin,a_Emax,a_Bz
  integer                    :: no_expected_states
- integer ,parameter         :: nx = 100
- integer ,parameter         :: ny = 15
+ integer ,parameter         :: nx = 200
+ integer ,parameter         :: ny = 25
  doubleprecision,parameter  :: dx = 5.0 ! [nm]
  integer , dimension(nx,ny) :: gindex ! converts local index (i,j) to global index
- integer :: i,j,k,p,ytip
+ integer :: i,j,k,p,ytip,xtip
  doubleprecision            :: lead_translation_vec(3),Ef
- doubleprecision            :: Vpot(nx*ny),Vtip
- complex*16,allocatable     :: H0(:,:),G0(:,:),waveR(:,:),waveL(:,:),waveN(:,:)
+ doubleprecision            :: Vpot(nx*ny),Vtip,T1,T2
+ complex*16,allocatable     :: H0(:,:),G0(:,:),waveR(:,:),waveRT(:,:),waveL(:,:),waveN(:,:)
  complex*16,allocatable     :: invGamma(:,:),dSkm(:,:),tmpSkm(:,:)
- complex*16 :: L(ny,ny),QdagUdag(ny,ny),tmpGU(ny,ny),tmp2GU(ny,ny)
+ complex*16 :: L(ny,ny),QdagUdag(ny,ny),tmpGU(ny,ny),Umodes(ny,ny),tmp2GU(ny,ny)
  type(qsmatrix),dimension(2,2) :: smatrix0
  ! Use atomic units in effective band model -> see modunit.f90 for more details
  call modunits_set_GaAs_params()
  a_dx = dx * L2LA ! convert it to atomic units
- a_Bz = BtoAtomicB(0.001D0) ! 1 Tesla to atomic units
+ a_Bz = BtoAtomicB(0.5D0) ! 1 Tesla to atomic units
 
  ! Initalize system
  call qt%init_system()
-
+ QSYS_FORCE_SCHUR_DECOMPOSITION = .true.
  ! ----------------------------------------------------------
  ! 1. Create mesh - loop over width and height of the lattice
  ! ----------------------------------------------------------
@@ -111,7 +111,7 @@ call qt%add_lead(lead_shape,lead_translation_vec)
 call qt%save_system(output_folder//"system.xml")
 
 ! Solve scattering problem for Ef=0.001
-Ef = 20/E0/1000.0
+Ef = 10/E0/1000.0
 QSYS_DEBUG_LEVEL = 2 ! show more info
 
 
@@ -123,13 +123,14 @@ call qt%calculate_modes(Ef)
 call qt%solve(1,Ef)
 
 allocate(waveL(qt%leads(1)%no_in_modes,qt%NO_VARIABLES))
+allocate(waveRT(qt%leads(2)%no_in_modes,qt%NO_VARIABLES))
 allocate(waveR(qt%leads(2)%no_in_modes,qt%NO_VARIABLES))
 allocate(waveN(qt%leads(2)%no_in_modes,qt%NO_VARIABLES))
 allocate(invGamma(qt%leads(2)%no_sites,qt%leads(2)%no_sites))
 allocate(dSkm(qt%leads(2)%no_sites,qt%leads(2)%no_in_modes))
 allocate(tmpSkm(qt%leads(2)%no_sites,qt%leads(2)%no_in_modes))
 
-print*,"Hamiltonian size:",qt%NO_NON_ZERO_VALUES
+print*,"Hamiltonian size:",size(H0,1)," mem:",size(H0,1)**2/1024.0**2/8.0*2,"[MB]"
 H0   = 0
 do i = 1 , qt%NO_NON_ZERO_VALUES
     j = qt%ROWCOLID(i,1)
@@ -142,6 +143,10 @@ G0    = -H0
 print*,"Finding Greens function: G0"
 call inverse_matrix(nx*ny,G0)
 waveL = qt%wavefunc
+
+Umodes = -transpose(qt%leads(2)%modes(M_OUT,:,:))
+!call inverse_matrix(qt%leads(2)%no_sites,Umodes)
+
 call qt%copy_smatrix(smatrix0)
 a_Bz = -a_Bz
 call qt%qsystem%update_lattice(c_matrix=coupling)
@@ -158,7 +163,7 @@ open(433,file=output_folder//"ldos.dat")
 do i = 1 , nx
 do j = 1 , ny
     k = gindex(i,j)
-    write(433,"(2i,10e20.6)"),i,j,sum( abs(waveL(:,k))**2 ),  sum( abs(waveR(:,k))**2 ), &
+    write(433,"(2i,100e20.6)"),i,j,sum( abs(waveL(:,k))**2 ),  sum( abs(waveR(:,k))**2 ), &
                                   sum( abs(waveL(:,k))**2 ) + sum( abs(waveR(:,k))**2 ),abs(waveL(:,k))**2
 enddo
     write(433,*),""
@@ -180,24 +185,27 @@ print*,shape(QdagUdag)
 
 
 tmp2GU = -transpose(qt%leads(2)%modes(M_OUT,:,:))
-call gemm(qt%leads(2)%GammaVecs,tmp2GU,tmpGU)
+call gemm(qt%leads(2)%GammaVecs,Umodes,tmpGU)
 
 
 
 call zalg_SVD_QL(tmpGU,L,QdagUdag)
-!print*,"cond(L)       =",alg_cond(L)
+print*,"cond(L)       =",alg_cond(L)
 print*,"cond(L(modes))=",alg_cond(L(1:qt%leads(2)%no_in_modes,1:qt%leads(2)%no_in_modes))
-!print*,"cond(QdagUdag)=",alg_cond(QdagUdag)
+print*,"cond(QdagUdag)=",alg_cond(QdagUdag)
 !
 !call gemm(QdagUdag,L,tmp2GU,transa="C")
-!tmpGU = transpose(qt%leads(2)%modes(M_OUT,:,:))
-!call inverse_matrix(qt%leads(2)%no_sites,tmpGU)
+
 !call gemm(tmp2GU,tmpGU,QdagUdag)
 !print*,"sum(GammaVec2)=",sum(QdagUdag)
 !stop
 !call write_matrix(L,output_folder//"L.dat","(500f10.4)")
 
+call qt%qsystem%update_lattice(c_matrix=coupling)
+call qt%calculate_modes(Ef)
 
+call qt%solve(2,Ef)
+waveRT = qt%wavefunc
 
 
 print*,"T=",sum(abs(smatrix0(1,2)%Tnm)**2),"R=",sum(abs(smatrix0(1,1)%Tnm)**2)
@@ -206,16 +214,24 @@ print*,"W=",sum(abs(smatrix0(1,2)%Tnm)**2)+sum(abs(smatrix0(1,1)%Tnm)**2)
 
 QSYS_DEBUG_LEVEL = 0
 open(unit=111,file=output_folder//"sgmT.dat")
-open(unit=112,file=output_folder//"sgmP.dat")
+open(unit=112,file=output_folder//"sgmP1.dat")
+xtip = nx/2-5
 do ytip = 1 , ny
+do xtip = nx/2-nx/4 , nx/2+nx/4
     Vpot = 0
-    Vtip = Ef/5.0
-    Vpot(gindex(nx/2-5,ytip)) = Vtip
-    call qt%qsystem%update_lattice(c_matrix=coupling)
-    call qt%calculate_modes(Ef)
-    call qt%solve(1,Ef)
-    write(111,"(100e20.6)"),ytip*dx,sum(qt%Tn(:))
+    Vtip = Ef/1.0
+!    T1 = get_clock()
+    Vpot(gindex(xtip,ytip)) = Vtip
+!    call qt%qsystem%update_lattice(c_matrix=coupling)
+!    call qt%calculate_modes(Ef)
+!    call qt%solve(1,Ef)
+!    write(111,"(100e20.6)"),ytip*dx,sum(qt%Tn(:))
+!    print*,"time full:",get_clock()-T1
+    T1 = get_clock()
     call calc_sgm()
+!    print*,"time fast:",get_clock()-T1
+enddo
+    write(112,*),""
 enddo
 close(111)
 
@@ -244,8 +260,8 @@ subroutine calc_sgm()
     integer         :: i,k , m , j , leadID, la,ls,lg,p,no_modes
     complex*16      :: tmpT,tmpTn(500)
     leadID = 1
-    p      = gindex(nx/2-5,ytip)
-    ldos   = 0.5*(sum(abs(waveL(:,p))**2)+sum(abs(waveR(:,p))**2))
+    p      = gindex(xtip,ytip)
+    ldos   = 0.5*(sum(abs(waveL(:,p))**2)+sum(abs(waveRT(:,p))**2))
 
     tmpSkm = 0
     do m = 1 , qt%leads(1)%no_in_modes
@@ -253,13 +269,13 @@ subroutine calc_sgm()
         tmpSkm(k,m) = 0
         do j = 1 , qt%NO_VARIABLES
         tmpSkm(k,m) = tmpSkm(k,m) - &
-          (waveR(k,j)*Vpot(j)/(1+G0(p,p)*Vpot(j))*waveL(m,j))
-!          (waveR(k,j)*Vpot(j)/(1+cmplx(ldos,ldos)*Vpot(j))*waveL(m,j))
+!          (waveR(k,j)*Vpot(j)/(1+G0(p,p)*Vpot(j))*waveL(m,j))
+          (waveR(k,j)*Vpot(j)/(1+cmplx(ldos,ldos)*Vpot(j))*waveL(m,j))
 !          ((waveR(k,j))*Vpot(j)/(1+0*G0(p,p)*Vpot(j))*waveL(m,j))
         enddo
     enddo
     enddo
-    call gemm(invGamma,tmpSkm,dSkm)
+!    call gemm(invGamma,tmpSkm,dSkm)
 
 
 
@@ -278,45 +294,45 @@ subroutine calc_sgm()
 !    enddo
 !    enddo
 
-    call gemm(invGamma,tmpSkm,dSkm)
-    print"(A,6f12.4)","G(p,p)=",G0(p,p),G0(p,p)/ldos
+!    call gemm(invGamma,tmpSkm,dSkm)
+!    print"(A,6f12.4)","G(p,p)=",G0(p,p),G0(p,p)/ldos
 
-
-    waveN = 0
-    do m = 1 , qt%leads(1)%no_in_modes
-        do i = 1 , qt%leads(2)%no_sites
-            la = qt%leads(2)%l2g(i,1)
-            ls = qt%leads(2)%l2g(i,2)
-            lg = qt%qsystem%atoms(la)%globalIDs(ls);
-            waveN(m,lg) = dSkm(i,m)
-!            waveN(m,lg) = tmpSkm(i,m)
-        enddo
-    enddo
-    waveN = waveN + waveL
-
-    total_Tn = 0
-    total_Rn = 0
-    qt%Tn    = 0
-    qt%Rn    = 0
-    do m = 1 , qt%leads(1)%no_in_modes
-
-    do i = 1 , qt%no_leads
-        qt%leads(i)%totalT = 0
-        ! Skip tranmission from input lead
-        if( i /= leadID) then
-            call qt%leads(i)%calculate_Tnm(qt%qsystem%atoms,waveN(m,:))
-            total_Tn = total_Tn  + qt%leads(i)%modeT
-        else
-            call qt%leads(i)%calculate_Tnm(qt%qsystem%atoms,waveN(m,:),m)
-            total_Rn = total_Rn  + qt%leads(i)%modeT
-        endif
-        qt%leads(i)%totalT = qt%leads(i)%totalT + qt%leads(i)%modeT
-    enddo
-        qt%Tn(m) = total_Tn
-        qt%Rn(m) = total_Rn
-    enddo
-    write(112,"(100e20.6)"),ytip*dx,total_Tn
-    print"(100e20.6)",ytip*dx,total_Tn
+!
+!    waveN = 0
+!    do m = 1 , qt%leads(1)%no_in_modes
+!        do i = 1 , qt%leads(2)%no_sites
+!            la = qt%leads(2)%l2g(i,1)
+!            ls = qt%leads(2)%l2g(i,2)
+!            lg = qt%qsystem%atoms(la)%globalIDs(ls);
+!            waveN(m,lg) = dSkm(i,m)
+!!            waveN(m,lg) = tmpSkm(i,m)
+!        enddo
+!    enddo
+!    waveN = waveN + waveL
+!
+!    total_Tn = 0
+!    total_Rn = 0
+!    qt%Tn    = 0
+!    qt%Rn    = 0
+!    do m = 1 , qt%leads(1)%no_in_modes
+!
+!    do i = 1 , qt%no_leads
+!        qt%leads(i)%totalT = 0
+!        ! Skip tranmission from input lead
+!        if( i /= leadID) then
+!            call qt%leads(i)%calculate_Tnm(qt%qsystem%atoms,waveN(m,:))
+!            total_Tn = total_Tn  + qt%leads(i)%modeT
+!        else
+!            call qt%leads(i)%calculate_Tnm(qt%qsystem%atoms,waveN(m,:),m)
+!            total_Rn = total_Rn  + qt%leads(i)%modeT
+!        endif
+!        qt%leads(i)%totalT = qt%leads(i)%totalT + qt%leads(i)%modeT
+!    enddo
+!        qt%Tn(m) = total_Tn
+!        qt%Rn(m) = total_Rn
+!    enddo
+!!    write(112,"(100e20.6)"),ytip*dx,total_Tn
+!!    print"(100e20.6)",ytip*dx,total_Tn
 
     ! calculate QdagUdag * dS
     no_modes = qt%leads(2)%no_in_modes
@@ -339,8 +355,8 @@ subroutine calc_sgm()
 
         total_Tn = total_Tn  + sum(abs(qt%leads(2)%Tnm(:))**2)
     enddo
-    print"(100e20.6)",ytip*dx,total_Tn
-!    write(112,"(100e20.6)"),ytip*dx,total_Tn
+!    print"(100e20.6)",ytip*dx,total_Tn
+    write(112,"(100e20.6)"),xtip*dx,ytip*dx,total_Tn
 
 
 
