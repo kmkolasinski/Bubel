@@ -612,9 +612,9 @@ subroutine zalg_PARDISO(no_rows,no_vals,colptr,rowind,values,nrhs,b,iopt,mtype)
     complex*16,intent(in),dimension(:) :: values
     complex*16,intent(inout),dimension(:) :: b
     integer :: iopt,mtype
-    integer n, nnz, nrhs, ldb , bPerm ,i
+    integer n, nnz, nrhs, ldb ,i
 
-    integer, save        ::  info = 0
+    integer, save        :: info    = 0
     integer*8 , save     :: factors = 0
     doubleprecision,save :: total_time
     INTEGER*8,save       :: pt(64)
@@ -976,6 +976,81 @@ subroutine zalg_gesmm(svalsA,rowcolsA,nvalsA,matB,matC)
         enddo
     enddo
 end subroutine zalg_gesmm
+
+! -------------------------------------------
+! Performs decomposition of matrix A:
+! A = U*S*V^T and then QL = S*V^T
+! Returns:
+! L - matrix, lower triangle matrix
+! QdagUdag = Q^+ * U^+
+! -------------------------------------------
+subroutine zalg_SVD_QL(matA,L,QdagUdag)
+    complex*16,dimension(:,:)   :: matA,L,QdagUdag
+    ! internal matrix
+    complex*16,allocatable      :: svd_U(:,:),svd_Vt(:,:),tmpA(:,:)
+    doubleprecision,allocatable :: svd_S(:)
+    COMPLEX*16 , dimension(:) ,allocatable :: QLdcmp_TauVec
+    integer :: n,info,i,j
+
+    n = size(matA,1)
+
+    allocate(svd_U(n,n))
+    allocate(tmpA(n,n))
+    allocate(svd_Vt(n,n))
+    allocate(svd_S(n))
+    allocate(QLdcmp_TauVec(n))
+    tmpA = matA
+    L    = matA
+    call gesvd(L,svd_S ,u=svd_U ,vt=svd_Vt ,job="All" ,info=info)
+    if(info /= 0 ) then
+        print*,"SYS::ALGS::During the zalg_SVD_QL, SVD decomposition error with info=",info
+        stop
+    endif
+    print*,"cond(svd_U)=",alg_cond(svd_U)
+    print*,"cond(svd_Vt)=",alg_cond(svd_Vt)
+
+    ! calculate matrix: S * V^+
+    do i = 1 , n
+    do j = 1 , n
+        svd_Vt(i,j) = svd_S(i)*svd_Vt(i,j)
+    enddo
+    enddo
+    tmpA = svd_Vt
+    ! perform QL decomposition of  S * V^+
+    call geqlf(svd_Vt , tau=QLdcmp_TauVec ,info=INFO)
+    if(info /= 0 ) then
+        print*,"SYS::ALGS::During the zalg_SVD_QL, QR geqlf decomposition error with info=",INFO
+        stop
+    endif
+    ! Get Q matrix, not QdagUdag = Q
+    QdagUdag = svd_Vt
+    call ungql(QdagUdag, QLdcmp_TauVec ,info=INFO)
+
+    print*,"cond(QdagUdag)=",alg_cond(QdagUdag)
+
+
+    if(info /= 0 ) then
+        print*,"SYS::ALGS::During the zalg_SVD_QL, QR ungql decomposition error with info=",INFO
+        stop
+    endif
+    ! Get L matrix
+    L = tmpA
+    call unmql(a=svd_Vt,tau=QLdcmp_TauVec ,c=L , side="L" ,trans="C" ,info=INFO)
+    if(info /= 0 ) then
+        print*,"SYS::ALGS::During the zalg_SVD_QL, QR unmql decomposition error with info=",INFO
+        stop
+    endif
+    ! Back to original space by multiplying obtained matrix Q by U_svd
+    ! QdagUdag = Q^+ * U_svd^+
+    tmpA = QdagUdag
+    call gemm(tmpA,svd_U,QdagUdag,transa="C",transb="C")
+
+    deallocate(svd_U)
+    deallocate(svd_Vt)
+    deallocate(tmpA)
+    deallocate(svd_S)
+    deallocate(QLdcmp_TauVec)
+end subroutine zalg_SVD_QL
 
 
 end module modalgs

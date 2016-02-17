@@ -62,7 +62,9 @@ type qlead
     complex*16,allocatable :: modes (:,:,:)            ! modes({M_IN,M_OUT},M,:) N-th mode vector
     complex*16,allocatable :: SigmaMat(:,:)            ! See Eq. (68) here we added H0 to this matrix
     complex*16,allocatable :: LambdaMat(:,:)           ! See Eq. (67) is the definition of the Qm matrix.
-    doubleprecision,allocatable :: Tnm(:,:),Rnm(:,:)
+    complex*16,allocatable :: GammaVecs(:,:)           ! Precalculated values for right hand side vectors (mod_in,values)
+
+    complex*16,allocatable :: Tnm(:)
     doubleprecision,allocatable :: currents(:,:)       ! Fluxes carried by mode M currents({M_IN,M_OUT},M) - note modes are sorted
                                                        ! from largest current to smallest
     complex*16,allocatable      :: UTildeDagger(:,:)   ! Dual Vectors matrix see Eq. (55)
@@ -430,13 +432,13 @@ subroutine destroy(this)
     if(allocated(this%lambdas))      deallocate(this%lambdas)
     if(allocated(this%SigmaMat))     deallocate(this%SigmaMat)
     if(allocated(this%LambdaMat))    deallocate(this%LambdaMat)
+    if(allocated(this%GammaVecs))    deallocate(this%GammaVecs)
     if(allocated(this%UTildeDagger)) deallocate(this%UTildeDagger)
 
     if(allocated(this%QLdcmp_Qmat))  deallocate(this%QLdcmp_Qmat)
     if(allocated(this%QLdcmp_Lmat))  deallocate(this%QLdcmp_Lmat)
 
     if(allocated(this%Tnm))          deallocate(this%Tnm)
-    if(allocated(this%Rnm))          deallocate(this%Rnm)
     if(allocated(this%currents))     deallocate(this%currents)
 
     call this%lead_shape%destroy_shape()
@@ -676,8 +678,8 @@ subroutine calculate_modes(this,Ef)
     if(allocated(this%lambdas))     deallocate(this%lambdas)
     if(allocated(this%SigmaMat))    deallocate(this%SigmaMat)
     if(allocated(this%LambdaMat))   deallocate(this%LambdaMat)
+    if(allocated(this%GammaVecs))   deallocate(this%GammaVecs)
     if(allocated(this%Tnm))         deallocate(this%Tnm)
-    if(allocated(this%Rnm))         deallocate(this%Rnm)
     if(allocated(this%currents))    deallocate(this%currents)
     if(allocated(this%UTildeDagger))deallocate(this%UTildeDagger)
 
@@ -688,6 +690,7 @@ subroutine calculate_modes(this,Ef)
     allocate(this%lambdas   (2,N))
     allocate(this%SigmaMat  (N,N))
     allocate(this%LambdaMat (N,N))
+    allocate(this%GammaVecs (N,N))
     allocate(this%currents  (2,N))
     allocate(this%UTildeDagger(N,N))
     allocate(this%QLdcmp_Qmat(N,N))
@@ -701,11 +704,12 @@ subroutine calculate_modes(this,Ef)
     this%lambdas        = 0
     this%SigmaMat       = 0
     this%LambdaMat      = 0
+    this%GammaVecs      = 0
 
 
     if(this%lead_type == QSYS_LEAD_TYPE_PSEUDO_TRANSPARENT) then
         allocate(Mdiag  (N,N))
-        allocate(this%Tnm(1,1))
+        allocate(this%Tnm(1))
         do i = 1 , N
         do j = 1 , N
             Mdiag(i,j) =  conjg(this%valsTau(j,i)) - Ef * conjg(this%valsS1(j,i)) ! Dag of Tau
@@ -1052,13 +1056,23 @@ subroutine calculate_modes(this,Ef)
 
 
     Z11 = blochF(M_OUT,:,:)
-    ! Lambda matrix calculation:
+    ! Lambda matrix calculation: using sparsity of Tau matrix
     call zalg_gesmm(sparse_tau_vals,&
                     sparse_tau_rcid,&
                     sparse_tau_novals,&
                     Z11,this%LambdaMat)
     ! add to sigma H0 internal hamiltonian
     this%SigmaMat = this%LambdaMat + this%valsH0
+
+    ! calculating GammaVec (to optimize)
+    Z21    = transpose(conjg(this%valsTau) - Ef*conjg(this%valsS1))
+    do k = 1 , this%no_in_modes + this%no_in_em
+        lambda =  this%lambdas(M_IN,k)**(-1)
+        Z11    = -this%LambdaMat + lambda*Z21
+        do i = 1 , N
+            this%GammaVecs(k,i) = sum(Z11(i,:)*this%modes(M_IN,k,:))
+        enddo
+    enddo
 
 
     no_modes = this%no_out_modes + this%no_out_em - no_inf_modes
@@ -1098,18 +1112,21 @@ subroutine calculate_modes(this,Ef)
     call geqlf(Mdiag , tau=QLdcmp_TauVec ,info=INFO)
     if(info /= 0 ) then
         print*,"SYS::LEAD::QR geqlf decomposition error for matrix U(M_OUT,:,:) with info=",INFO
+        stop
     endif
     ! Get Q matrix.
     Z11 = Mdiag
     call ungql(Z11, QLdcmp_TauVec ,info=INFO)
     if(info /= 0 ) then
         print*,"SYS::LEAD::QR ungql decomposition error for matrix U(M_OUT,:,:) with info=",INFO
+        stop
     endif
     ! Get L matrix
     Z21 = this%QLdcmp_Qmat
-    call unmql(Mdiag, QLdcmp_TauVec, Z21, side="L" ,trans='C' ,info=INFO)
+    call unmql(a=Mdiag, tau=QLdcmp_TauVec, c=Z21, side="L" ,trans='C' ,info=INFO)
     if(info /= 0 ) then
         print*,"SYS::LEAD::QR unmql decomposition error for matrix U(M_OUT,:,:) with info=",INFO
+        stop
     endif
     ! Back to original space by multiplying obtained matrix Q by U_svd
     ! Q = U_svd * Q'
@@ -1173,10 +1190,9 @@ subroutine calculate_modes(this,Ef)
 
 
     ! Allocate T-Matrix
-    allocate(this%Tnm(this%no_out_modes,this%no_out_modes))
-    allocate(this%Rnm(this%no_out_modes,this%no_out_modes))
+    allocate(this%Tnm(this%no_out_modes))
     this%Tnm      = 0
-    this%Rnm      = 0
+
 
     ! -------------------------------------------------------
     ! Filling arrays
@@ -1467,11 +1483,8 @@ subroutine extract_modes_wfm(this,N,c,d,ALPHA,BETA,Z,Z11,Z21,blochF,iselect,no_i
 
     ! Allocate T-Matrix
     if(allocated(this%Tnm)) deallocate(this%Tnm)
-    if(allocated(this%Rnm)) deallocate(this%Rnm)
-    allocate(this%Tnm(this%no_out_modes,this%no_out_modes))
-    allocate(this%Rnm(this%no_out_modes,this%no_out_modes))
+    allocate(this%Tnm(this%no_out_modes))
     this%Tnm      = 0
-    this%Rnm      = 0
     ! -------------------------------------------------------
     ! Filling arrays: modes, lambdas...
     ! -------------------------------------------------------
@@ -1571,6 +1584,7 @@ subroutine calculate_Tnm(this,all_atoms,phi,inputmode)
     type(qatom),dimension(:)  :: all_atoms
     complex*16 ,dimension(:)  :: phi
     integer,optional :: inputmode
+
     ! local variables
     complex*16 ,allocatable , dimension(:,:) :: leadPhi,tmpVec
     complex*16 ,allocatable , dimension(:) :: tmpTn
@@ -1639,7 +1653,7 @@ subroutine calculate_Tnm(this,all_atoms,phi,inputmode)
                     tmpT = tmpT + tmpTn(j)*this%QLdcmp_Lmat(i,j)
                 enddo
                 tmpTn(i) =  (tmpVec(i,1) - tmpT)/this%QLdcmp_Lmat(i,i)
-                this%Tnm(i,1) =  abs(tmpTn(i))**2
+                this%Tnm(i) = tmpTn(i)
             enddo
 
             deallocate(tmpVec)
@@ -1656,13 +1670,13 @@ subroutine calculate_Tnm(this,all_atoms,phi,inputmode)
         enddo
         do i = 1 , this%no_out_modes
             tmpT = sum(this%UTildeDagger(i,:) * tmpVec(:,1))
-            this%Tnm(i,1) =  abs(tmpT)**2
+            this%Tnm(i) =  tmpT
         enddo
         deallocate(tmpVec)
     endif
 
     this%modeT = 0
-    if(this%no_out_modes > 0) this%modeT = sum(this%Tnm(:,1))
+    if(this%no_out_modes > 0) this%modeT = sum(abs(this%Tnm(:))**2)
     deallocate(leadPhi)
 
 endsubroutine calculate_Tnm

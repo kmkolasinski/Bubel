@@ -19,11 +19,16 @@ implicit none
 
 private
 integer ,parameter :: QSCATTER_MAX_LEADS = 50 ! hard coded maximum number of leads in system
+type qsmatrix
+    complex*16,allocatable :: Tnm(:,:) ! scattering probability from mode m to n from source lead to given
+endtype qsmatrix
+
 type qscatter
     type(qatom)       :: qatom
     type(nnb_params)  :: qnnbparam  ! auxiliary variable, can be used by user
     type(qsys)        :: qsystem
-    type(qlead) , dimension(QSCATTER_MAX_LEADS) :: leads
+    type(qlead)   ,dimension(QSCATTER_MAX_LEADS)  :: leads
+    type(qsmatrix),dimension(QSCATTER_MAX_LEADS,QSCATTER_MAX_LEADS) :: smatrix ! smatrix(from,to) leads
     integer           :: no_leads
 
     complex*16,dimension(:)  , allocatable       :: MATHVALS
@@ -42,9 +47,10 @@ type qscatter
     procedure,pass(this),public :: construct_matrix!(this,Ef)
     procedure,pass(this),public :: solve!
     procedure,pass(this),public :: save_system!filename
+    procedure,pass(this),public :: copy_smatrix!(this,dst_matrix)
 endtype
 
-public :: qscatter
+public :: qscatter,qsmatrix
 
 contains
 
@@ -56,7 +62,14 @@ end subroutine init_system
 
 subroutine destroy_system(this)
     class(qscatter) :: this
-    integer :: i
+    integer :: i,j
+
+    do i = 1, this%no_leads
+    do j = 1, this%no_leads
+        if(allocated(this%smatrix(i,j)%Tnm)) &
+                deallocate(this%smatrix(i,j)%Tnm)
+    enddo
+    enddo
     call this%qsystem%destroy()
     do i = 1, this%no_leads
         call this%leads(i)%destroy()
@@ -84,11 +97,12 @@ end subroutine add_lead
 
 subroutine calculate_modes(this,Ef)
     class(qscatter) :: this
-    integer :: i
+    integer :: i,j
     doubleprecision :: Ef
     if(QSYS_DEBUG_LEVEL > 0) then
-    print*,"SYS::SCATTER::Calculating lead modes"
+        print*,"SYS::SCATTER::Calculating lead modes"
     endif
+
     do i = 1, this%no_leads
         if(QSYS_DEBUG_LEVEL > 0) then
         print*,"-----------------------------------------"
@@ -97,6 +111,17 @@ subroutine calculate_modes(this,Ef)
         endif
         call this%leads(i)%update_lead(this%qsystem%atoms)
         call this%leads(i)%calculate_modes(Ef)
+    enddo
+
+    do i = 1, this%no_leads
+    do j = 1, this%no_leads
+        if(allocated(this%smatrix(i,j)%Tnm)) deallocate(this%smatrix(i,j)%Tnm)
+        allocate(this%smatrix(i,j)%Tnm(&
+                        this%leads(i)%no_in_modes,&
+                        this%leads(i)%no_out_modes))
+
+        this%smatrix(i,j)%Tnm = 0
+    enddo
     enddo
 end subroutine calculate_modes
 
@@ -336,23 +361,33 @@ subroutine solve(this,leadID,Ef)
         la = this%leads(leadID)%l2g(i,1)
         ls = this%leads(leadID)%l2g(i,2)
         lg = this%qsystem%atoms(la)%globalIDs(ls);
-        do j = 1 , this%leads(leadID)%no_sites
-            ! Choosing between available method
-            if(QSYS_SCATTERING_METHOD == QSYS_SCATTERING_QTBM) then
-            cval    = this%leads(leadID)%lambdas(M_IN,modin) - this%leads(leadID)%lambdas(M_IN,modin)**(-1)
-            phi(lg+(modin-1)*this%NO_VARIABLES) = phi(lg+(modin-1)*this%NO_VARIABLES) &
-                                + (this%leads(leadID)%LambdaMat(i,j) - &
-                                cval*(conjg(this%leads(leadID)%valsTau(j,i)) - Ef*conjg(this%leads(leadID)%valsS1(j,i)) ) ) &
-                                *this%leads(leadID)%modes(M_IN,modin,j)
 
-            else if(QSYS_SCATTERING_METHOD == QSYS_SCATTERING_WFM) then
-            cval    = this%leads(leadID)%lambdas(M_IN,modin)**(-1)
-            phi(lg+(modin-1)*this%NO_VARIABLES) = phi(lg+(modin-1)*this%NO_VARIABLES) &
-                              + (-this%leads(leadID)%LambdaMat(i,j) + &
-                                cval*(conjg(this%leads(leadID)%valsTau(j,i)) - Ef*conjg(this%leads(leadID)%valsS1(j,i)) ) ) &
-                                *this%leads(leadID)%modes(M_IN,modin,j)
-            endif
-        enddo ! end of j
+
+        if(QSYS_SCATTERING_METHOD == QSYS_SCATTERING_QTBM) then
+            print*,"Not implemented: need to define matrix GammaVec for QTBM"
+            stop -1
+
+        else if(QSYS_SCATTERING_METHOD == QSYS_SCATTERING_WFM) then
+            phi(lg+(modin-1)*this%NO_VARIABLES) = this%leads(leadID)%GammaVecs(modin,i)
+        endif
+
+!        do j = 1 , this%leads(leadID)%no_sites
+!            ! Choosing between available method
+!            if(QSYS_SCATTERING_METHOD == QSYS_SCATTERING_QTBM) then
+!            cval    = this%leads(leadID)%lambdas(M_IN,modin) - this%leads(leadID)%lambdas(M_IN,modin)**(-1)
+!            phi(lg+(modin-1)*this%NO_VARIABLES) = phi(lg+(modin-1)*this%NO_VARIABLES) &
+!                                + (this%leads(leadID)%LambdaMat(i,j) - &
+!                                cval*(conjg(this%leads(leadID)%valsTau(j,i)) - Ef*conjg(this%leads(leadID)%valsS1(j,i)) ) ) &
+!                                *this%leads(leadID)%modes(M_IN,modin,j)
+!
+!            else if(QSYS_SCATTERING_METHOD == QSYS_SCATTERING_WFM) then
+!            cval    = this%leads(leadID)%lambdas(M_IN,modin)**(-1)
+!            phi(lg+(modin-1)*this%NO_VARIABLES) = phi(lg+(modin-1)*this%NO_VARIABLES) &
+!                              + (-this%leads(leadID)%LambdaMat(i,j) + &
+!                                cval*(conjg(this%leads(leadID)%valsTau(j,i)) - Ef*conjg(this%leads(leadID)%valsS1(j,i)) ) ) &
+!                                *this%leads(leadID)%modes(M_IN,modin,j)
+!            endif
+!        enddo ! end of j
     enddo ! end of i
     enddo ! end of modin
 
@@ -372,6 +407,7 @@ subroutine solve(this,leadID,Ef)
         total_Tn = 0
         total_Rn = 0
         do i = 1 , this%no_leads
+
             ! Skip tranmission from input lead
             if( i /= leadID) then
                 call this%leads(i)%calculate_Tnm(this%qsystem%atoms,this%wavefunc (modin,:))
@@ -380,6 +416,7 @@ subroutine solve(this,leadID,Ef)
                 call this%leads(i)%calculate_Tnm(this%qsystem%atoms,this%wavefunc (modin,:),modin)
                 total_Rn = total_Rn  + this%leads(i)%modeT
             endif
+            this%smatrix(leadID,i)%Tnm(modin,:) = this%leads(i)%Tnm
             this%leads(i)%totalT = this%leads(i)%totalT + this%leads(i)%modeT
         enddo
 
@@ -403,106 +440,32 @@ subroutine solve(this,leadID,Ef)
                       QSYS_LINSYS_PARDISO_CMPLX_NON_SYM)
 
     deallocate(phi)
-
     deallocate(HBROWS)
-
-!    allocate(phi(this%NO_VARIABLES))
-!    allocate(HBROWS(this%NO_VARIABLES+1))
-!
-!
-!    call convert_to_HB(this%NO_NON_ZERO_VALUES,this%ROWCOLID,this%MATHVALS,HBROWS)
-!
-!    timer_factorization  = get_clock()
-!    call solve_SSOLEQ(this%NO_VARIABLES, &
-!                      this%NO_NON_ZERO_VALUES,&
-!                      this%ROWCOLID(:,2),HBROWS,&
-!                      this%MATHVALS(:),phi,QSYS_LINSYS_STEP_FACTORIZE,&
-!                      QSYS_LINSYS_PARDISO_CMPLX_NON_SYM)
-!
-!    timer_factorization = get_clock() - timer_factorization
-!    if(QSYS_DEBUG_LEVEL > 0) then
-!    print*,"SYS::SCATTERING::Factorization time:",timer_factorization
-!    endif
-!    this%Tn = 0
-!    this%Rn = 0
-!    do i = 1 , this%no_leads
-!        this%leads(i)%totalT = 0
-!    enddo
-!
-!    ! ---------------------------------------------------------
-!    ! Loop over all modes
-!    ! ---------------------------------------------------------
-!    do modin = 1 , this%leads(leadID)%no_in_modes
-!
-!    phi   = 0
-!    do i = 1 , this%leads(leadID)%no_sites
-!        la = this%leads(leadID)%l2g(i,1)
-!        ls = this%leads(leadID)%l2g(i,2)
-!        lg = this%qsystem%atoms(la)%globalIDs(ls);
-!        do j = 1 , this%leads(leadID)%no_sites
-!            ! Choosing between available method
-!            if(QSYS_SCATTERING_METHOD == QSYS_SCATTERING_QTBM) then
-!            cval    = this%leads(leadID)%lambdas(M_IN,modin) - this%leads(leadID)%lambdas(M_IN,modin)**(-1)
-!            phi(lg) = phi(lg) + (this%leads(leadID)%LambdaMat(i,j) - &
-!                                cval*(conjg(this%leads(leadID)%valsTau(j,i)) - Ef*conjg(this%leads(leadID)%valsS1(j,i)) ) ) &
-!                                *this%leads(leadID)%modes(M_IN,modin,j)
-!
-!            else if(QSYS_SCATTERING_METHOD == QSYS_SCATTERING_WFM) then
-!            cval    = this%leads(leadID)%lambdas(M_IN,modin)**(-1)
-!            phi(lg) = phi(lg) + (-this%leads(leadID)%LambdaMat(i,j) + &
-!                                cval*(conjg(this%leads(leadID)%valsTau(j,i)) - Ef*conjg(this%leads(leadID)%valsS1(j,i)) ) ) &
-!                                *this%leads(leadID)%modes(M_IN,modin,j)
-!            endif
-!        enddo
-!    enddo
-!
-!    call solve_SSOLEQ(this%NO_VARIABLES, &
-!                      this%NO_NON_ZERO_VALUES,&
-!                      this%ROWCOLID(:,2),HBROWS,&
-!                      this%MATHVALS(:),phi,QSYS_LINSYS_STEP_SOLVE,&
-!                      QSYS_LINSYS_PARDISO_CMPLX_NON_SYM)
-!
-!    this%densities(modin,:) = abs(phi(:))**2
-!    this%wavefunc (modin,:) = phi(:)
-!
-!    total_Tn = 0
-!    total_Rn = 0
-!    do i = 1 , this%no_leads
-!        ! Skip tranmission from input lead
-!        if( i /= leadID) then
-!            call this%leads(i)%calculate_Tnm(this%qsystem%atoms,phi)
-!            total_Tn = total_Tn  + this%leads(i)%modeT
-!        else
-!            call this%leads(i)%calculate_Tnm(this%qsystem%atoms,phi,modin)
-!            total_Rn = total_Rn  + this%leads(i)%modeT
-!        endif
-!        this%leads(i)%totalT = this%leads(i)%totalT + this%leads(i)%modeT
-!    enddo
-!
-!
-!    this%Tn(modin) = total_Tn
-!    this%Rn(modin) = total_Rn
-!
-!    enddo ! end of loop over modes
-!    if(QSYS_DEBUG_LEVEL > 0) then
-!    print*,"-----------------------------------------"
-!    print*,"SYS::SCATTERING problem solved:"
-!    print*,"        T=",sum(this%Tn)
-!    print*,"        R=",sum(this%Rn)
-!    print*,"      T+R=",sum(this%Tn)+sum(this%Rn)," M=",this%leads(leadID)%no_in_modes
-!    print*,"-----------------------------------------"
-!    endif
-!    ! Free memory
-!    call solve_SSOLEQ(this%NO_VARIABLES, &
-!                      this%NO_NON_ZERO_VALUES,&
-!                      this%ROWCOLID(:,2),HBROWS,&
-!                      this%MATHVALS(:),phi,QSYS_LINSYS_STEP_FREE_MEMORY,&
-!                      QSYS_LINSYS_PARDISO_CMPLX_NON_SYM)
-!
-!    deallocate(phi)
-!    deallocate(HBROWS)
 
 end subroutine solve
 
+
+subroutine copy_smatrix(this,dst_matrix)
+    class(qscatter) :: this
+    type(qsmatrix),dimension(:,:) :: dst_matrix ! smatrix(from,to) leads
+    integer :: i,j
+    if(size(dst_matrix,1) < this%no_leads .or. &
+       size(dst_matrix,2) < this%no_leads) then
+       print*,"ERROR::SCATTERING::Cannot copy scattering matrix. Provided matrix is to small."
+       print*,"       dst_matrix shape:",shape(dst_matrix)," smatrix size:",this%no_leads
+       stop -1
+    endif
+
+    do i = 1, this%no_leads
+    do j = 1, this%no_leads
+        if(allocated(dst_matrix(i,j)%Tnm)) deallocate(dst_matrix(i,j)%Tnm)
+        allocate(dst_matrix(i,j)%Tnm(&
+                        this%leads(i)%no_in_modes,&
+                        this%leads(i)%no_out_modes))
+
+        dst_matrix(i,j)%Tnm = this%smatrix(i,j)%Tnm
+    enddo
+    enddo
+end subroutine copy_smatrix
 
 endmodule modscatter
