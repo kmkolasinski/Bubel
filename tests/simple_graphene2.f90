@@ -1,5 +1,5 @@
 ! ------------------------------------------------------ !
-! Quantulaba - simple_graphene.f90 - Krzysztof Kolasinski 2015
+! Bubel - simple_graphene.f90 - Krzysztof Kolasinski 2015
 !
 ! ------------------------------------------------------ !
 

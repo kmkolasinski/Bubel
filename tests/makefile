@@ -87,7 +87,7 @@ LDFLAGS=$(LIBS)  -mkl -lmkl_lapack95_lp64 -lmkl_blas95_lp64 -lmkl_intel_lp64 -L$
 
 
 $(EXEC_FILE): $(EXEC_FILE).f90  $(UMFPACK_FILES)
-	$(FF) $(FCFLAGS)  $(EXEC_FILE).f90 ../lib/libquantulaba.a $(LDFLAGS) -o $@
+	$(FF) $(FCFLAGS)  $(EXEC_FILE).f90 ../lib/libbubel.a $(LDFLAGS) -o $@
 
 
 

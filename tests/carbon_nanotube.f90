@@ -1,5 +1,5 @@
 ! ------------------------------------------------------ !
-! Quantulaba - carbon_nanotube.f90 - Krzysztof Kolasinski 2015
+! Bubel - carbon_nanotube.f90 - Krzysztof Kolasinski 2015
 !
 ! Example of hamiltonian creation for simple carbon
 ! nanotube.

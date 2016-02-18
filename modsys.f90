@@ -121,6 +121,8 @@ subroutine add_atom(sys,site)
     ! one needs to resize the array
     if( sys%no_atoms > size(sys%atoms) ) then
         print*,"SYS::INFO::Resizing the system from:",size(sys%atoms)," to ",size(sys%atoms)+QSYS_NO_ATOMS_INC_VALUE
+        print*,"           If you don't want to see this message you may increase"
+        print*,"           the value of: QSYS_NO_ATOMS_INC_VALUE in modcommons.f90 file."
         allocate(tmp_atoms(size(sys%atoms)))
         tmp_atoms = sys%atoms
         deallocate(sys%atoms)

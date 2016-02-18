@@ -1,5 +1,5 @@
 ! --------------------------------------------------------------- !
-! Quantulaba - simple_galerkin1d.f90 - Krzysztof Kolasinski 2015
+! Bubel - simple_galerkin1d.f90 - Krzysztof Kolasinski 2015
 !
 ! We want to construct hamiltonian using expansion in series
 ! of gaussian distributions in the 1D wire. In order to obtain

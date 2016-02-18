@@ -1,5 +1,5 @@
 ! ------------------------------------------------------ !
-! Quantulaba - rashba_2deg.f90 - Krzysztof Kolasinski 2015
+! Bubel - rashba_2deg.f90 - Krzysztof Kolasinski 2015
 !
 ! We want to construct hamiltonian for effective mass
 ! Schroedinger equation with Rashba interaction added.

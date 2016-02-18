@@ -1,8 +1,8 @@
 ! ------------------------------------------------------ !
-! Quantulaba - superconductor_transport.f90 - Krzysztof Kolasinski 2015
+! Bubel - superconductor_transport.f90 - Krzysztof Kolasinski 2015
 !
 ! Example based on Kwant tutorial i.e. how to deal
-! with multiple lattices in Quantulaba:
+! with multiple lattices in Bubel:
 ! http://kwant-project.org/doc/1/tutorial/tutorial5
 ! Here we create two lattices displaced in z direction
 ! for which the one with z=0 is responsible for -1/2 spin value

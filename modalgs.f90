@@ -1006,6 +1006,7 @@ subroutine zalg_SVD_QL(matA,L,QdagUdag)
         print*,"SYS::ALGS::During the zalg_SVD_QL, SVD decomposition error with info=",info
         stop
     endif
+    print*,"svd(S)=",svd_S
     print*,"cond(svd_U)=",alg_cond(svd_U)
     print*,"cond(svd_Vt)=",alg_cond(svd_Vt)
 

@@ -1,5 +1,5 @@
 ! ------------------------------------------------------ !
-! Quantulaba - strange_graphene.f90 - Krzysztof Kolasinski 2015
+! Bubel - strange_graphene.f90 - Krzysztof Kolasinski 2015
 !
 ! Graphene unit cell consists of two atoms A and B, those
 ! atoms can be viewed as a two spin states of some quantum

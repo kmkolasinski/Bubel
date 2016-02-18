@@ -1,5 +1,5 @@
 ! ------------------------------------------------------ !
-! Quantulaba - simple_sqlat.f90 - Krzysztof Kolasinski 2015
+! Bubel - simple_sqlat.f90 - Krzysztof Kolasinski 2015
 !
 ! We want to find few first eigenvalues of rectangular
 ! system defined within effective mass Shroedinger

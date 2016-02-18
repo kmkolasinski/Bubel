@@ -1,7 +1,7 @@
 ! ------------------------------------------------------ !
-! Quantulaba - poisson2d.f90 - Krzysztof Kolasinski 2016
+! Bubel - poisson2d.f90 - Krzysztof Kolasinski 2016
 !
-! This example shows how to use Quantulaba to solve sparse
+! This example shows how to use Bubel to solve sparse
 ! system of linear equations with PARDISO. As example we
 ! solve poisson equaion in 2D:
 !       \nabla^2 psi(x,y) = rho(x,y)

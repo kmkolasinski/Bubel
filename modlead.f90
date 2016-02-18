@@ -552,6 +552,7 @@ subroutine bands(this,filename,kmin,kmax,dk,Emin,Emax)
     do skank = kmin , kmax + dk/2 , dk
 
         kvec = II*skank
+        Hamiltonian = 0
         do i = 1 , N
         do j = 1 , N
                 Hamiltonian(i,j) = this%valsH0(i,j) + this%valsTau(i,j)*exp(kvec) + conjg(this%valsTau(j,i)*exp(kvec))
@@ -564,7 +565,7 @@ subroutine bands(this,filename,kmin,kmax,dk,Emin,Emax)
         enddo
         enddo
 
-        ABSTOL = -1.0
+        ABSTOL = qsys_double_error
         !     Set VL, VU to compute eigenvalues in half-open (VL,VU] interval
         VL = Emin
         VU = Emax
@@ -575,9 +576,16 @@ subroutine bands(this,filename,kmin,kmax,dk,Emin,Emax)
         M  = 0
 
         if(bIsIdentity) then
-        CALL ZHEEVR( "V", 'Values', 'Lower', N, Hamiltonian, N, VL, VU, IL,&
-        &             IU, ABSTOL, M, EVALS, Z, N, ISUPPZ, WORK, LWORK, RWORK,&
-        &             LRWORK, IWORK, LIWORK, INFO )
+!        CALL ZHEEVR( "V", 'Values', 'Lower', N, Hamiltonian, N, VL, VU, IL,&
+!        &             IU, ABSTOL, M, EVALS, Z, N, ISUPPZ, WORK, LWORK, RWORK,&
+!        &             LRWORK, IWORK, LIWORK, INFO )
+!        call heevd(Hamiltonian, EVALS ,job="N",info=INFO)
+        call heevx(Hamiltonian, EVALS ,info=INFO)
+
+
+!        call geev(Hamiltonian, EVALS, vr=Z ,info=INFO)
+!            call heev(Hamiltonian, EVALS ,jobz="N",uplo="L",info=INFO)
+        M = N
         else
         CALL ZHEGVX(1,'Vectors','Values in range','Upper',N,Hamiltonian,N,Overlaps,N,VL,VU,IL, &
                       IU,ABSTOL,M,EVALS,Z,N,WORK,LWORK,RWORK, &
@@ -1066,6 +1074,7 @@ subroutine calculate_modes(this,Ef)
 
     ! calculating GammaVec (to optimize)
     Z21    = transpose(conjg(this%valsTau) - Ef*conjg(this%valsS1))
+    this%GammaVecs = 0
     do k = 1 , this%no_in_modes + this%no_in_em
         lambda =  this%lambdas(M_IN,k)**(-1)
         Z11    = -this%LambdaMat + lambda*Z21
@@ -2319,10 +2328,8 @@ subroutine try_svd_modes_decomposition(H0,TauDag,ALPHA,BETA,Z)
     ! Generalized eigenvalue problem is transformed to standard one.
     do i = 1 , n_svd
     do j = 1 , n_svd
-            KMA(i,j) = KMA(i,j)/KMM(i,i)
+        KMA(i,j) = KMA(i,j)/KMM(i,i)
     enddo
-        write(222,"(i,2f10.4,A,1000f10.4)"),i,sum(abs(KMA(i,:))),sum(abs(KMA(:,i))),"=",abs(KMA(i,:))
-
     enddo
 
 

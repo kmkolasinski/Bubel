@@ -1,6 +1,6 @@
 ! ------------------------------------------------------ !
-! Quantulaba - recursive_wfm.f90 - Krzysztof Kolasinski 2016
-! This is an advanced example on how Quantulaba may be use to solve
+! Bubel - recursive_wfm.f90 - Krzysztof Kolasinski 2016
+! This is an advanced example on how Bubel may be use to solve
 ! scattering problem using recursive formulation of WFM.
 ! This algorithm is very similar to well known RGF. Here
 ! we consider the channel with two barriers inside in presence

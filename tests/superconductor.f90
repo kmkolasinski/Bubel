@@ -1,5 +1,5 @@
 ! ------------------------------------------------------ !
-! Quantulaba - superconductor.f90 - Krzysztof Kolasinski 2015
+! Bubel - superconductor.f90 - Krzysztof Kolasinski 2015
 !
 ! Example based on Kwant tutorial:
 ! http://kwant-project.org/doc/1.0/tutorial/tutorial5

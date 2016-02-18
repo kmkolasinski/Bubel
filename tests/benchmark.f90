@@ -1,5 +1,5 @@
 ! ------------------------------------------------------ !
-! Quantulaba - benchmark.f90 - Krzysztof Kolasinski 2016
+! Bubel - benchmark.f90 - Krzysztof Kolasinski 2016
 !
 ! Test of speed and accuracy
 ! ------------------------------------------------------ !

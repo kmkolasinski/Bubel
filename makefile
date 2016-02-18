@@ -1,4 +1,4 @@
-all: quantulaba
+all: bubel
 debug:
 		make C=ifortDEBUG
 build:
@@ -12,8 +12,9 @@ zeus:
 # --------------------------------------------------------------
 
 
-# Use commands to compile Quantulaba with different solvers,
-# no option specified uses superLU library/
+# Use commands to compile Bubel with different solvers,
+# no option specified uses superLU library for now
+# onle PARDISO and MKL is supported
 USED_LIBRARY= -DUSE_PARDISO
 #-DUSE_PARDISO
 #-DUSE_UMF_PACK
@@ -66,10 +67,10 @@ BUILD_F90_OBJECTS=$(patsubst %.o,$(BUILD_DIR)%.o,$(F90_OBJECTS))
 
 
 
-EXECUTABLE=quantulaba
+EXECUTABLE=bubel
 
 
-quantulaba: main.f90 $(F90_OBJECTS)
+bubel: main.f90 $(F90_OBJECTS)
 		$(FF) main.f90  -I$(BUILD_DIR) -Iinclude $(BUILD_F90_OBJECTS) $(LDFLAGS) -o $@
 
 .f90.o:
@@ -118,7 +119,7 @@ clean:
 
 
 dlib:
-		ifort $(UMFPACK_MACRO) -shared -fpic -Iinclude  $(F90_SOURCES)  $(SUPERLU_FILES) -o $(LIB_DIR)libquantulaba.so
+		ifort $(UMFPACK_MACRO) -shared -fpic -Iinclude  $(F90_SOURCES)  $(SUPERLU_FILES) -o $(LIB_DIR)libbubel.so
 
 slib:
-		ar rcs $(LIB_DIR)libquantulaba.a $(BUILD_DIR)*.o
+		ar rcs $(LIB_DIR)libbubel.a $(BUILD_DIR)*.o
