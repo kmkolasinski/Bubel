@@ -13,7 +13,7 @@ implicit none
 type(qscatter) :: qt
 type(qshape) :: l_shape,lower_rect,middle_rect,upper_rect
 
-character(*),parameter    :: output_folder = "plots/"
+character(*),parameter    :: output_folder = "multi_lead_graphene_output/"
 character(*),parameter    :: names(4) = (/"1","2","3","4"/)
 doubleprecision,parameter :: alpha30 =  30.0/180.0*M_PI
 doubleprecision,parameter :: vecs_armchair(2,2) =  (/  (/ 1.0D0,0.0D0 /) , (/ sin(alpha30) , cos(alpha30) /) /)

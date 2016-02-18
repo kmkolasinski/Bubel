@@ -576,20 +576,14 @@ subroutine bands(this,filename,kmin,kmax,dk,Emin,Emax)
         M  = 0
 
         if(bIsIdentity) then
-!        CALL ZHEEVR( "V", 'Values', 'Lower', N, Hamiltonian, N, VL, VU, IL,&
-!        &             IU, ABSTOL, M, EVALS, Z, N, ISUPPZ, WORK, LWORK, RWORK,&
-!        &             LRWORK, IWORK, LIWORK, INFO )
-!        call heevd(Hamiltonian, EVALS ,job="N",info=INFO)
-        call heevx(Hamiltonian, EVALS ,info=INFO)
+            CALL ZHEEVR( "V", 'Values', 'Lower', N, Hamiltonian, N, VL, VU, IL,&
+            &             IU, ABSTOL, M, EVALS, Z, N, ISUPPZ, WORK, LWORK, RWORK,&
+            &             LRWORK, IWORK, LIWORK, INFO )
 
-
-!        call geev(Hamiltonian, EVALS, vr=Z ,info=INFO)
-!            call heev(Hamiltonian, EVALS ,jobz="N",uplo="L",info=INFO)
-        M = N
         else
-        CALL ZHEGVX(1,'Vectors','Values in range','Upper',N,Hamiltonian,N,Overlaps,N,VL,VU,IL, &
-                      IU,ABSTOL,M,EVALS,Z,N,WORK,LWORK,RWORK, &
-                      IWORK,IFAIL,INFO)
+            CALL ZHEGVX(1,'Vectors','Values in range','Upper',N,Hamiltonian,N,Overlaps,N,VL,VU,IL, &
+                          IU,ABSTOL,M,EVALS,Z,N,WORK,LWORK,RWORK, &
+                          IWORK,IFAIL,INFO)
         endif
         if(M > 0) then
             write(782321,"(1000e20.10)"),skank,EVALS(1:M)

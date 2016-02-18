@@ -69,6 +69,7 @@
 		<Unit filename="tests/benchmark.f90" />
 		<Unit filename="tests/carbon_nanotube.f90" />
 		<Unit filename="tests/makefile" />
+		<Unit filename="tests/multi_lead_graphene.f90" />
 		<Unit filename="tests/poisson2d.f90" />
 		<Unit filename="tests/rashba_2deg.f90" />
 		<Unit filename="tests/recursive_wfm.f90" />
