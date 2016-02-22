@@ -189,7 +189,7 @@ call system("cd "//output_folder//"; python plot_bands.py")
 call qt%destroy_system()
 contains
 ! --------------------------------------------------------
-! Calculate hoping between atoms, here we use Peltier phase
+! Calculate hoping between atoms, here we use Peierlsa phase
 ! to simulate magnetic field with gauge: A = (-Bz * y,0,0)
 ! i.e. B = (0,0,Bz)
 ! --------------------------------------------------------
