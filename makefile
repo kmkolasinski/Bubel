@@ -29,8 +29,8 @@ UMFPACK_FILES=
 BUILD_DIR=
 LIB_DIR=lib/
 
-FOPT= -O3 -132
-COPT= -03
+FOPT= -O2 -132
+COPT= -02
 
 ifeq ($(C),ifort)
 else ifeq ($(C),ifortDEBUG)
@@ -52,6 +52,7 @@ F90_SOURCES= modcommons.f90 \
 		modunits.f90 \
 		modalgs.f90 \
 		modutils.f90 \
+		modskminv.f90 \
 		modsys.f90  \
 		modshape.f90  \
 		modlead.f90  \
@@ -82,6 +83,9 @@ modcommons.o: modcommons.f90
 
 modutils.o: modutils.f90
 	$(FF) $(FCFLAGS) modutils.f90 -o $(BUILD_DIR)$@
+
+modskminv.o: modskminv.f90
+	$(FF) $(FCFLAGS) modskminv.f90 -o $(BUILD_DIR)$@
 
 modinip.o: modinip.f90
 	$(FF) $(FCFLAGS) modinip.f90 -o $(BUILD_DIR)$@
