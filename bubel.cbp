@@ -63,6 +63,7 @@
 		<Unit filename="modlead.f90" />
 		<Unit filename="modscatter.f90" />
 		<Unit filename="modshape.f90" />
+		<Unit filename="modskminv.f90" />
 		<Unit filename="modsys.f90" />
 		<Unit filename="modunits.f90" />
 		<Unit filename="modutils.f90" />

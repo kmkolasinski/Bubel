@@ -9,7 +9,8 @@ all: build_simple_sqlat \
 	 build_simple_galerkin1d \
 	 build_recursive_wfm \
 	 build_poisson2d \
-	 build_benchmark
+	 build_benchmark \
+	 build_multi_lead_graphene
 
 run:
 		 ./simple_sqlat ; \
@@ -22,7 +23,8 @@ run:
 		 ./simple_galerkin1d; \
 		 ./supercnd_trans; \
 		 ./recursive_wfm; \
-		 ./poisson2d;
+		 ./poisson2d; \
+		 ./multi_lead_graphene
 
 
 COMPILATION_TYPE=ifort
@@ -63,6 +65,8 @@ build_poisson2d:
 build_benchmark:
 	make benchmark C=$(COMPILATION_TYPE) P=benchmark
 
+build_multi_lead_graphene:
+	make multi_lead_graphene C=$(COMPILATION_TYPE) P=multi_lead_graphene
 
 EXEC_FILE=$(P)
 
@@ -104,4 +108,5 @@ clean:
 		  simple_galerkin1d \
 		  poisson2d \
 		  recursive_wfm \
+		  multi_lead_graphene \
 		  benchmark 2> /dev/null
